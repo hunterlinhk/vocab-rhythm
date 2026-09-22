@@ -25,7 +25,7 @@ function AuthPage() {
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) void navigate({ to: "/learn" });
+      if (data.session) void navigate({ to: "/home" });
     });
   }, [navigate]);
 
@@ -37,7 +37,7 @@ function AuthPage() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${window.location.origin}/learn` },
+        options: { emailRedirectTo: `${window.location.origin}/home` },
       });
       setLoading(false);
       setMsg(error ? error.message : "注册成功，请查收邮件完成验证后登录。");
@@ -46,7 +46,7 @@ function AuthPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) setMsg(error.message);
-    else void navigate({ to: "/learn" });
+    else void navigate({ to: "/home" });
   }
 
   async function google() {
@@ -56,7 +56,7 @@ function AuthPage() {
       return;
     }
     if (result.redirected) return;
-    void navigate({ to: "/learn" });
+    void navigate({ to: "/home" });
   }
 
   return (

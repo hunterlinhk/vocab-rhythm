@@ -26,13 +26,13 @@ function Home() {
     void supabase.auth.getSession().then(({ data }) => setSignedIn(!!data.session));
   }, []);
 
-  const start = () => void navigate({ to: signedIn ? "/learn" : "/auth" });
+  const start = () => void navigate({ to: signedIn ? "/home" : "/auth" });
 
   return (
     <div className="min-h-screen">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
         <span className="font-display text-lg">韵词 Cadence</span>
-        <Link to="/auth" className="text-sm text-muted-foreground hover:text-foreground">
+        <Link to={signedIn ? "/home" : "/auth"} className="text-sm text-muted-foreground hover:text-foreground">
           {signedIn ? "进入学习" : "登录"}
         </Link>
       </header>
