@@ -49,12 +49,7 @@ function HomePage() {
             </Button>
           </div>
         </div>
-        <div className="absolute right-8 top-1/2 hidden size-44 -translate-y-1/2 items-center justify-center rounded-full border border-primary/15 bg-card/30 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--card)_80%,transparent),0_20px_60px_color-mix(in_oklab,var(--primary)_12%,transparent)] backdrop-blur-xl lg:flex">
-          <div className="text-center">
-            <p className="font-display text-5xl text-foreground">{progress}%</p>
-            <p className="mt-1 text-xs text-muted-foreground">今日目标</p>
-          </div>
-        </div>
+        <DailyGoalDial progress={progress} />
       </section>
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
@@ -126,6 +121,32 @@ function HomePage() {
           </div>
         </Link>
       </section>
+    </div>
+  );
+}
+
+function DailyGoalDial({ progress }: { progress: number }) {
+  const tickCount = 30;
+  const activeTicks = Math.round((progress / 100) * tickCount);
+
+  return (
+    <div className="daily-goal-dial absolute right-8 top-1/2 hidden size-44 -translate-y-1/2 lg:grid" aria-label={`今日目标完成 ${progress}%`}>
+      <div className="daily-goal-ticks" aria-hidden="true">
+        {Array.from({ length: tickCount }, (_, index) => (
+          <span
+            key={index}
+            className={index < activeTicks ? "daily-goal-tick daily-goal-tick-active" : "daily-goal-tick"}
+            style={{ "--tick-index": index } as React.CSSProperties}
+          />
+        ))}
+      </div>
+      <div className="daily-goal-core">
+        <div className="flex items-baseline justify-center">
+          <span className="font-display text-[2.75rem] font-light leading-none text-foreground">{progress}</span>
+          <span className="ml-1 text-sm font-medium text-primary">%</span>
+        </div>
+        <span className="mt-2 text-[10px] font-semibold text-muted-foreground">今日目标</span>
+      </div>
     </div>
   );
 }
