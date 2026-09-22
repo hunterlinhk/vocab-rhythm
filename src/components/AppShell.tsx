@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Bot, BookOpen, Brain, ChartNoAxesCombined, ChevronLeft, Crown, Menu, UserRound } from "lucide-react";
+import { Bot, BookOpen, Brain, ChartNoAxesCombined, ChevronDown, ChevronLeft, Crown, Menu, UserRound } from "lucide-react";
 import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -59,6 +59,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname: string }) {
+  const activeParent = nav.find((item) => pathname === item.to || (item.to === "/learn" && pathname === "/sentence"));
+  const [expandedItem, setExpandedItem] = useState<string | null>(
+    activeParent && "children" in activeParent ? activeParent.to : null,
+  );
+
   return (
     <>
       <div className={cn("relative z-10 flex h-20 items-center px-5", collapsed ? "justify-center px-2" : "gap-3")}>
@@ -73,18 +78,41 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
         <div className="space-y-1.5">
           {nav.map((item) => {
             const active = pathname === item.to || (item.to === "/learn" && pathname === "/sentence");
+            const hasChildren = "children" in item;
+            const expanded = hasChildren && expandedItem === item.to;
             const Icon = item.icon;
             return (
               <div key={item.to}>
-                <Link to={item.to} title={collapsed ? item.label : undefined} className={cn("sidebar-link group", collapsed && "justify-center px-0", active && "sidebar-link-active")}>
+                <Link
+                  to={item.to}
+                  title={collapsed ? item.label : undefined}
+                  aria-expanded={hasChildren ? expanded : undefined}
+                  onClick={(event) => {
+                    if (!hasChildren || collapsed) return;
+                    if (active) event.preventDefault();
+                    setExpandedItem((current) => current === item.to ? null : item.to);
+                  }}
+                  className={cn("sidebar-link group", collapsed && "justify-center px-0", active && "sidebar-link-active")}
+                >
                   <Icon className="size-[18px] shrink-0" />
-                  {!collapsed && <><span className="flex-1">{item.label}</span>{active && <span className="size-1.5 rounded-full bg-primary" />}</>}
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1">{item.label}</span>
+                      {hasChildren ? (
+                        <ChevronDown className={cn("size-3.5 transition-transform duration-300", expanded && "rotate-180")} />
+                      ) : active ? <span className="size-1.5 rounded-full bg-primary" /> : null}
+                    </>
+                  )}
                 </Link>
-                {!collapsed && active && "children" in item && (
-                  <div className="ml-[21px] mt-1 border-l border-border/70 py-1 pl-5">
-                    {item.children.map((child, index) => (
-                      <Link key={child} to={item.to === "/learn" && index === 1 ? "/sentence" : item.to} className="block py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground">{child}</Link>
-                    ))}
+                {!collapsed && hasChildren && (
+                  <div className={cn("sidebar-subnav", expanded && "sidebar-subnav-open")}>
+                    <div className="overflow-hidden">
+                      <div className="ml-[21px] mt-1 border-l border-border/70 py-1 pl-5">
+                        {item.children.map((child, index) => (
+                          <Link key={child} to={item.to === "/learn" && index === 1 ? "/sentence" : item.to} className="block py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground">{child}</Link>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
