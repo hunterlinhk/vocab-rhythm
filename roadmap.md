@@ -5,4 +5,4 @@
 - [x] Add grouped review and profile pages
 - [x] Expand the progress page and polish learning/assistant surfaces
 - [x] Redirect sign-in flows to the new home
-- [ ] Verify desktop and mobile interactions
+- [x] Verify desktop and mobile interactions
