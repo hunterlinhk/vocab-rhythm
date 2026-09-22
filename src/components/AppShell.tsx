@@ -25,11 +25,11 @@ export function AppShell({ children }: { children: ReactNode }) {
     const bounds = sidebar.getBoundingClientRect();
     sidebar.style.setProperty("--pointer-y", `${event.clientY - bounds.top}px`);
     sidebar.style.setProperty("--pointer-x", `${event.clientX - bounds.left}px`);
-    sidebar.dataset.pointerActive = "true";
+    sidebar.dataset["pointerActive"] = "true";
   };
 
   const handleSidebarPointerLeave = () => {
-    if (sidebarRef.current) sidebarRef.current.dataset.pointerActive = "false";
+    if (sidebarRef.current) sidebarRef.current.dataset["pointerActive"] = "false";
   };
 
   return (
