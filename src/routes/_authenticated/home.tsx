@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import type { CSSProperties } from "react";
 import { ArrowRight, BookOpen, Bot, ChevronRight, Clock3, Flame, RotateCcw, Sparkles, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -136,7 +137,7 @@ function DailyGoalDial({ progress }: { progress: number }) {
           <span
             key={index}
             className={index < activeTicks ? "daily-goal-tick daily-goal-tick-active" : "daily-goal-tick"}
-            style={{ "--tick-index": index } as React.CSSProperties}
+            style={{ "--tick-index": index } as CSSProperties}
           />
         ))}
       </div>
