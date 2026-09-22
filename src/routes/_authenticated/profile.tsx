@@ -1,0 +1,57 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useState, type ReactNode } from "react";
+import { Bell, ChevronRight, Crown, Headphones, LogOut, Moon, UserRound } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { supabase } from "@/integrations/supabase/client";
+
+export const Route = createFileRoute("/_authenticated/profile")({
+  head: () => ({ meta: [
+    { title: "我的 · 韵词 Cadence" },
+    { name: "description", content: "管理韵词账号、会员、发音、主题与学习设置。" },
+    { property: "og:title", content: "我的 · 韵词 Cadence" },
+    { property: "og:description", content: "账号、会员与学习偏好设置。" },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary_large_image" },
+  ] }),
+  component: ProfilePage,
+});
+
+function ProfilePage() {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("学习者");
+  const [autoSpeak, setAutoSpeak] = useState(true);
+  const [sound, setSound] = useState(true);
+
+  useEffect(() => { void supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? "学习者")); }, []);
+
+  return (
+    <div className="space-y-7 pb-8">
+      <div><p className="text-sm font-medium text-primary">PERSONAL</p><h1 className="mt-2 font-display text-4xl">我的</h1></div>
+      <section className="glass-hero flex flex-col gap-6 rounded-[2rem] p-7 sm:flex-row sm:items-center sm:justify-between sm:p-9">
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20"><UserRound /></div>
+          <div className="min-w-0"><p className="truncate font-display text-2xl">{email}</p><p className="mt-1 text-sm text-muted-foreground">免费账户 · 学习记录已同步</p></div>
+        </div>
+        <Button variant="outline" className="glass-control rounded-full">编辑资料</Button>
+      </section>
+
+      <section className="pro-glass glass-lift flex flex-col gap-6 p-7 sm:flex-row sm:items-center sm:justify-between">
+        <div><div className="flex items-center gap-2 text-primary"><Crown className="size-5"/><span className="text-sm font-semibold">Cadence Pro</span></div><h2 className="mt-4 font-display text-3xl">让复习与 AI 更懂你</h2><p className="mt-2 text-sm text-muted-foreground">解锁无限 AI 辅助、进阶学习分析和更多正式词库。</p></div>
+        <Button className="shrink-0 rounded-full px-6">升级 Pro</Button>
+      </section>
+
+      <section className="glass-panel overflow-hidden">
+        <Setting icon={Headphones} title="完成后自动发音" description="每题完成后朗读单词或句子"><Switch checked={autoSpeak} onCheckedChange={setAutoSpeak}/></Setting>
+        <Setting icon={Bell} title="按键与完成音效" description="保留轻量、克制的操作反馈"><Switch checked={sound} onCheckedChange={setSound}/></Setting>
+        <Setting icon={Moon} title="主题" description="当前为浅色玻璃主题"><ChevronRight className="size-5 text-muted-foreground"/></Setting>
+      </section>
+
+      <Button variant="ghost" onClick={async () => { await supabase.auth.signOut(); void navigate({ to: "/" }); }} className="rounded-full text-muted-foreground"><LogOut /> 退出登录</Button>
+    </div>
+  );
+}
+
+function Setting({ icon: Icon, title, description, children }: { icon: typeof Headphones; title: string; description: string; children: ReactNode }) {
+  return <div className="flex items-center gap-4 border-b border-border/50 px-5 py-4 last:border-0 sm:px-7"><div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary/70 text-primary"><Icon className="size-5"/></div><div className="min-w-0 flex-1"><p className="text-sm font-medium">{title}</p><p className="mt-0.5 text-xs text-muted-foreground">{description}</p></div>{children}</div>;
+}

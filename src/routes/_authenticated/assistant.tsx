@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { Button } from "@/components/ui/button";
 import { clearMessages, getMessages, sendMessage } from "@/lib/learning.functions";
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,8 @@ export const Route = createFileRoute("/_authenticated/assistant")({
       { name: "description", content: "了解你今天学了什么、复习易错单词、生成例句与小测试的 AI 英语学习助手。" },
       { property: "og:title", content: "AI 学习助手 · 韵词 Cadence" },
       { property: "og:description", content: "基于你的真实学习记录的 AI 英语学习助手。" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: AssistantPage,
@@ -68,32 +71,36 @@ function AssistantPage() {
           <h1 className="font-display text-2xl">AI 学习助手</h1>
           <p className="text-sm text-muted-foreground">它了解你真实的学习记录。</p>
         </div>
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           type="button"
           onClick={async () => {
             await clear();
             await qc.invalidateQueries({ queryKey: ["messages"] });
           }}
-          className="rounded-full border border-border bg-card px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+          className="glass-control rounded-full text-muted-foreground hover:text-foreground"
         >
           清空对话
-        </button>
+        </Button>
       </div>
 
       <div ref={boxRef} className="mt-6 flex-1 space-y-6 overflow-y-auto pr-1">
         {!messages?.length && !pending && (
-          <div className="card-surface rise-in rounded-3xl p-6">
+          <div className="ai-glass rise-in p-6">
             <p className="font-display text-lg">想从哪里开始？</p>
             <div className="mt-4 flex flex-wrap gap-2">
               {QUICK.map((q) => (
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
                   key={q}
                   type="button"
                   onClick={() => submit(q)}
-                  className="rounded-full border border-border bg-card px-3.5 py-1.5 text-sm hover:border-primary/40"
+                  className="glass-control rounded-full hover:border-primary/40"
                 >
                   {q}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -131,7 +138,7 @@ function AssistantPage() {
           e.preventDefault();
           void submit(input);
         }}
-        className="card-surface mt-4 flex items-end gap-2 rounded-2xl p-2"
+        className="glass-panel mt-4 flex items-end gap-2 p-2"
       >
         <textarea
           ref={inputRef}
@@ -147,13 +154,13 @@ function AssistantPage() {
           placeholder="问点什么，比如：解释一下 maintain"
           className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2.5 text-sm outline-none"
         />
-        <button
+        <Button
           type="submit"
           disabled={!!pending}
-          className="rounded-xl bg-primary px-4 py-2.5 text-sm text-primary-foreground disabled:opacity-50"
+          className="h-10 rounded-xl px-4"
         >
           发送
-        </button>
+        </Button>
       </form>
     </div>
   );

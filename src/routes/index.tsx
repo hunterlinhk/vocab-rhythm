@@ -13,6 +13,8 @@ export const Route = createFileRoute("/")({
       },
       { property: "og:title", content: "韵词 Cadence · 键盘打字学英语" },
       { property: "og:description", content: "连续键盘输入练单词与句子，配合学习记录与 AI 学习助手。" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Home,
@@ -26,13 +28,13 @@ function Home() {
     void supabase.auth.getSession().then(({ data }) => setSignedIn(!!data.session));
   }, []);
 
-  const start = () => void navigate({ to: signedIn ? "/learn" : "/auth" });
+  const start = () => void navigate({ to: signedIn ? "/home" : "/auth" });
 
   return (
     <div className="min-h-screen">
       <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
         <span className="font-display text-lg">韵词 Cadence</span>
-        <Link to="/auth" className="text-sm text-muted-foreground hover:text-foreground">
+        <Link to={signedIn ? "/home" : "/auth"} className="text-sm text-muted-foreground hover:text-foreground">
           {signedIn ? "进入学习" : "登录"}
         </Link>
       </header>

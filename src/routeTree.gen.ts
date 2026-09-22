@@ -13,7 +13,10 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAssistantRouteImport } from './routes/_authenticated/assistant'
+import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedLearnRouteImport } from './routes/_authenticated/learn'
+import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
+import { Route as AuthenticatedReviewRouteImport } from './routes/_authenticated/review'
 import { Route as AuthenticatedSentenceRouteImport } from './routes/_authenticated/sentence'
 import { Route as AuthenticatedStatsRouteImport } from './routes/_authenticated/stats'
 
@@ -36,9 +39,24 @@ const AuthenticatedAssistantRoute = AuthenticatedAssistantRouteImport.update({
   path: '/assistant',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedHomeRoute = AuthenticatedHomeRouteImport.update({
+  id: '/home',
+  path: '/home',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedLearnRoute = AuthenticatedLearnRouteImport.update({
   id: '/learn',
   path: '/learn',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedReviewRoute = AuthenticatedReviewRouteImport.update({
+  id: '/review',
+  path: '/review',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedSentenceRoute = AuthenticatedSentenceRouteImport.update({
@@ -56,7 +74,10 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/assistant': typeof AuthenticatedAssistantRoute
+  '/home': typeof AuthenticatedHomeRoute
   '/learn': typeof AuthenticatedLearnRoute
+  '/profile': typeof AuthenticatedProfileRoute
+  '/review': typeof AuthenticatedReviewRoute
   '/sentence': typeof AuthenticatedSentenceRoute
   '/stats': typeof AuthenticatedStatsRoute
 }
@@ -64,7 +85,10 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/assistant': typeof AuthenticatedAssistantRoute
+  '/home': typeof AuthenticatedHomeRoute
   '/learn': typeof AuthenticatedLearnRoute
+  '/profile': typeof AuthenticatedProfileRoute
+  '/review': typeof AuthenticatedReviewRoute
   '/sentence': typeof AuthenticatedSentenceRoute
   '/stats': typeof AuthenticatedStatsRoute
 }
@@ -74,22 +98,46 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/assistant': typeof AuthenticatedAssistantRoute
+  '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/learn': typeof AuthenticatedLearnRoute
+  '/_authenticated/profile': typeof AuthenticatedProfileRoute
+  '/_authenticated/review': typeof AuthenticatedReviewRoute
   '/_authenticated/sentence': typeof AuthenticatedSentenceRoute
   '/_authenticated/stats': typeof AuthenticatedStatsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/assistant' | '/learn' | '/sentence' | '/stats'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/assistant'
+    | '/home'
+    | '/learn'
+    | '/profile'
+    | '/review'
+    | '/sentence'
+    | '/stats'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/assistant' | '/learn' | '/sentence' | '/stats'
+  to:
+    | '/'
+    | '/auth'
+    | '/assistant'
+    | '/home'
+    | '/learn'
+    | '/profile'
+    | '/review'
+    | '/sentence'
+    | '/stats'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/assistant'
+    | '/_authenticated/home'
     | '/_authenticated/learn'
+    | '/_authenticated/profile'
+    | '/_authenticated/review'
     | '/_authenticated/sentence'
     | '/_authenticated/stats'
   fileRoutesById: FileRoutesById
@@ -130,11 +178,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAssistantRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/home': {
+      id: '/_authenticated/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof AuthenticatedHomeRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/learn': {
       id: '/_authenticated/learn'
       path: '/learn'
       fullPath: '/learn'
       preLoaderRoute: typeof AuthenticatedLearnRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/profile': {
+      id: '/_authenticated/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof AuthenticatedProfileRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/review': {
+      id: '/_authenticated/review'
+      path: '/review'
+      fullPath: '/review'
+      preLoaderRoute: typeof AuthenticatedReviewRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/sentence': {
@@ -156,14 +225,20 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAssistantRoute: typeof AuthenticatedAssistantRoute
+  AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedLearnRoute: typeof AuthenticatedLearnRoute
+  AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
+  AuthenticatedReviewRoute: typeof AuthenticatedReviewRoute
   AuthenticatedSentenceRoute: typeof AuthenticatedSentenceRoute
   AuthenticatedStatsRoute: typeof AuthenticatedStatsRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAssistantRoute: AuthenticatedAssistantRoute,
+  AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedLearnRoute: AuthenticatedLearnRoute,
+  AuthenticatedProfileRoute: AuthenticatedProfileRoute,
+  AuthenticatedReviewRoute: AuthenticatedReviewRoute,
   AuthenticatedSentenceRoute: AuthenticatedSentenceRoute,
   AuthenticatedStatsRoute: AuthenticatedStatsRoute,
 }

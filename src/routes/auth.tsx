@@ -10,6 +10,8 @@ export const Route = createFileRoute("/auth")({
       { name: "description", content: "登录韵词 Cadence，同步你的单词打字学习进度、错误记录与 AI 助手对话。" },
       { property: "og:title", content: "登录 · 韵词 Cadence" },
       { property: "og:description", content: "登录后即可同步学习进度与 AI 英语学习助手。" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: AuthPage,
@@ -25,7 +27,7 @@ function AuthPage() {
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) void navigate({ to: "/learn" });
+      if (data.session) void navigate({ to: "/home" });
     });
   }, [navigate]);
 
@@ -37,7 +39,7 @@ function AuthPage() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${window.location.origin}/learn` },
+        options: { emailRedirectTo: `${window.location.origin}/home` },
       });
       setLoading(false);
       setMsg(error ? error.message : "注册成功，请查收邮件完成验证后登录。");
@@ -46,7 +48,7 @@ function AuthPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) setMsg(error.message);
-    else void navigate({ to: "/learn" });
+    else void navigate({ to: "/home" });
   }
 
   async function google() {
@@ -56,7 +58,7 @@ function AuthPage() {
       return;
     }
     if (result.redirected) return;
-    void navigate({ to: "/learn" });
+    void navigate({ to: "/home" });
   }
 
   return (
