@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedAssistantRouteImport } from './routes/_authenticated/assistant'
 import { Route as AuthenticatedLearnRouteImport } from './routes/_authenticated/learn'
 import { Route as AuthenticatedSentenceRouteImport } from './routes/_authenticated/sentence'
 import { Route as AuthenticatedStatsRouteImport } from './routes/_authenticated/stats'
@@ -29,6 +30,11 @@ const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAssistantRoute = AuthenticatedAssistantRouteImport.update({
+  id: '/assistant',
+  path: '/assistant',
+  getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedLearnRoute = AuthenticatedLearnRouteImport.update({
   id: '/learn',
@@ -49,6 +55,7 @@ const AuthenticatedStatsRoute = AuthenticatedStatsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/assistant': typeof AuthenticatedAssistantRoute
   '/learn': typeof AuthenticatedLearnRoute
   '/sentence': typeof AuthenticatedSentenceRoute
   '/stats': typeof AuthenticatedStatsRoute
@@ -56,6 +63,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
+  '/assistant': typeof AuthenticatedAssistantRoute
   '/learn': typeof AuthenticatedLearnRoute
   '/sentence': typeof AuthenticatedSentenceRoute
   '/stats': typeof AuthenticatedStatsRoute
@@ -65,20 +73,22 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/_authenticated/assistant': typeof AuthenticatedAssistantRoute
   '/_authenticated/learn': typeof AuthenticatedLearnRoute
   '/_authenticated/sentence': typeof AuthenticatedSentenceRoute
   '/_authenticated/stats': typeof AuthenticatedStatsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/learn' | '/sentence' | '/stats'
+  fullPaths: '/' | '/auth' | '/assistant' | '/learn' | '/sentence' | '/stats'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/learn' | '/sentence' | '/stats'
+  to: '/' | '/auth' | '/assistant' | '/learn' | '/sentence' | '/stats'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
+    | '/_authenticated/assistant'
     | '/_authenticated/learn'
     | '/_authenticated/sentence'
     | '/_authenticated/stats'
@@ -113,6 +123,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/assistant': {
+      id: '/_authenticated/assistant'
+      path: '/assistant'
+      fullPath: '/assistant'
+      preLoaderRoute: typeof AuthenticatedAssistantRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/learn': {
       id: '/_authenticated/learn'
       path: '/learn'
@@ -138,12 +155,14 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAssistantRoute: typeof AuthenticatedAssistantRoute
   AuthenticatedLearnRoute: typeof AuthenticatedLearnRoute
   AuthenticatedSentenceRoute: typeof AuthenticatedSentenceRoute
   AuthenticatedStatsRoute: typeof AuthenticatedStatsRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAssistantRoute: AuthenticatedAssistantRoute,
   AuthenticatedLearnRoute: AuthenticatedLearnRoute,
   AuthenticatedSentenceRoute: AuthenticatedSentenceRoute,
   AuthenticatedStatsRoute: AuthenticatedStatsRoute,
