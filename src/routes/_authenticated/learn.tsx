@@ -14,6 +14,8 @@ export const Route = createFileRoute("/_authenticated/learn")({
       { name: "description", content: "用连续键盘输入练习英语单词拼写，即时字符反馈、误触标记与发音回放。" },
       { property: "og:title", content: "单词拼写 · 韵词 Cadence" },
       { property: "og:description", content: "连续键盘输入的英语单词拼写训练。" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: LearnPage,
@@ -109,7 +111,7 @@ function LearnPage() {
         <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${progress}%` }} />
       </div>
 
-      <div className="card-surface mt-10 flex w-full flex-col items-center gap-8 rounded-3xl px-6 py-14">
+      <div className="glass-stage mt-10 flex w-full flex-col items-center gap-8 px-6 py-14">
         <div className="text-center">
           <p className="font-display text-xl text-foreground">{entry.cn}</p>
           <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>

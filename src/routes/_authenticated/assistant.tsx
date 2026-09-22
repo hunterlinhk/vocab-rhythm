@@ -13,6 +13,8 @@ export const Route = createFileRoute("/_authenticated/assistant")({
       { name: "description", content: "了解你今天学了什么、复习易错单词、生成例句与小测试的 AI 英语学习助手。" },
       { property: "og:title", content: "AI 学习助手 · 韵词 Cadence" },
       { property: "og:description", content: "基于你的真实学习记录的 AI 英语学习助手。" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: AssistantPage,
@@ -82,7 +84,7 @@ function AssistantPage() {
 
       <div ref={boxRef} className="mt-6 flex-1 space-y-6 overflow-y-auto pr-1">
         {!messages?.length && !pending && (
-          <div className="card-surface rise-in rounded-3xl p-6">
+          <div className="ai-glass rise-in p-6">
             <p className="font-display text-lg">想从哪里开始？</p>
             <div className="mt-4 flex flex-wrap gap-2">
               {QUICK.map((q) => (
@@ -131,7 +133,7 @@ function AssistantPage() {
           e.preventDefault();
           void submit(input);
         }}
-        className="card-surface mt-4 flex items-end gap-2 rounded-2xl p-2"
+        className="glass-panel mt-4 flex items-end gap-2 p-2"
       >
         <textarea
           ref={inputRef}

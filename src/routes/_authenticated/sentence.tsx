@@ -14,6 +14,8 @@ export const Route = createFileRoute("/_authenticated/sentence")({
       { name: "description", content: "在真实语境中拼写英语句子，完成后查看中文译文与主谓宾结构。" },
       { property: "og:title", content: "句子拼写 · 韵词 Cadence" },
       { property: "og:description", content: "在语境中练习英语句子拼写，附中文译文与句子结构。" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: SentencePage,
@@ -96,7 +98,7 @@ function SentencePage() {
         </div>
       </div>
 
-      <div className="card-surface mt-10 flex w-full flex-col items-center gap-8 rounded-3xl px-6 py-14">
+      <div className="glass-stage mt-10 flex w-full flex-col items-center gap-8 px-6 py-14">
         <p className="text-sm text-muted-foreground">
           围绕单词 <span className="font-mono text-foreground">{entry.word}</span> · {entry.cn}
         </p>

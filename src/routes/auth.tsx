@@ -10,6 +10,8 @@ export const Route = createFileRoute("/auth")({
       { name: "description", content: "登录韵词 Cadence，同步你的单词打字学习进度、错误记录与 AI 助手对话。" },
       { property: "og:title", content: "登录 · 韵词 Cadence" },
       { property: "og:description", content: "登录后即可同步学习进度与 AI 英语学习助手。" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: AuthPage,

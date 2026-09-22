@@ -13,6 +13,8 @@ export const Route = createFileRoute("/")({
       },
       { property: "og:title", content: "韵词 Cadence · 键盘打字学英语" },
       { property: "og:description", content: "连续键盘输入练单词与句子，配合学习记录与 AI 学习助手。" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Home,
