@@ -1,12 +1,11 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Bot, BookOpen, Brain, ChartNoAxesCombined, ChevronLeft, Crown, Home, Menu, UserRound } from "lucide-react";
+import { Bot, BookOpen, Brain, ChartNoAxesCombined, ChevronLeft, Crown, Menu, UserRound } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 const nav = [
-  { to: "/home", label: "首页", icon: Home },
   { to: "/learn", label: "学习", icon: BookOpen, children: ["单词拼写", "句子拼写", "词库", "学习计划"] },
   { to: "/review", label: "复习", icon: Brain, children: ["错词", "今日复习", "易错词", "误触记录"] },
   { to: "/stats", label: "进度", icon: ChartNoAxesCombined, children: ["今日数据", "历史记录", "学习分析"] },

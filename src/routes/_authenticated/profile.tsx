@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Bell, ChevronRight, Crown, Headphones, LogOut, Moon, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -52,6 +52,6 @@ function ProfilePage() {
   );
 }
 
-function Setting({ icon: Icon, title, description, children }: { icon: typeof Headphones; title: string; description: string; children: React.ReactNode }) {
+function Setting({ icon: Icon, title, description, children }: { icon: typeof Headphones; title: string; description: string; children: ReactNode }) {
   return <div className="flex items-center gap-4 border-b border-border/50 px-5 py-4 last:border-0 sm:px-7"><div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary/70 text-primary"><Icon className="size-5"/></div><div className="min-w-0 flex-1"><p className="text-sm font-medium">{title}</p><p className="mt-0.5 text-xs text-muted-foreground">{description}</p></div>{children}</div>;
 }
