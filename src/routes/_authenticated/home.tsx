@@ -127,7 +127,7 @@ function HomePage() {
 }
 
 function DailyGoalDial({ progress }: { progress: number }) {
-  const tickCount = 30;
+  const tickCount = 100;
   const activeTicks = Math.round((progress / 100) * tickCount);
 
   return (
@@ -137,7 +137,10 @@ function DailyGoalDial({ progress }: { progress: number }) {
           <span
             key={index}
             className={index < activeTicks ? "daily-goal-tick daily-goal-tick-active" : "daily-goal-tick"}
-            style={{ "--tick-index": index } as CSSProperties}
+            style={{
+              "--tick-index": index,
+              "--tick-angle": `${360 / tickCount}deg`,
+            } as CSSProperties}
           />
         ))}
       </div>
