@@ -54,7 +54,7 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
         {!collapsed && <p className="mb-2 px-3 text-[10px] font-semibold text-muted-foreground">学习空间</p>}
         <div className="space-y-1.5">
           {nav.map((item) => {
-            const active = pathname === item.to;
+            const active = pathname === item.to || (item.to === "/learn" && pathname === "/sentence");
             const Icon = item.icon;
             return (
               <div key={item.to}>

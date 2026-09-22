@@ -57,7 +57,7 @@ function HomePage() {
         </div>
       </section>
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <Metric icon={Target} label="今日练习" value={isLoading ? "—" : `${todayCount}`} unit={`/ ${dailyGoal} 次`} />
         <Metric icon={RotateCcw} label="待复习" value={isLoading ? "—" : `${reviewCount}`} unit="个词" />
         <Metric icon={Flame} label="连续学习" value={isLoading ? "—" : `${data?.streakDays ?? 0}`} unit="天" />
