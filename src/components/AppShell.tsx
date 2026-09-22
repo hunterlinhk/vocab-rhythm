@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Bot, BookOpen, Brain, ChartNoAxesCombined, ChevronLeft, Crown, Menu, UserRound } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -15,12 +15,28 @@ const nav = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+
+  const handleSidebarPointerMove = (event: PointerEvent<HTMLElement>) => {
+    if (event.pointerType === "touch") return;
+    const sidebar = sidebarRef.current;
+    if (!sidebar) return;
+    const bounds = sidebar.getBoundingClientRect();
+    sidebar.style.setProperty("--pointer-y", `${event.clientY - bounds.top}px`);
+    sidebar.style.setProperty("--pointer-x", `${event.clientX - bounds.left}px`);
+    sidebar.dataset["pointerActive"] = "true";
+  };
+
+  const handleSidebarPointerLeave = () => {
+    if (sidebarRef.current) sidebarRef.current.dataset["pointerActive"] = "false";
+  };
 
   return (
     <div className="app-background min-h-screen p-2 sm:p-3 lg:p-5">
       <div className="mx-auto flex min-h-[calc(100vh-1rem)] max-w-[1540px] gap-3 sm:min-h-[calc(100vh-1.5rem)] lg:min-h-[calc(100vh-2.5rem)] lg:gap-5">
-        <aside className={cn("glass-sidebar sticky top-5 hidden h-[calc(100vh-2.5rem)] shrink-0 flex-col overflow-hidden transition-[width] duration-300 lg:flex", collapsed ? "w-[76px]" : "w-64")}>
+        <aside ref={sidebarRef} onPointerMove={handleSidebarPointerMove} onPointerLeave={handleSidebarPointerLeave} className={cn("glass-sidebar sticky top-5 hidden h-[calc(100vh-2.5rem)] shrink-0 flex-col overflow-hidden transition-[width] duration-300 lg:flex", collapsed ? "w-[76px]" : "w-64")}>
+          <div className="sidebar-pointer-light" aria-hidden="true" />
           <SidebarContent collapsed={collapsed} pathname={pathname} />
           <Button variant="ghost" size="icon" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"} className="absolute right-3 top-4 rounded-xl text-muted-foreground">
             <ChevronLeft className={cn("transition-transform", collapsed && "rotate-180")} />
@@ -29,7 +45,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <div className="min-w-0 flex-1">
           <header className="glass-mobile-bar sticky top-2 z-40 mb-3 flex h-14 items-center justify-between px-4 lg:hidden">
-            <Link to="/home" className="font-display text-lg">韵词 <span className="font-sans text-xs text-muted-foreground">Cadence</span></Link>
+            <Link to="/home" className="font-display text-lg font-semibold text-foreground">Cadence <span className="font-sans text-xs font-medium text-muted-foreground">韵词</span></Link>
             <Sheet>
               <SheetTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" aria-label="打开目录"><Menu /></Button></SheetTrigger>
               <SheetContent side="left" className="glass-drawer w-[86vw] border-card/60 p-0 sm:max-w-80"><SheetTitle className="sr-only">学习目录</SheetTitle><SidebarContent collapsed={false} pathname={pathname} /></SheetContent>
@@ -45,12 +61,14 @@ export function AppShell({ children }: { children: ReactNode }) {
 function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname: string }) {
   return (
     <>
-      <div className={cn("flex h-20 items-center px-5", collapsed ? "justify-center px-2" : "gap-3")}>
-        <Link to="/home" className="flex size-10 shrink-0 items-center justify-center rounded-[14px] bg-primary font-display text-lg text-primary-foreground shadow-lg shadow-primary/20">韵</Link>
-        {!collapsed && <div><p className="font-display text-lg leading-none">韵词</p><p className="mt-1 text-[10px] font-medium text-muted-foreground">CADENCE</p></div>}
+      <div className={cn("relative z-10 flex h-20 items-center px-5", collapsed ? "justify-center px-2" : "gap-3")}>
+        <Link to="/home" className={cn("brand-wordmark", collapsed && "brand-wordmark-collapsed")} aria-label="Cadence 首页">
+          <span className="font-display text-lg font-semibold leading-none">{collapsed ? "C" : "Cadence"}</span>
+          {!collapsed && <span className="font-sans text-[10px] font-semibold text-muted-foreground">韵词</span>}
+        </Link>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-3">
+      <nav className="relative z-10 flex-1 overflow-y-auto px-3 py-3">
         {!collapsed && <p className="mb-2 px-3 text-[10px] font-semibold text-muted-foreground">学习空间</p>}
         <div className="space-y-1.5">
           {nav.map((item) => {
@@ -75,7 +93,7 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
         </div>
       </nav>
 
-      <div className="m-3 mt-auto">
+      <div className="relative z-10 m-3 mt-auto">
         <Link to="/profile" className={cn("pro-sidebar glass-lift block p-4", collapsed && "flex justify-center p-3")}>
           <Crown className="size-5 text-primary" />
           {!collapsed && <><p className="mt-3 text-sm font-semibold">升级 Pro</p><p className="mt-1 text-xs leading-5 text-muted-foreground">更多词库与进阶分析</p></>}

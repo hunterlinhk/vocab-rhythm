@@ -20,7 +20,7 @@
  */
 
 @theme inline {
-  --font-display: "Fraunces", Georgia, serif;
+  --font-display: "Sora", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
   --color-ink: var(--ink);
@@ -74,37 +74,37 @@
 
 :root {
   --radius: 0.875rem;
-  --background: oklch(0.985 0.006 95);
-  --foreground: oklch(0.24 0.018 65);
-  --ink: oklch(0.2 0.02 60);
-  --paper: oklch(0.975 0.008 95);
-  --card: oklch(0.998 0.003 95);
-  --card-foreground: oklch(0.24 0.018 65);
-  --popover: oklch(0.998 0.003 95);
-  --popover-foreground: oklch(0.24 0.018 65);
-  --primary: oklch(0.46 0.075 178);
-  --primary-foreground: oklch(0.985 0.006 95);
-  --secondary: oklch(0.955 0.012 95);
-  --secondary-foreground: oklch(0.3 0.02 65);
-  --muted: oklch(0.955 0.01 95);
-  --muted-foreground: oklch(0.52 0.018 75);
-  --accent: oklch(0.8 0.11 72);
-  --accent-foreground: oklch(0.26 0.04 60);
-  --success: oklch(0.58 0.11 158);
-  --warning: oklch(0.7 0.13 62);
-  --glass: oklch(1 0 0 / 54%);
-  --glass-strong: oklch(1 0 0 / 74%);
-  --glass-edge: oklch(1 0 0 / 88%);
+  --background: oklch(0.975 0.012 235);
+  --foreground: oklch(0.27 0.035 238);
+  --ink: oklch(0.235 0.044 238);
+  --paper: oklch(0.955 0.022 225);
+  --card: oklch(0.998 0.003 220);
+  --card-foreground: oklch(0.27 0.035 238);
+  --popover: oklch(0.998 0.003 220);
+  --popover-foreground: oklch(0.27 0.035 238);
+  --primary: oklch(0.48 0.09 225);
+  --primary-foreground: oklch(0.99 0.004 220);
+  --secondary: oklch(0.935 0.025 225);
+  --secondary-foreground: oklch(0.32 0.045 235);
+  --muted: oklch(0.945 0.018 225);
+  --muted-foreground: oklch(0.54 0.035 235);
+  --accent: oklch(0.82 0.055 200);
+  --accent-foreground: oklch(0.3 0.05 225);
+  --success: oklch(0.61 0.115 162);
+  --warning: oklch(0.58 0.095 205);
+  --glass: oklch(0.995 0.006 220 / 50%);
+  --glass-strong: oklch(0.995 0.006 220 / 72%);
+  --glass-edge: oklch(1 0 0 / 82%);
   --destructive: oklch(0.55 0.18 25);
-  --destructive-foreground: oklch(0.985 0.006 95);
-  --border: oklch(0.905 0.012 88);
-  --input: oklch(0.905 0.012 88);
-  --ring: oklch(0.46 0.075 178);
-  --chart-1: oklch(0.646 0.222 41.116);
+  --destructive-foreground: oklch(0.99 0.004 220);
+  --border: oklch(0.89 0.025 225);
+  --input: oklch(0.89 0.025 225);
+  --ring: oklch(0.48 0.09 225);
+  --chart-1: oklch(0.58 0.12 225);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.7 0.11 215);
+  --chart-5: oklch(0.62 0.09 180);
   --sidebar: oklch(0.984 0.003 247.858);
   --sidebar-foreground: oklch(0.129 0.042 264.695);
   --sidebar-primary: oklch(0.208 0.042 265.755);
@@ -166,9 +166,9 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     background-image:
-      radial-gradient(70rem 50rem at -5% -10%, color-mix(in oklab, var(--primary) 13%, transparent), transparent 64%),
-      radial-gradient(62rem 46rem at 105% 4%, color-mix(in oklab, var(--accent) 17%, transparent), transparent 68%),
-      linear-gradient(145deg, var(--background), color-mix(in oklab, var(--paper) 72%, var(--card)));
+      radial-gradient(70rem 50rem at -5% -10%, color-mix(in oklab, var(--primary) 11%, transparent), transparent 64%),
+      radial-gradient(62rem 46rem at 105% 4%, color-mix(in oklab, var(--accent) 16%, transparent), transparent 68%),
+      linear-gradient(145deg, var(--background), color-mix(in oklab, var(--paper) 58%, var(--card)));
     background-attachment: fixed;
   }
 }
@@ -191,17 +191,59 @@
 }
 
 @utility glass-sidebar {
+  --pointer-x: 50%;
+  --pointer-y: 42%;
   position: relative;
   border-radius: 1.75rem;
   border: 1px solid var(--glass-edge);
-  background:
-    linear-gradient(145deg, color-mix(in oklab, var(--card) 78%, transparent), color-mix(in oklab, var(--paper) 42%, transparent));
-  backdrop-filter: blur(32px) saturate(145%);
+  background: linear-gradient(145deg, color-mix(in oklab, var(--card) 58%, transparent), color-mix(in oklab, var(--paper) 28%, transparent));
+  backdrop-filter: blur(34px) saturate(150%);
   box-shadow:
     inset 0 1px 0 var(--glass-edge),
-    inset -1px 0 0 color-mix(in oklab, var(--card) 35%, transparent),
-    0 24px 70px -38px color-mix(in oklab, var(--ink) 34%, transparent),
-    0 6px 18px -12px color-mix(in oklab, var(--primary) 28%, transparent);
+    inset -1px 0 0 color-mix(in oklab, var(--card) 46%, transparent),
+    0 30px 80px -44px color-mix(in oklab, var(--ink) 34%, transparent),
+    0 10px 28px -20px color-mix(in oklab, var(--primary) 35%, transparent);
+}
+
+@utility sidebar-pointer-light {
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+  left: -35%;
+  top: calc(var(--pointer-y) - 9rem);
+  width: 170%;
+  height: 18rem;
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(ellipse at var(--pointer-x) 50%, color-mix(in oklab, var(--card) 84%, transparent) 0%, color-mix(in oklab, var(--accent) 24%, transparent) 36%, transparent 72%);
+  filter: blur(14px);
+  transform: scale(0.92);
+  transition: top 100ms linear, opacity 260ms ease, transform 260ms ease;
+}
+
+.glass-sidebar[data-pointer-active="true"] .sidebar-pointer-light {
+  opacity: 0.88;
+  transform: scale(1);
+}
+
+@utility brand-wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  color: var(--foreground);
+  transition: color 180ms ease, opacity 180ms ease;
+  &:hover { color: var(--primary); }
+}
+
+@utility brand-wordmark-collapsed {
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.875rem;
+  border: 1px solid color-mix(in oklab, var(--card) 75%, transparent);
+  background: color-mix(in oklab, var(--card) 46%, transparent);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
 }
 
 @utility glass-mobile-bar {
@@ -228,20 +270,24 @@
   color: var(--muted-foreground);
   font-size: 0.875rem;
   font-weight: 500;
-  transition: transform 180ms ease, background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
+  position: relative;
+  overflow: hidden;
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1), background-color 180ms ease, color 180ms ease, box-shadow 220ms ease, border-color 180ms ease;
   &:hover {
     color: var(--foreground);
-    background: color-mix(in oklab, var(--card) 55%, transparent);
-    transform: translateY(-1px);
-    box-shadow: inset 0 1px 0 var(--glass-edge), 0 10px 24px -20px color-mix(in oklab, var(--ink) 35%, transparent);
+    border-color: color-mix(in oklab, var(--card) 58%, transparent);
+    background: color-mix(in oklab, var(--card) 34%, transparent);
+    transform: translateX(3px) scale(1.01);
+    box-shadow: inset 0 1px 0 var(--glass-edge), 0 12px 28px -20px color-mix(in oklab, var(--primary) 46%, transparent);
   }
 }
 
 @utility sidebar-link-active {
   color: var(--foreground);
-  border-color: color-mix(in oklab, var(--card) 72%, transparent);
-  background: color-mix(in oklab, var(--card) 74%, transparent);
-  box-shadow: inset 0 1px 0 var(--glass-edge), 0 10px 24px -20px color-mix(in oklab, var(--primary) 40%, transparent);
+  border-color: color-mix(in oklab, var(--card) 84%, transparent);
+  background: linear-gradient(145deg, color-mix(in oklab, var(--card) 72%, transparent), color-mix(in oklab, var(--accent) 16%, transparent));
+  backdrop-filter: blur(20px) saturate(150%);
+  box-shadow: inset 0 1px 0 var(--glass-edge), inset 0 -1px 0 color-mix(in oklab, var(--primary) 7%, transparent), 0 12px 30px -19px color-mix(in oklab, var(--primary) 45%, transparent);
 }
 
 @utility glass-panel {
