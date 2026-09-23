@@ -48,6 +48,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
     typedRef.current = "";
     typosRef.current = 0;
     mistouchRef.current = false;
+    lastWrongRef.current = null;
   }, [target]);
 
   const markMistouch = useCallback(() => {
@@ -64,6 +65,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
     typedRef.current = target.slice(0, Math.max(0, n - 1));
     setTyped(typedRef.current);
     setWrongAt(null);
+    lastWrongRef.current = null;
   }, [target]);
 
   const handleChar = useCallback(
@@ -92,6 +94,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
         return;
       }
 
+      lastWrongRef.current = null;
       const next = target.slice(0, skipPunct(target, i + 1));
       typedRef.current = next;
       setTyped(next);
