@@ -199,7 +199,7 @@ export function TypingBoard({
 
   // tapping anywhere while typing (touch devices) summons the soft keyboard
   useEffect(() => {
-    if (paused) return;
+    if (paused || isMobile) return;
     const onPointerDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement | null;
       if (t?.closest("button, a, input, textarea")) return;
