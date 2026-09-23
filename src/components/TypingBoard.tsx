@@ -106,7 +106,28 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
   const big = size === "word";
 
   return (
-    <div className="flex flex-col items-center gap-5">
+    <div
+      className="relative flex flex-col items-center gap-5"
+      onPointerDown={() => {
+        // summon the soft keyboard on touch devices
+        if (!paused) inputRef.current?.focus({ preventScroll: true });
+      }}
+    >
+      <input
+        ref={inputRef}
+        type="text"
+        aria-label="输入拼写"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        tabIndex={-1}
+        onInput={(e) => {
+          // keep the hidden input empty; keys are handled via keydown
+          e.currentTarget.value = "";
+        }}
+        className="pointer-events-none absolute top-0 left-1/2 h-px w-px opacity-0"
+      />
       <div
         className={cn(
           "flex flex-wrap items-end justify-center gap-x-0 gap-y-3 font-mono tracking-tight select-none",
