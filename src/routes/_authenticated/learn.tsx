@@ -77,6 +77,85 @@ function SpeakerButton({ word, className }: { word: string; className?: string }
   );
 }
 
+function ResultPanel({
+  item,
+  sweeping = false,
+  isFav,
+  isSaved,
+  onFav,
+  onSave,
+  onListen,
+  onNext,
+}: {
+  item: HistoryItem;
+  sweeping?: boolean;
+  isFav: boolean;
+  isSaved: boolean;
+  onFav: () => void;
+  onSave: () => void;
+  onListen: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div
+      data-selectable
+      className={cn("flex w-full flex-col items-center gap-7 select-text", sweeping && "sweep-in")}
+    >
+      <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
+        <div className="w-[45%] min-w-0">
+          <p className="font-display text-5xl [overflow-wrap:anywhere]">{item.entry.word}</p>
+          <p className="mt-2 font-mono text-sm text-muted-foreground">{item.entry.phonetic}</p>
+          <div className="mt-3 flex items-center gap-1.5">
+            <p className="text-lg text-foreground">{item.entry.cn}</p>
+            <SpeakerButton word={item.entry.word} />
+          </div>
+        </div>
+        <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
+          <p className="text-base text-foreground/90">{item.entry.sentence}</p>
+          <p className="mt-2 text-sm text-muted-foreground">{item.entry.sentenceCn}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap justify-center gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onListen}
+          className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
+        >
+          再听一次
+        </button>
+        <button
+          type="button"
+          onClick={onFav}
+          className={cn(
+            "rounded-full border px-4 py-1.5 text-sm transition-colors",
+            isFav ? "border-primary/40 bg-primary/10 text-primary" : "border-border bg-card hover:border-primary/40",
+          )}
+        >
+          {isFav ? "已收藏 ★" : "收藏 ☆"}
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={isSaved}
+          className={cn(
+            "rounded-full border px-4 py-1.5 text-sm transition-colors",
+            isSaved ? "border-border bg-card text-muted-foreground" : "border-border bg-card hover:border-primary/40",
+          )}
+        >
+          {isSaved ? "已加入错题本" : "加入错题本"}
+        </button>
+        <button
+          type="button"
+          onClick={onNext}
+          className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
+        >
+          下一个 →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function LearnPage() {
   const { queue: queueKind } = Route.useSearch();
   const save = useServerFn(recordAttempt);
@@ -182,6 +261,7 @@ function LearnPage() {
   const entry = queue.length ? queue[Math.min(index, queue.length - 1)]! : undefined;
   const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
   const panelResult = reviewing ? reviewing.result : done;
+  const resultItem = reviewing ?? (done && entry ? { entry, result: done } : undefined);
 
   const onComplete = useCallback(
     (r: TypingResult) => {
@@ -461,64 +541,25 @@ function LearnPage() {
             navDir === 1 ? "nav-slide-left" : "nav-slide-right",
           )}
         >
-          {reviewing ? (
-            <div data-selectable className="flex w-full flex-col items-center gap-7 select-text">
-              <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
-                <div className="w-[45%] min-w-0">
-                  <p className="font-display text-5xl [overflow-wrap:anywhere]">{reviewing.entry.word}</p>
-                  <p className="mt-2 font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
-                  <div className="mt-3 flex items-center gap-1.5">
-                    <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
-                    <SpeakerButton word={reviewing.entry.word} />
-                  </div>
-                </div>
-                <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
-                  <p className="text-base text-foreground/90">{reviewing.entry.sentence}</p>
-                  <p className="mt-2 text-sm text-muted-foreground">{reviewing.entry.sentenceCn}</p>
-                </div>
-              </div>
-              <div className="flex flex-wrap justify-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => speak(reviewing.entry.word)}
-                  className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
-                >
-                  再听一次
-                </button>
-                <button
-                  type="button"
-                  onClick={() => toggleFavorite(reviewing.entry.word)}
-                  className={cn(
-                    "rounded-full border px-4 py-1.5 text-sm transition-colors",
-                    favorites.has(reviewing.entry.word)
-                      ? "border-primary/40 bg-primary/10 text-primary"
-                      : "border-border bg-card hover:border-primary/40",
-                  )}
-                >
-                  {favorites.has(reviewing.entry.word) ? "已收藏 ★" : "收藏 ☆"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => addToMistakes(reviewing)}
-                  disabled={savedToMistakes.has(reviewing.entry.word)}
-                  className={cn(
-                    "rounded-full border px-4 py-1.5 text-sm transition-colors",
-                    savedToMistakes.has(reviewing.entry.word)
-                      ? "border-border bg-card text-muted-foreground"
-                      : "border-border bg-card hover:border-primary/40",
-                  )}
-                >
-                  {savedToMistakes.has(reviewing.entry.word) ? "已加入错题本" : "加入错题本"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => (reviewIndex! < history.length - 1 ? goForward() : setReviewIndex(null))}
-                  className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
-                >
-                  下一个 →
-                </button>
-              </div>
-            </div>
+          {reviewing || done ? (
+            resultItem && (
+              <ResultPanel
+                item={resultItem}
+                sweeping={!reviewing}
+                isFav={favorites.has(resultItem.entry.word)}
+                isSaved={savedToMistakes.has(resultItem.entry.word)}
+                onFav={() => toggleFavorite(resultItem.entry.word)}
+                onSave={() => addToMistakes(resultItem)}
+                onListen={() => speak(resultItem.entry.word)}
+                onNext={() =>
+                  reviewing
+                    ? reviewIndex! < history.length - 1
+                      ? goForward()
+                      : setReviewIndex(null)
+                    : next()
+                }
+              />
+            )
           ) : (
             <>
               {prefs.meaning ? (
@@ -538,43 +579,7 @@ function LearnPage() {
                 target={entry.word}
                 masked={prefs.dictation}
                 onComplete={onComplete}
-                paused={!!done}
               />
-
-              {done ? (
-                <div data-selectable className="sweep-in flex w-full flex-col items-center gap-5 select-text">
-                  <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
-                    <div className="w-[45%] min-w-0">
-                      <p className="font-display text-4xl [overflow-wrap:anywhere]">{entry.word}</p>
-                      <p className="mt-2 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
-                      <div className="mt-3 flex items-center gap-1.5">
-                        <p className="text-lg text-foreground">{entry.cn}</p>
-                        <SpeakerButton word={entry.word} />
-                      </div>
-                    </div>
-                    <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
-                      <p className="text-base text-foreground/90">{entry.sentence}</p>
-                      <p className="mt-2 text-sm text-muted-foreground">{entry.sentenceCn}</p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => speak(entry.word)}
-                      className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
-                    >
-                      再听一次
-                    </button>
-                    <button
-                      type="button"
-                      onClick={next}
-                      className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
-                    >
-                      下一个 ⏎
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </>
           )}
         </div>

@@ -88,6 +88,7 @@ function SentencePage() {
   const entry = queue.length ? queue[Math.min(index, queue.length - 1)]! : undefined;
   const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
   const panelResult = reviewing ? reviewing.result : done;
+  const resultItem = reviewing ?? (done && entry ? { entry, result: done } : undefined);
 
   const next = useCallback(() => {
     setNavDir(1);
@@ -301,47 +302,58 @@ function SentencePage() {
             navDir === 1 ? "nav-slide-left" : "nav-slide-right",
           )}
         >
-          {reviewing ? (
-            <div data-selectable className="flex w-full flex-col items-center gap-7 select-text">
-              <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
-                <div className="w-[45%] min-w-0">
-                  <div className="flex items-start gap-1.5">
-                    <p className="font-display text-2xl leading-snug">{reviewing.entry.sentence}</p>
-                    <SpeakerButton text={reviewing.entry.sentence} />
-                  </div>
-                  {reviewing.entry.svo && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-                      <Part label="主语" value={reviewing.entry.svo.s} />
-                      <Part label="谓语" value={reviewing.entry.svo.v} />
-                      {reviewing.entry.svo.o && <Part label="宾语" value={reviewing.entry.svo.o} />}
+          {reviewing || done ? (
+            resultItem && (
+              <div
+                data-selectable
+                className={cn("flex w-full flex-col items-center gap-7 select-text", !reviewing && "sweep-in")}
+              >
+                <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
+                  <div className="w-[45%] min-w-0">
+                    <div className="flex items-start gap-1.5">
+                      <p className="font-display text-2xl leading-snug">{resultItem.entry.sentence}</p>
+                      <SpeakerButton text={resultItem.entry.sentence} />
                     </div>
-                  )}
+                    {resultItem.entry.svo && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                        <Part label="主语" value={resultItem.entry.svo.s} />
+                        <Part label="谓语" value={resultItem.entry.svo.v} />
+                        {resultItem.entry.svo.o && <Part label="宾语" value={resultItem.entry.svo.o} />}
+                      </div>
+                    )}
+                  </div>
+                  <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
+                    <p className="text-lg text-foreground">{resultItem.entry.sentenceCn}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      <span className="font-mono text-foreground">{resultItem.entry.word}</span>{" "}
+                      <span className="font-mono">{resultItem.entry.phonetic}</span> · {resultItem.entry.cn}
+                    </p>
+                  </div>
                 </div>
-                <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
-                  <p className="text-lg text-foreground">{reviewing.entry.sentenceCn}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    <span className="font-mono text-foreground">{reviewing.entry.word}</span>{" "}
-                    <span className="font-mono">{reviewing.entry.phonetic}</span> · {reviewing.entry.cn}
-                  </p>
+                <div className="flex flex-wrap justify-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => speak(resultItem.entry.sentence)}
+                    className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
+                  >
+                    再听一次
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      reviewing
+                        ? reviewIndex! < history.length - 1
+                          ? goForward()
+                          : setReviewIndex(null)
+                        : next()
+                    }
+                    className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
+                  >
+                    下一个 →
+                  </button>
                 </div>
               </div>
-              <div className="flex flex-wrap justify-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => speak(reviewing.entry.sentence)}
-                  className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
-                >
-                  再听一次
-                </button>
-                <button
-                  type="button"
-                  onClick={() => (reviewIndex! < history.length - 1 ? goForward() : setReviewIndex(null))}
-                  className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
-                >
-                  下一个 →
-                </button>
-              </div>
-            </div>
+            )
           ) : (
             <>
               {prefs.meaning || prefs.english ? (
@@ -366,50 +378,7 @@ function SentencePage() {
                 size="sentence"
                 masked={prefs.dictation}
                 onComplete={onComplete}
-                paused={!!done}
               />
-
-              {done ? (
-                <div data-selectable className="sweep-in flex w-full flex-col items-center gap-5 select-text">
-                  <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
-                    <div className="w-[45%] min-w-0">
-                      <div className="flex items-start gap-1.5">
-                        <p className="font-display text-2xl leading-snug">{entry.sentence}</p>
-                        <SpeakerButton text={entry.sentence} />
-                      </div>
-                      {entry.svo && (
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-                          <Part label="主语" value={entry.svo.s} />
-                          <Part label="谓语" value={entry.svo.v} />
-                          {entry.svo.o && <Part label="宾语" value={entry.svo.o} />}
-                        </div>
-                      )}
-                    </div>
-                    <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
-                      <p className="text-base text-foreground">{entry.sentenceCn}</p>
-                      <p className="mt-1 font-mono text-sm text-muted-foreground">
-                        {entry.word} {entry.phonetic} · {entry.cn}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => speak(entry.sentence)}
-                      className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
-                    >
-                      再听一次
-                    </button>
-                    <button
-                      type="button"
-                      onClick={next}
-                      className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
-                    >
-                      下一个 ⏎
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </>
           )}
         </div>
