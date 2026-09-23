@@ -181,6 +181,7 @@ function LearnPage() {
 
   const entry = queue.length ? queue[Math.min(index, queue.length - 1)]! : undefined;
   const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
+  const panelResult = reviewing ? reviewing.result : done;
 
   const onComplete = useCallback(
     (r: TypingResult) => {
@@ -439,6 +440,20 @@ function LearnPage() {
             </button>
           ))}
         </div>
+        {(done || reviewing) && panelResult && (
+          <div className="absolute top-5 right-6 text-right text-xs leading-5">
+            {reviewing && (
+              <p className="text-muted-foreground/80">
+                回顾 · {reviewIndex! + 1} / {history.length}
+              </p>
+            )}
+            <p className="text-primary">
+              {(panelResult.durationMs / 1000).toFixed(1)}s
+              {panelResult.typoCount === 0 ? " · 全对" : ` · ${panelResult.typoCount} 次错误`}
+              {panelResult.mistouch ? " · 含误触" : ""}
+            </p>
+          </div>
+        )}
         <div
           key={reviewing ? `r-${reviewIndex}` : `w-${entry.word}`}
           className={cn(
