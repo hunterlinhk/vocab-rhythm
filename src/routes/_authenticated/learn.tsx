@@ -4,7 +4,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { WORD_BOOKS, entriesFor, getBook, type WordEntry } from "@/data/words";
-import { getLearningState, recordAttempt, saveBookCursor, saveSettings } from "@/lib/learning.functions";
+import {
+  getLearningState,
+  markAttemptMistouch,
+  recordAttempt,
+  saveBookCursor,
+  saveSettings,
+} from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 import { Volume2, BookOpen, PenLine, CheckCircle2 } from "lucide-react";
