@@ -422,6 +422,10 @@ function LearnPage() {
                   {done.typoCount === 0 ? " · 全对" : ` · ${done.typoCount} 次错误`}
                 </div>
                 <p className="font-display text-2xl">{entry.word}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-base text-foreground">{entry.cn}</p>
+                  <SpeakerButton word={entry.word} />
+                </div>
                 <p className="text-sm text-muted-foreground">{entry.sentence}</p>
                 <p className="text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
                 <div className="flex gap-2 pt-1">
