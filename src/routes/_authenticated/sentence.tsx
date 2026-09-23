@@ -367,6 +367,9 @@ function SentencePage() {
                     <SpeakerButton text={entry.sentence} />
                   </div>
                   <p className="text-base text-foreground">{entry.sentenceCn}</p>
+                  <p className="font-mono text-sm text-muted-foreground">
+                    {entry.word} {entry.phonetic} · {entry.cn}
+                  </p>
                   {entry.svo && (
                     <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
                       <Part label="主语" value={entry.svo.s} />
