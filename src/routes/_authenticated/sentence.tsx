@@ -303,8 +303,8 @@ function SentencePage() {
         >
           {reviewing ? (
             <div data-selectable className="flex w-full flex-col items-center gap-7 select-text">
-              <div className="flex w-full items-start justify-between gap-6 text-left">
-                <div className="w-1/2 min-w-0">
+              <div className="flex w-full items-start justify-center gap-8 text-left sm:gap-14">
+                <div className="w-[44%] max-w-md min-w-0">
                   <div className="flex items-start gap-1.5">
                     <p className="font-display text-2xl leading-snug">{reviewing.entry.sentence}</p>
                     <SpeakerButton text={reviewing.entry.sentence} />
@@ -317,7 +317,7 @@ function SentencePage() {
                     </div>
                   )}
                 </div>
-                <div className="w-1/2 min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
+                <div className="w-[44%] max-w-md min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
                   <p className="text-lg text-foreground">{reviewing.entry.sentenceCn}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     <span className="font-mono text-foreground">{reviewing.entry.word}</span>{" "}
@@ -371,8 +371,8 @@ function SentencePage() {
 
               {done ? (
                 <div data-selectable className="sweep-in flex w-full flex-col items-center gap-5 select-text">
-                  <div className="flex w-full items-start justify-between gap-6 text-left">
-                    <div className="w-1/2 min-w-0">
+                  <div className="flex w-full items-start justify-center gap-8 text-left sm:gap-14">
+                    <div className="w-[44%] max-w-md min-w-0">
                       <div className="flex items-start gap-1.5">
                         <p className="font-display text-2xl leading-snug">{entry.sentence}</p>
                         <SpeakerButton text={entry.sentence} />
@@ -385,7 +385,7 @@ function SentencePage() {
                         </div>
                       )}
                     </div>
-                    <div className="w-1/2 min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
+                    <div className="w-[44%] max-w-md min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
                       <p className="text-base text-foreground">{entry.sentenceCn}</p>
                       <p className="mt-1 font-mono text-sm text-muted-foreground">
                         {entry.word} {entry.phonetic} · {entry.cn}
