@@ -75,6 +75,10 @@ function LearnPage() {
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const prefsRef = useRef<Prefs>(DEFAULT_PREFS);
+  useEffect(() => {
+    prefsRef.current = prefs;
+  }, [prefs]);
   useEffect(() => setPrefs(loadPrefs()), []);
   const togglePref = useCallback((key: keyof Prefs) => {
     setPrefs((p) => {
