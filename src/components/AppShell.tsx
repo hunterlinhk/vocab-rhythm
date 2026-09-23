@@ -77,7 +77,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="mx-auto flex min-h-[calc(100vh-1rem)] max-w-[1540px] gap-3 sm:min-h-[calc(100vh-1.5rem)] lg:min-h-[calc(100vh-2.5rem)] lg:gap-5">
         <aside ref={sidebarRef} onPointerMove={handleSidebarPointerMove} onPointerLeave={handleSidebarPointerLeave} className={cn("glass-sidebar sticky top-5 hidden h-[calc(100vh-2.5rem)] shrink-0 flex-col overflow-hidden transition-[width] duration-300 lg:flex", collapsed ? "w-[76px]" : "w-64")}>
           <div className="sidebar-pointer-light" aria-hidden="true" />
-          <SidebarContent collapsed={collapsed} pathname={pathname} />
+          <SidebarContent collapsed={collapsed} pathname={pathname} expandedItem={expandedItem} setExpandedItem={setExpandedItem} />
           <Button variant="ghost" size="icon" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"} className="absolute right-3 top-4 rounded-xl text-muted-foreground">
             <ChevronLeft className={cn("transition-transform", collapsed && "rotate-180")} />
           </Button>
@@ -86,9 +86,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="min-w-0 flex-1">
           <header className="glass-mobile-bar sticky top-2 z-40 mb-3 flex h-14 items-center justify-between px-4 lg:hidden">
             <Link to="/home" className="font-display text-lg font-semibold text-foreground">Cadence <span className="font-sans text-xs font-medium text-muted-foreground">韵词</span></Link>
-            <Sheet>
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" aria-label="打开目录"><Menu /></Button></SheetTrigger>
-              <SheetContent side="left" className="glass-drawer w-[86vw] border-card/60 p-0 sm:max-w-80"><SheetTitle className="sr-only">学习目录</SheetTitle><SidebarContent collapsed={false} pathname={pathname} /></SheetContent>
+              <SheetContent side="left" className="glass-drawer w-[86vw] border-card/60 p-0 sm:max-w-80"><SheetTitle className="sr-only">学习目录</SheetTitle><SidebarContent collapsed={false} pathname={pathname} expandedItem={expandedItem} setExpandedItem={setExpandedItem} onNavigate={() => setMobileOpen(false)} /></SheetContent>
             </Sheet>
           </header>
           <main className="mx-auto w-full max-w-[1240px] px-2 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-7">{children}</main>
@@ -98,14 +98,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
-function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname: string }) {
+function SidebarContent({
+  collapsed,
+  pathname,
+  expandedItem,
+  setExpandedItem,
+  onNavigate,
+}: {
+  collapsed: boolean;
+  pathname: string;
+  expandedItem: string | null;
+  setExpandedItem: (update: (current: string | null) => string | null) => void;
+  onNavigate?: () => void;
+}) {
   const currentTab = useRouterState({
     select: (state) => (state.location.search as { tab?: string } | undefined)?.tab,
   });
-  const activeParent = nav.find((item) => isActive(item.to, pathname));
-  const [expandedItem, setExpandedItem] = useState<string | null>(
-    activeParent && "children" in activeParent ? activeParent.to : null,
-  );
 
   return (
     <>
