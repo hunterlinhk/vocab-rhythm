@@ -115,9 +115,12 @@ export const saveSettings = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const patch: Record<string, unknown> = { user_id: context.userId, updated_at: new Date().toISOString() };
-    if (data.dailyGoal !== undefined) patch["daily_goal"] = data.dailyGoal;
-    if (data.activeBook !== undefined) patch["active_book"] = data.activeBook;
+    const patch: { user_id: string; updated_at: string; daily_goal?: number; active_book?: string } = {
+      user_id: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+    if (data.dailyGoal !== undefined) patch.daily_goal = data.dailyGoal;
+    if (data.activeBook !== undefined) patch.active_book = data.activeBook;
     const { error } = await context.supabase.from("user_settings").upsert(patch, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
     return { ok: true };
