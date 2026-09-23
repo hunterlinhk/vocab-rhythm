@@ -136,16 +136,38 @@ function LearnPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [done, reviewIndex, history.length, goBack, goForward, next]);
 
-  // drag right to go back, drag left to go forward
+  // drag right to go back, drag left to go forward — content follows the pointer
+  const [dragDx, setDragDx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+
   const onPointerDown = (e: React.PointerEvent) => {
     dragX.current = e.clientX;
+    setDragging(true);
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   };
-  const onPointerUp = (e: React.PointerEvent) => {
+  const onPointerMove = (e: React.PointerEvent) => {
     if (dragX.current === null) return;
     const dx = e.clientX - dragX.current;
+    // resist when moving in a direction that cannot navigate
+    const blocked = (dx > 0 && history.length === 0) || (dx < 0 && reviewIndex === null);
+    setDragDx(dx * (blocked ? 0.25 : 1));
+  };
+  const endDrag = (e: React.PointerEvent) => {
+    if (dragX.current === null) {
+      setDragging(false);
+      setDragDx(0);
+      return;
+    }
+    const dx = e.clientX - dragX.current;
     dragX.current = null;
+    setDragging(false);
+    setDragDx(0);
     if (dx > 64) goBack();
     else if (dx < -64 && reviewIndex !== null) goForward();
+  };
+  const dragStyle = {
+    transform: `translateX(${dragDx}px) scale(${dragging ? 1.012 : 1})`,
+    transition: dragging ? "none" : "transform 420ms cubic-bezier(0.16, 1, 0.3, 1)",
   };
 
   const toggleFavorite = useCallback((word: string) => {
@@ -214,9 +236,12 @@ function LearnPage() {
       </div>
 
       <div
-        className="glass-stage mt-10 flex w-full touch-pan-y flex-col items-center gap-8 px-6 py-14"
+        className="glass-stage mt-10 flex w-full touch-pan-y flex-col items-center gap-8 px-6 py-14 select-none"
+        style={dragStyle}
         onPointerDown={onPointerDown}
-        onPointerUp={onPointerUp}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
       >
         {reviewing ? (
           <div className="sweep-in flex flex-col items-center gap-4 text-center">
@@ -312,11 +337,7 @@ function LearnPage() {
                   </button>
                 </div>
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                直接用键盘输入 · Backspace 退格{history.length > 0 ? " · ← 或向右拖动回顾上一词" : ""}
-              </p>
-            )}
+            ) : null}
           </>
         )}
       </div>

@@ -506,7 +506,7 @@
 }
 
 @utility char-pop {
-  animation: char-pop 180ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
+  animation: char-pop 260ms cubic-bezier(0.2, 0.9, 0.3, 1.4);
 }
 
 @keyframes char-pop {
@@ -515,7 +515,7 @@
 }
 
 @utility shake-x {
-  animation: shake-x 240ms ease-in-out;
+  animation: shake-x 340ms ease-in-out;
 }
 
 @keyframes shake-x {
