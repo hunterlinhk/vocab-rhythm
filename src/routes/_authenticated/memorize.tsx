@@ -131,7 +131,7 @@ function MemorizePage() {
           setPicked(null);
           setPhase("spell");
         } else {
-          advance();
+          advance(phase === "context" ? "context" : "recall");
         }
       }, correct ? 900 : 1600);
     },
@@ -158,7 +158,7 @@ function MemorizePage() {
         .catch(() => undefined);
       window.setTimeout(() => {
         setPhase("recall");
-        advance();
+        advance("recall");
       }, 1200);
     },
     [entry, record, bookId, invalidate, advance],

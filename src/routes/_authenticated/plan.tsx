@@ -123,6 +123,37 @@ function PlanPage() {
       </section>
 
       <section className="glass-panel p-6 sm:p-8">
+        <SectionHeading eyebrow="MEMORIZE" title="背单词设置" />
+        <div className="mt-5 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm text-foreground">第三轮拼写</p>
+            <p className="mt-1 text-xs text-muted-foreground">选对词义后再拼写一次，完成三轮强化。</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={spelling}
+            aria-label="第三轮拼写"
+            onClick={toggleSpelling}
+            className={cn(
+              "relative h-7 w-12 shrink-0 rounded-full transition-colors duration-300",
+              spelling ? "bg-primary" : "bg-secondary",
+            )}
+          >
+            <span
+              className={cn(
+                "absolute top-1 size-5 rounded-full bg-card shadow transition-all duration-300",
+                spelling ? "left-6" : "left-1",
+              )}
+            />
+          </button>
+        </div>
+        <Button asChild variant="ghost" size="sm" className="mt-4 rounded-full">
+          <Link to="/memorize">去背单词</Link>
+        </Button>
+      </section>
+
+      <section className="glass-panel p-6 sm:p-8">
         <SectionHeading eyebrow="BOOKS" title="词书进度" action={<Button asChild variant="ghost" size="sm"><Link to="/books">管理词库</Link></Button>} />
         <div className="mt-5 space-y-4">
           {WORD_BOOKS.map((b) => {
