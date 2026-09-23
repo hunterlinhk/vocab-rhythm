@@ -59,7 +59,11 @@ function LearnPage() {
     setReviewIndex(null);
   }, [bookId]);
 
+  // navigation direction for slide animation: 1 = forward, -1 = back
+  const [navDir, setNavDir] = useState<1 | -1>(1);
+
   const next = useCallback(() => {
+    setNavDir(1);
     setDone(null);
     setReviewIndex(null);
     setIndex((i) => (i + 1) % queue.length);
@@ -88,14 +92,16 @@ function LearnPage() {
   );
 
   const goBack = useCallback(() => {
+    if (history.length === 0) return;
+    setNavDir(-1);
     setReviewIndex((cur) => {
-      if (history.length === 0) return cur;
       if (cur === null) return history.length - 1;
       return Math.max(0, cur - 1);
     });
   }, [history.length]);
 
   const goForward = useCallback(() => {
+    setNavDir(1);
     setReviewIndex((cur) => {
       if (cur === null) return cur;
       if (cur >= history.length - 1) return null; // back to typing the current word
