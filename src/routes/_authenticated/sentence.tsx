@@ -87,6 +87,7 @@ function SentencePage() {
   const queue = getBook(bookId).words;
   const entry = queue.length ? queue[Math.min(index, queue.length - 1)]! : undefined;
   const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
+  const panelResult = reviewing ? reviewing.result : done;
 
   const next = useCallback(() => {
     setNavDir(1);
@@ -279,6 +280,20 @@ function SentencePage() {
             </button>
           ))}
         </div>
+        {(done || reviewing) && panelResult && (
+          <div className="absolute top-5 right-6 text-right text-xs leading-5">
+            {reviewing && (
+              <p className="text-muted-foreground/80">
+                回顾 · {reviewIndex! + 1} / {history.length}
+              </p>
+            )}
+            <p className="text-primary">
+              {(panelResult.durationMs / 1000).toFixed(1)}s
+              {panelResult.typoCount === 0 ? " · 全对" : ` · ${panelResult.typoCount} 次错误`}
+              {panelResult.mistouch ? " · 含误触" : ""}
+            </p>
+          </div>
+        )}
         <div
           key={reviewing ? `r-${reviewIndex}` : `s-${entry.word}-${index}`}
           className={cn(
@@ -287,30 +302,28 @@ function SentencePage() {
           )}
         >
           {reviewing ? (
-            <div data-selectable className="flex flex-col items-center gap-4 text-center select-text">
-              <div className="rounded-full bg-accent/60 px-4 py-1 text-xs text-accent-foreground">
-                回顾 · {reviewIndex! + 1} / {history.length} · ← → 切换
-              </div>
-              <div className="flex items-center gap-1.5">
-                <p className="font-display text-2xl leading-snug">{reviewing.entry.sentence}</p>
-                <SpeakerButton text={reviewing.entry.sentence} />
-              </div>
-              <p className="text-lg text-foreground">{reviewing.entry.sentenceCn}</p>
-              <p className="text-sm text-muted-foreground">
-                围绕单词 <span className="font-mono text-foreground">{reviewing.entry.word}</span>{" "}
-                <span className="font-mono">{reviewing.entry.phonetic}</span> · {reviewing.entry.cn}
-              </p>
-              {reviewing.entry.svo && (
-                <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
-                  <Part label="主语" value={reviewing.entry.svo.s} />
-                  <Part label="谓语" value={reviewing.entry.svo.v} />
-                  {reviewing.entry.svo.o && <Part label="宾语" value={reviewing.entry.svo.o} />}
+            <div data-selectable className="flex w-full flex-col items-center gap-7 select-text">
+              <div className="flex w-full items-start justify-between gap-6 text-left">
+                <div className="w-1/2 min-w-0">
+                  <div className="flex items-start gap-1.5">
+                    <p className="font-display text-2xl leading-snug">{reviewing.entry.sentence}</p>
+                    <SpeakerButton text={reviewing.entry.sentence} />
+                  </div>
+                  {reviewing.entry.svo && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                      <Part label="主语" value={reviewing.entry.svo.s} />
+                      <Part label="谓语" value={reviewing.entry.svo.v} />
+                      {reviewing.entry.svo.o && <Part label="宾语" value={reviewing.entry.svo.o} />}
+                    </div>
+                  )}
                 </div>
-              )}
-              <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
-                {(reviewing.result.durationMs / 1000).toFixed(1)}s
-                {reviewing.result.typoCount === 0 ? " · 全对" : ` · ${reviewing.result.typoCount} 次错误`}
-                {reviewing.result.mistouch ? " · 含误触" : ""}
+                <div className="w-1/2 text-right">
+                  <p className="text-lg text-foreground">{reviewing.entry.sentenceCn}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    <span className="font-mono text-foreground">{reviewing.entry.word}</span>{" "}
+                    <span className="font-mono">{reviewing.entry.phonetic}</span> · {reviewing.entry.cn}
+                  </p>
+                </div>
               </div>
               <div className="flex flex-wrap justify-center gap-2 pt-1">
                 <button
@@ -357,26 +370,28 @@ function SentencePage() {
               />
 
               {done ? (
-                <div data-selectable className="sweep-in flex flex-col items-center gap-3 text-center select-text">
-                  <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
-                    完成 · {(done.durationMs / 1000).toFixed(1)}s
-                    {done.typoCount === 0 ? " · 全对" : ` · ${done.typoCount} 次错误`}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <p className="font-display text-2xl leading-snug">{entry.sentence}</p>
-                    <SpeakerButton text={entry.sentence} />
-                  </div>
-                  <p className="text-base text-foreground">{entry.sentenceCn}</p>
-                  <p className="font-mono text-sm text-muted-foreground">
-                    {entry.word} {entry.phonetic} · {entry.cn}
-                  </p>
-                  {entry.svo && (
-                    <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
-                      <Part label="主语" value={entry.svo.s} />
-                      <Part label="谓语" value={entry.svo.v} />
-                      {entry.svo.o && <Part label="宾语" value={entry.svo.o} />}
+                <div data-selectable className="sweep-in flex w-full flex-col items-center gap-5 select-text">
+                  <div className="flex w-full items-start justify-between gap-6 text-left">
+                    <div className="w-1/2 min-w-0">
+                      <div className="flex items-start gap-1.5">
+                        <p className="font-display text-2xl leading-snug">{entry.sentence}</p>
+                        <SpeakerButton text={entry.sentence} />
+                      </div>
+                      {entry.svo && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                          <Part label="主语" value={entry.svo.s} />
+                          <Part label="谓语" value={entry.svo.v} />
+                          {entry.svo.o && <Part label="宾语" value={entry.svo.o} />}
+                        </div>
+                      )}
                     </div>
-                  )}
+                    <div className="w-1/2 text-right">
+                      <p className="text-base text-foreground">{entry.sentenceCn}</p>
+                      <p className="mt-1 font-mono text-sm text-muted-foreground">
+                        {entry.word} {entry.phonetic} · {entry.cn}
+                      </p>
+                    </div>
+                  </div>
                   <div className="flex gap-2 pt-1">
                     <button
                       type="button"

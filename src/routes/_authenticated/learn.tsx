@@ -181,6 +181,7 @@ function LearnPage() {
 
   const entry = queue.length ? queue[Math.min(index, queue.length - 1)]! : undefined;
   const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
+  const panelResult = reviewing ? reviewing.result : done;
 
   const onComplete = useCallback(
     (r: TypingResult) => {
@@ -439,6 +440,20 @@ function LearnPage() {
             </button>
           ))}
         </div>
+        {(done || reviewing) && panelResult && (
+          <div className="absolute top-5 right-6 text-right text-xs leading-5">
+            {reviewing && (
+              <p className="text-muted-foreground/80">
+                回顾 · {reviewIndex! + 1} / {history.length}
+              </p>
+            )}
+            <p className="text-primary">
+              {(panelResult.durationMs / 1000).toFixed(1)}s
+              {panelResult.typoCount === 0 ? " · 全对" : ` · ${panelResult.typoCount} 次错误`}
+              {panelResult.mistouch ? " · 含误触" : ""}
+            </p>
+          </div>
+        )}
         <div
           key={reviewing ? `r-${reviewIndex}` : `w-${entry.word}`}
           className={cn(
@@ -447,24 +462,20 @@ function LearnPage() {
           )}
         >
           {reviewing ? (
-            <div data-selectable className="flex flex-col items-center gap-4 text-center select-text">
-              <div className="rounded-full bg-accent/60 px-4 py-1 text-xs text-accent-foreground">
-                回顾 · {reviewIndex! + 1} / {history.length} · ← → 切换
-              </div>
-              <p className="font-display text-4xl">{reviewing.entry.word}</p>
-              <p className="font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
-              <div className="flex items-center gap-1.5">
-                <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
-                <SpeakerButton word={reviewing.entry.word} />
-              </div>
-              <div className="mt-1 space-y-1">
-                <p className="text-sm text-muted-foreground">{reviewing.entry.sentence}</p>
-                <p className="text-sm text-muted-foreground/80">{reviewing.entry.sentenceCn}</p>
-              </div>
-              <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
-                {(reviewing.result.durationMs / 1000).toFixed(1)}s
-                {reviewing.result.typoCount === 0 ? " · 全对" : ` · ${reviewing.result.typoCount} 次错误`}
-                {reviewing.result.mistouch ? " · 含误触" : ""}
+            <div data-selectable className="flex w-full flex-col items-center gap-7 select-text">
+              <div className="flex w-full items-start justify-between gap-6 text-left">
+                <div className="w-1/2 min-w-0">
+                  <p className="font-display text-4xl [overflow-wrap:anywhere]">{reviewing.entry.word}</p>
+                  <p className="mt-1 font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
+                    <SpeakerButton word={reviewing.entry.word} />
+                  </div>
+                </div>
+                <div className="w-1/2 text-right">
+                  <p className="text-sm text-muted-foreground">{reviewing.entry.sentence}</p>
+                  <p className="mt-1 text-sm text-muted-foreground/80">{reviewing.entry.sentenceCn}</p>
+                </div>
               </div>
               <div className="flex flex-wrap justify-center gap-2 pt-1">
                 <button
@@ -531,18 +542,21 @@ function LearnPage() {
               />
 
               {done ? (
-                <div data-selectable className="sweep-in flex flex-col items-center gap-3 text-center select-text">
-                  <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
-                    完成 · {(done.durationMs / 1000).toFixed(1)}s
-                    {done.typoCount === 0 ? " · 全对" : ` · ${done.typoCount} 次错误`}
+                <div data-selectable className="sweep-in flex w-full flex-col items-center gap-5 select-text">
+                  <div className="flex w-full items-start justify-between gap-6 text-left">
+                    <div className="w-1/2 min-w-0">
+                      <p className="font-display text-2xl [overflow-wrap:anywhere]">{entry.word}</p>
+                      <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <p className="text-base text-foreground">{entry.cn}</p>
+                        <SpeakerButton word={entry.word} />
+                      </div>
+                    </div>
+                    <div className="w-1/2 text-right">
+                      <p className="text-sm text-muted-foreground">{entry.sentence}</p>
+                      <p className="mt-1 text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
+                    </div>
                   </div>
-                  <p className="font-display text-2xl">{entry.word}</p>
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-base text-foreground">{entry.cn}</p>
-                    <SpeakerButton word={entry.word} />
-                  </div>
-                  <p className="text-sm text-muted-foreground">{entry.sentence}</p>
-                  <p className="text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
                   <div className="flex gap-2 pt-1">
                     <button
                       type="button"
