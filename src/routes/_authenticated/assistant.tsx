@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
-import { clearMessages, getMessages, sendMessage } from "@/lib/learning.functions";
+import { AI_ASSISTANT_ENABLED, clearMessages, getMessages, sendMessage } from "@/lib/learning.functions";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/assistant")({
