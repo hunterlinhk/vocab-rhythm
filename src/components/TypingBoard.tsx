@@ -35,6 +35,8 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
   const typedRef = useRef("");
   const typosRef = useRef(0);
   const mistouchRef = useRef(false);
+  // repeated identical wrong key at the same position counts as one error
+  const lastWrongRef = useRef<{ index: number; key: string } | null>(null);
 
   useEffect(() => {
     setTyped("");
@@ -46,6 +48,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
     typedRef.current = "";
     typosRef.current = 0;
     mistouchRef.current = false;
+    lastWrongRef.current = null;
   }, [target]);
 
   const markMistouch = useCallback(() => {
@@ -62,6 +65,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
     typedRef.current = target.slice(0, Math.max(0, n - 1));
     setTyped(typedRef.current);
     setWrongAt(null);
+    lastWrongRef.current = null;
   }, [target]);
 
   const handleChar = useCallback(
@@ -76,14 +80,21 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
       if (expected === undefined) return;
 
       if (key.toLowerCase() !== expected.toLowerCase()) {
-        typosRef.current += 1;
-        setTypos(typosRef.current);
+        const lower = key.toLowerCase();
+        const last = lastWrongRef.current;
+        const repeated = last !== null && last.index === i && last.key === lower;
+        lastWrongRef.current = { index: i, key: lower };
+        if (!repeated) {
+          typosRef.current += 1;
+          setTypos(typosRef.current);
+        }
         setWrongAt(i);
         sfx.wrong();
         window.setTimeout(() => setWrongAt(null), 260);
         return;
       }
 
+      lastWrongRef.current = null;
       const next = target.slice(0, skipPunct(target, i + 1));
       typedRef.current = next;
       setTyped(next);

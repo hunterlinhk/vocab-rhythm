@@ -182,7 +182,7 @@ function SentencePage() {
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
+    if ((e.target as HTMLElement).closest("button, a, input, textarea, [data-selectable]")) return;
     dragX.current = e.clientX;
     setDragging(true);
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -287,7 +287,7 @@ function SentencePage() {
           )}
         >
           {reviewing ? (
-            <div className="flex flex-col items-center gap-4 text-center">
+            <div data-selectable className="flex flex-col items-center gap-4 text-center select-text">
               <div className="rounded-full bg-accent/60 px-4 py-1 text-xs text-accent-foreground">
                 回顾 · {reviewIndex! + 1} / {history.length} · ← → 切换
               </div>
@@ -357,7 +357,7 @@ function SentencePage() {
               />
 
               {done ? (
-                <div className="sweep-in flex flex-col items-center gap-3 text-center">
+                <div data-selectable className="sweep-in flex flex-col items-center gap-3 text-center select-text">
                   <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
                     完成 · {(done.durationMs / 1000).toFixed(1)}s
                     {done.typoCount === 0 ? " · 全对" : ` · ${done.typoCount} 次错误`}
