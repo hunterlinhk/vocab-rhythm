@@ -362,6 +362,12 @@ export const sendMessage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ content: z.string().min(1).max(2000) }).parse(input))
   .handler(async ({ data, context }) => {
+    // AI 助手已暂停：不调用任何模型
+    if (AI_ASSISTANT_ENABLED === false) {
+      void data;
+      void context;
+      throw new Error("AI 助手已暂停");
+    }
     const key = process.env["LOVABLE_API_KEY"];
     if (!key) throw new Error("AI 服务暂未配置");
 
