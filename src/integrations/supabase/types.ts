@@ -126,20 +126,62 @@ export type Database = {
         Row: {
           active_book: string
           daily_goal: number
+          memorize_spelling: boolean
           updated_at: string
           user_id: string
         }
         Insert: {
           active_book?: string
           daily_goal?: number
+          memorize_spelling?: boolean
           updated_at?: string
           user_id: string
         }
         Update: {
           active_book?: string
           daily_goal?: number
+          memorize_spelling?: boolean
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      word_mastery: {
+        Row: {
+          book_id: string
+          context_ok: boolean
+          recall_ok: boolean
+          reinforced_at: string | null
+          rounds: number
+          spell_ok: boolean
+          translation: string | null
+          updated_at: string
+          user_id: string
+          word: string
+        }
+        Insert: {
+          book_id?: string
+          context_ok?: boolean
+          recall_ok?: boolean
+          reinforced_at?: string | null
+          rounds?: number
+          spell_ok?: boolean
+          translation?: string | null
+          updated_at?: string
+          user_id: string
+          word: string
+        }
+        Update: {
+          book_id?: string
+          context_ok?: boolean
+          recall_ok?: boolean
+          reinforced_at?: string | null
+          rounds?: number
+          spell_ok?: boolean
+          translation?: string | null
+          updated_at?: string
+          user_id?: string
+          word?: string
         }
         Relationships: []
       }

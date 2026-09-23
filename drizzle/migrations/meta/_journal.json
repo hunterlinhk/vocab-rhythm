@@ -15,6 +15,13 @@
       "when": 1790138522105,
       "tag": "0001_create_learning_state",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790147287779,
+      "tag": "0002_create_word_mastery",
+      "breakpoints": true
     }
   ]
 }

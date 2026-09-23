@@ -12,6 +12,7 @@ const nav = [
     icon: BookOpen,
     children: [
       { label: "单词拼写", to: "/learn" },
+      { label: "背单词", to: "/memorize" },
       { label: "句子拼写", to: "/sentence" },
       { label: "词库", to: "/books" },
       { label: "学习计划", to: "/plan" },
@@ -42,14 +43,20 @@ const nav = [
   { to: "/profile", label: "我的", icon: UserRound },
 ] as const;
 
-const LEARN_PATHS = ["/learn", "/sentence", "/books", "/plan"];
+const LEARN_PATHS = ["/learn", "/memorize", "/sentence", "/books", "/plan"];
 const isActive = (itemTo: string, pathname: string) =>
   itemTo === "/learn" ? LEARN_PATHS.includes(pathname) : pathname === itemTo;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  // kept in the shell so the mobile drawer remembers what the user expanded or collapsed
+  const [expandedItem, setExpandedItem] = useState<string | null>(() => {
+    const parent = nav.find((item) => isActive(item.to, pathname));
+    return parent && "children" in parent ? parent.to : null;
+  });
 
   const handleSidebarPointerMove = (event: PointerEvent<HTMLElement>) => {
     if (event.pointerType === "touch") return;
@@ -70,7 +77,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="mx-auto flex min-h-[calc(100vh-1rem)] max-w-[1540px] gap-3 sm:min-h-[calc(100vh-1.5rem)] lg:min-h-[calc(100vh-2.5rem)] lg:gap-5">
         <aside ref={sidebarRef} onPointerMove={handleSidebarPointerMove} onPointerLeave={handleSidebarPointerLeave} className={cn("glass-sidebar sticky top-5 hidden h-[calc(100vh-2.5rem)] shrink-0 flex-col overflow-hidden transition-[width] duration-300 lg:flex", collapsed ? "w-[76px]" : "w-64")}>
           <div className="sidebar-pointer-light" aria-hidden="true" />
-          <SidebarContent collapsed={collapsed} pathname={pathname} />
+          <SidebarContent collapsed={collapsed} pathname={pathname} expandedItem={expandedItem} setExpandedItem={setExpandedItem} />
           <Button variant="ghost" size="icon" onClick={() => setCollapsed((value) => !value)} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"} className="absolute right-3 top-4 rounded-xl text-muted-foreground">
             <ChevronLeft className={cn("transition-transform", collapsed && "rotate-180")} />
           </Button>
@@ -79,9 +86,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="min-w-0 flex-1">
           <header className="glass-mobile-bar sticky top-2 z-40 mb-3 flex h-14 items-center justify-between px-4 lg:hidden">
             <Link to="/home" className="font-display text-lg font-semibold text-foreground">Cadence <span className="font-sans text-xs font-medium text-muted-foreground">韵词</span></Link>
-            <Sheet>
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" aria-label="打开目录"><Menu /></Button></SheetTrigger>
-              <SheetContent side="left" className="glass-drawer w-[86vw] border-card/60 p-0 sm:max-w-80"><SheetTitle className="sr-only">学习目录</SheetTitle><SidebarContent collapsed={false} pathname={pathname} /></SheetContent>
+              <SheetContent side="left" className="glass-drawer w-[86vw] border-card/60 p-0 sm:max-w-80"><SheetTitle className="sr-only">学习目录</SheetTitle><SidebarContent collapsed={false} pathname={pathname} expandedItem={expandedItem} setExpandedItem={setExpandedItem} onNavigate={() => setMobileOpen(false)} /></SheetContent>
             </Sheet>
           </header>
           <main className="mx-auto w-full max-w-[1240px] px-2 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-7">{children}</main>
@@ -91,14 +98,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 }
 
-function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname: string }) {
+function SidebarContent({
+  collapsed,
+  pathname,
+  expandedItem,
+  setExpandedItem,
+  onNavigate,
+}: {
+  collapsed: boolean;
+  pathname: string;
+  expandedItem: string | null;
+  setExpandedItem: (update: (current: string | null) => string | null) => void;
+  onNavigate?: () => void;
+}) {
   const currentTab = useRouterState({
     select: (state) => (state.location.search as { tab?: string } | undefined)?.tab,
   });
-  const activeParent = nav.find((item) => isActive(item.to, pathname));
-  const [expandedItem, setExpandedItem] = useState<string | null>(
-    activeParent && "children" in activeParent ? activeParent.to : null,
-  );
 
   return (
     <>
@@ -124,9 +139,14 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
                   title={collapsed ? item.label : undefined}
                   aria-expanded={hasChildren ? expanded : undefined}
                   onClick={(event) => {
-                    if (!hasChildren || collapsed) return;
+                    if (!hasChildren || collapsed) {
+                      onNavigate?.();
+                      return;
+                    }
+                    // tapping the current section only folds/unfolds it, never navigates
                     if (active) event.preventDefault();
-                    setExpandedItem((current) => current === item.to ? null : item.to);
+                    else onNavigate?.();
+                    setExpandedItem((current) => (current === item.to ? null : item.to));
                   }}
                   className={cn("sidebar-link group", collapsed && "justify-center px-0", active && "sidebar-link-active")}
                 >
@@ -158,6 +178,7 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
                               key={child.label}
                               to={child.to}
                               search={("search" in child ? child.search : {}) as never}
+                              onClick={() => onNavigate?.()}
                               className={cn(
                                 "block py-1.5 text-xs transition-colors",
                                 childActive

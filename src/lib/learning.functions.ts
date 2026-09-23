@@ -3,7 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
 const AttemptInput = z.object({
-  mode: z.enum(["word", "sentence"]),
+  mode: z.enum(["word", "sentence", "memorize"]),
   bookId: z.string(),
   word: z.string(),
   translation: z.string().optional(),
@@ -34,9 +34,76 @@ export const recordAttempt = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+const StageInput = z.object({
+  word: z.string(),
+  bookId: z.string(),
+  translation: z.string().optional(),
+  stage: z.enum(["context", "recall", "spell"]),
+  correct: z.boolean(),
+  typoCount: z.number().int().min(0).optional(),
+  durationMs: z.number().int().min(0).optional(),
+});
+
+/** records one reinforcement round of the 背单词 flow (context → recall → spell) */
+export const recordMemorizeStage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => StageInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: existing } = await context.supabase
+      .from("word_mastery")
+      .select("context_ok, recall_ok, spell_ok")
+      .eq("user_id", context.userId)
+      .eq("word", data.word)
+      .maybeSingle();
+
+    const flags = {
+      context_ok: existing?.context_ok ?? false,
+      recall_ok: existing?.recall_ok ?? false,
+      spell_ok: existing?.spell_ok ?? false,
+    };
+    if (data.correct) {
+      if (data.stage === "context") flags.context_ok = true;
+      if (data.stage === "recall") flags.recall_ok = true;
+      if (data.stage === "spell") flags.spell_ok = true;
+    }
+    const rounds = Number(flags.context_ok) + Number(flags.recall_ok) + Number(flags.spell_ok);
+
+    const { error } = await context.supabase.from("word_mastery").upsert(
+      {
+        user_id: context.userId,
+        word: data.word,
+        book_id: data.bookId,
+        translation: data.translation ?? null,
+        ...flags,
+        rounds,
+        reinforced_at: rounds >= 3 ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,word" },
+    );
+    if (error) throw new Error(error.message);
+
+    await context.supabase.from("attempts").insert({
+      user_id: context.userId,
+      mode: "memorize",
+      book_id: data.bookId,
+      word: data.word,
+      translation: data.translation ?? null,
+      correct: data.correct,
+      mistouch: false,
+      typo_count: data.typoCount ?? 0,
+      duration_ms: data.durationMs ?? 0,
+      is_review: data.stage !== "context",
+    });
+
+    return { rounds };
+  });
+
 export type LearningState = {
   dailyGoal: number;
   activeBook: string;
+  memorizeSpelling: boolean;
+  masteredWords: string[];
   cursors: Record<string, number>;
   learnedByBook: Record<string, string[]>;
   learnedWords: string[];
@@ -49,10 +116,10 @@ export type LearningState = {
 export const getLearningState = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<LearningState> => {
-    const [settingsRes, progressRes, attemptsRes] = await Promise.all([
+    const [settingsRes, progressRes, attemptsRes, masteryRes] = await Promise.all([
       context.supabase
         .from("user_settings")
-        .select("daily_goal, active_book")
+        .select("daily_goal, active_book, memorize_spelling")
         .eq("user_id", context.userId)
         .maybeSingle(),
       context.supabase.from("book_progress").select("book_id, cursor_index").eq("user_id", context.userId),
@@ -62,6 +129,11 @@ export const getLearningState = createServerFn({ method: "GET" })
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(2000),
+      context.supabase
+        .from("word_mastery")
+        .select("word")
+        .eq("user_id", context.userId)
+        .gte("rounds", 3),
     ]);
 
     const rows = attemptsRes.data ?? [];
@@ -95,6 +167,8 @@ export const getLearningState = createServerFn({ method: "GET" })
     return {
       dailyGoal: settingsRes.data?.daily_goal ?? 20,
       activeBook: settingsRes.data?.active_book ?? "core",
+      memorizeSpelling: settingsRes.data?.memorize_spelling ?? true,
+      masteredWords: (masteryRes.data ?? []).map((m) => m.word),
       cursors,
       learnedByBook,
       learnedWords: [...new Set(rows.map((r) => r.word))],
@@ -111,16 +185,27 @@ export const saveSettings = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
     z
-      .object({ dailyGoal: z.number().int().min(5).max(300).optional(), activeBook: z.string().optional() })
+      .object({
+        dailyGoal: z.number().int().min(5).max(300).optional(),
+        activeBook: z.string().optional(),
+        memorizeSpelling: z.boolean().optional(),
+      })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const patch: { user_id: string; updated_at: string; daily_goal?: number; active_book?: string } = {
+    const patch: {
+      user_id: string;
+      updated_at: string;
+      daily_goal?: number;
+      active_book?: string;
+      memorize_spelling?: boolean;
+    } = {
       user_id: context.userId,
       updated_at: new Date().toISOString(),
     };
     if (data.dailyGoal !== undefined) patch.daily_goal = data.dailyGoal;
     if (data.activeBook !== undefined) patch.active_book = data.activeBook;
+    if (data.memorizeSpelling !== undefined) patch.memorize_spelling = data.memorizeSpelling;
     const { error } = await context.supabase.from("user_settings").upsert(patch, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -242,7 +327,7 @@ export const sendMessage = createServerFn({ method: "POST" })
     const key = process.env["LOVABLE_API_KEY"];
     if (!key) throw new Error("AI 服务暂未配置");
 
-    const [{ data: history }, { data: rows }] = await Promise.all([
+    const [{ data: history }, { data: rows }, { data: mastery }] = await Promise.all([
       context.supabase
         .from("assistant_messages")
         .select("role, content")
@@ -255,6 +340,12 @@ export const sendMessage = createServerFn({ method: "POST" })
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(200),
+      context.supabase
+        .from("word_mastery")
+        .select("word, translation, rounds, context_ok, recall_ok, spell_ok")
+        .eq("user_id", context.userId)
+        .order("updated_at", { ascending: false })
+        .limit(120),
     ]);
 
     const attempts = rows ?? [];
@@ -266,6 +357,19 @@ export const sendMessage = createServerFn({ method: "POST" })
       ...new Set(attempts.filter((r) => r.typo_count > 0 && !r.mistouch).map((r) => r.word)),
     ].slice(0, 20);
     const learned = [...new Set(attempts.map((r) => r.word))].slice(0, 60);
+    const masteryRows = mastery ?? [];
+    const mastered = masteryRows.filter((m) => m.rounds >= 3).map((m) => m.word);
+    const inProgress = masteryRows
+      .filter((m) => m.rounds > 0 && m.rounds < 3)
+      .map((m) => {
+        const missing = [
+          m.context_ok ? null : "语境选义",
+          m.recall_ok ? null : "词义回忆",
+          m.spell_ok ? null : "拼写",
+        ].filter(Boolean);
+        return `${m.word}(还差：${missing.join("、")})`;
+      })
+      .slice(0, 30);
 
     const system = [
       "你是一个中文用户的英语学习助手，熟悉用户的真实学习记录。",
@@ -275,6 +379,10 @@ export const sendMessage = createServerFn({ method: "POST" })
       `经常出错的词：${wrongWords.join(", ") || "暂无"}`,
       `已学过的词：${learned.join(", ") || "暂无"}`,
       `累计练习次数：${attempts.length}`,
+      "背单词模式共三轮强化：1) 语境中选中文释义 2) 只看单词选中文释义 3) 拼写。",
+      `已完成三轮强化学习的词(${mastered.length})：${mastered.slice(0, 40).join(", ") || "暂无"}`,
+      `三轮尚未完成的词：${inProgress.join(", ") || "暂无"}`,
+      "回答中可以据此判断哪些词已被真正巩固、哪些还需要再练。",
     ].join("\n");
 
     await context.supabase
