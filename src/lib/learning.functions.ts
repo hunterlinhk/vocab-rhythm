@@ -167,7 +167,7 @@ export const getLearningState = createServerFn({ method: "GET" })
     for (const p of progressRes.data ?? []) cursors[p.book_id] = p.cursor_index;
 
     const learnedByBook: Record<string, string[]> = {};
-    for (const r of rows) {
+    for (const r of studied) {
       const list = (learnedByBook[r.book_id] ??= []);
       if (!list.includes(r.word)) list.push(r.word);
     }
@@ -175,7 +175,7 @@ export const getLearningState = createServerFn({ method: "GET" })
     const wrong = new Map<string, { word: string; translation: string | null }>();
     const trouble = new Map<string, { word: string; translation: string | null; typos: number }>();
     const mistouch: { word: string; translation: string | null; at: string }[] = [];
-    for (const r of rows) {
+    for (const r of studied) {
       if (r.mistouch) {
         if (mistouch.length < 40) mistouch.push({ word: r.word, translation: r.translation, at: r.created_at });
         continue;
@@ -188,20 +188,28 @@ export const getLearningState = createServerFn({ method: "GET" })
       }
     }
 
+    const skippedRows = rows.filter((r) => r.skipped);
+
     return {
       dailyGoal: settingsRes.data?.daily_goal ?? 20,
       activeBook: settingsRes.data?.active_book ?? "core",
       memorizeSpelling: settingsRes.data?.memorize_spelling ?? true,
+      strictSpelling: settingsRes.data?.strict_spelling ?? false,
       masteredWords: (masteryRes.data ?? []).map((m) => m.word),
       cursors,
       learnedByBook,
-      learnedWords: [...new Set(rows.map((r) => r.word))],
+      learnedWords: [...new Set(studied.map((r) => r.word))],
       todayWords: [
-        ...new Set(rows.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today).map((r) => r.word)),
+        ...new Set(
+          studied.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today).map((r) => r.word),
+        ),
       ],
       wrongWords: [...wrong.values()].slice(0, 60),
       troubleWords: [...trouble.values()].sort((a, b) => b.typos - a.typos).slice(0, 60),
       mistouchWords: mistouch,
+      skippedWords: skippedRows
+        .slice(0, 40)
+        .map((r) => ({ word: r.word, translation: r.translation, at: r.created_at })),
     };
   });
 
