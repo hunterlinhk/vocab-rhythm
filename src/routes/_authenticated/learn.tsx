@@ -74,6 +74,19 @@ function LearnPage() {
   // null = typing current word; number = reviewing history[reviewIndex] (permanent)
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
+  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  useEffect(() => setPrefs(loadPrefs()), []);
+  const togglePref = useCallback((key: keyof Prefs) => {
+    setPrefs((p) => {
+      const nextPrefs = { ...p, [key]: !p[key] };
+      try {
+        window.localStorage.setItem(PREF_KEY, JSON.stringify(nextPrefs));
+      } catch {
+        /* ignore */
+      }
+      return nextPrefs;
+    });
+  }, []);
   const [savedToMistakes, setSavedToMistakes] = useState<Set<string>>(new Set());
   const dragX = useRef<number | null>(null);
 
@@ -103,7 +116,7 @@ function LearnPage() {
       setDone(r);
       setSessionDone((n) => n + 1);
       setHistory((h) => [...h, { entry, result: r }]);
-      speak(entry.word);
+      if (prefsRef.current.speech) speak(entry.word);
       void save({
         data: {
           mode: "word" as const,
