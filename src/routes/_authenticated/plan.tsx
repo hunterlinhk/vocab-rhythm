@@ -37,10 +37,22 @@ function PlanPage() {
   const [goal, setGoal] = useState(20);
   const [custom, setCustom] = useState("");
   const [saved, setSaved] = useState(false);
+  const [spelling, setSpelling] = useState(true);
 
   useEffect(() => {
-    if (state) setGoal(state.dailyGoal);
+    if (state) {
+      setGoal(state.dailyGoal);
+      setSpelling(state.memorizeSpelling);
+    }
   }, [state]);
+
+  const toggleSpelling = () => {
+    const next = !spelling;
+    setSpelling(next);
+    void persist({ data: { memorizeSpelling: next } })
+      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .catch(() => undefined);
+  };
 
   const apply = (value: number) => {
     const v = Math.min(300, Math.max(5, Math.round(value)));
