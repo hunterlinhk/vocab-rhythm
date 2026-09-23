@@ -297,7 +297,8 @@ function SentencePage() {
               </div>
               <p className="text-lg text-foreground">{reviewing.entry.sentenceCn}</p>
               <p className="text-sm text-muted-foreground">
-                围绕单词 <span className="font-mono text-foreground">{reviewing.entry.word}</span> · {reviewing.entry.cn}
+                围绕单词 <span className="font-mono text-foreground">{reviewing.entry.word}</span>{" "}
+                <span className="font-mono">{reviewing.entry.phonetic}</span> · {reviewing.entry.cn}
               </p>
               {reviewing.entry.svo && (
                 <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
