@@ -3,7 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 
 const AttemptInput = z.object({
-  mode: z.enum(["word", "sentence"]),
+  mode: z.enum(["word", "sentence", "memorize"]),
   bookId: z.string(),
   word: z.string(),
   translation: z.string().optional(),
@@ -34,9 +34,76 @@ export const recordAttempt = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+const StageInput = z.object({
+  word: z.string(),
+  bookId: z.string(),
+  translation: z.string().optional(),
+  stage: z.enum(["context", "recall", "spell"]),
+  correct: z.boolean(),
+  typoCount: z.number().int().min(0).optional(),
+  durationMs: z.number().int().min(0).optional(),
+});
+
+/** records one reinforcement round of the 背单词 flow (context → recall → spell) */
+export const recordMemorizeStage = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => StageInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: existing } = await context.supabase
+      .from("word_mastery")
+      .select("context_ok, recall_ok, spell_ok")
+      .eq("user_id", context.userId)
+      .eq("word", data.word)
+      .maybeSingle();
+
+    const flags = {
+      context_ok: existing?.context_ok ?? false,
+      recall_ok: existing?.recall_ok ?? false,
+      spell_ok: existing?.spell_ok ?? false,
+    };
+    if (data.correct) {
+      if (data.stage === "context") flags.context_ok = true;
+      if (data.stage === "recall") flags.recall_ok = true;
+      if (data.stage === "spell") flags.spell_ok = true;
+    }
+    const rounds = Number(flags.context_ok) + Number(flags.recall_ok) + Number(flags.spell_ok);
+
+    const { error } = await context.supabase.from("word_mastery").upsert(
+      {
+        user_id: context.userId,
+        word: data.word,
+        book_id: data.bookId,
+        translation: data.translation ?? null,
+        ...flags,
+        rounds,
+        reinforced_at: rounds >= 3 ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,word" },
+    );
+    if (error) throw new Error(error.message);
+
+    await context.supabase.from("attempts").insert({
+      user_id: context.userId,
+      mode: "memorize",
+      book_id: data.bookId,
+      word: data.word,
+      translation: data.translation ?? null,
+      correct: data.correct,
+      mistouch: false,
+      typo_count: data.typoCount ?? 0,
+      duration_ms: data.durationMs ?? 0,
+      is_review: data.stage !== "context",
+    });
+
+    return { rounds };
+  });
+
 export type LearningState = {
   dailyGoal: number;
   activeBook: string;
+  memorizeSpelling: boolean;
+  masteredWords: string[];
   cursors: Record<string, number>;
   learnedByBook: Record<string, string[]>;
   learnedWords: string[];
