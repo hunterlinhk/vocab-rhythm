@@ -142,14 +142,20 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
   const chars = target.split("");
   const big = size === "word";
 
+  // tapping anywhere while typing (touch devices) summons the soft keyboard
+  useEffect(() => {
+    if (paused) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("button, a, input, textarea")) return;
+      inputRef.current?.focus({ preventScroll: true });
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [paused]);
+
   return (
-    <div
-      className="relative flex flex-col items-center gap-5"
-      onPointerDown={() => {
-        // summon the soft keyboard on touch devices
-        if (!paused) inputRef.current?.focus({ preventScroll: true });
-      }}
-    >
+    <div className="relative flex flex-col items-center gap-5">
       <input
         ref={inputRef}
         type="text"
