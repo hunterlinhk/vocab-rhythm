@@ -195,14 +195,15 @@
   --pointer-y: 42%;
   position: relative;
   border-radius: 1.75rem;
-  border: 1px solid oklch(1 0 0 / 12%);
-  background: linear-gradient(155deg, oklch(1 0 0 / 22%) 0%, color-mix(in oklab, var(--paper) 10%, transparent) 50%, oklch(0.9 0.025 220 / 9%) 100%);
-  backdrop-filter: blur(34px) saturate(180%);
+  border: 0;
+  background: linear-gradient(145deg, oklch(1 0 0 / 16%) 0%, oklch(1 0 0 / 6%) 44%, color-mix(in oklab, var(--accent) 5%, transparent) 100%);
+  backdrop-filter: blur(30px) saturate(175%) brightness(1.025);
   box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 30%),
-    inset 0 -1px 0 color-mix(in oklab, var(--ink) 4%, transparent),
-    0 30px 80px -46px color-mix(in oklab, var(--ink) 26%, transparent),
-    0 10px 28px -22px color-mix(in oklab, var(--primary) 22%, transparent);
+    inset 0 1px 0 oklch(1 0 0 / 32%),
+    inset 1px 0 0 oklch(1 0 0 / 10%),
+    inset 0 -1px 0 color-mix(in oklab, var(--ink) 5%, transparent),
+    0 30px 70px -40px color-mix(in oklab, var(--ink) 25%, transparent),
+    0 8px 24px -18px color-mix(in oklab, var(--primary) 18%, transparent);
 }
 
 @utility sidebar-pointer-light {
@@ -263,7 +264,7 @@
   min-height: 2.75rem;
   align-items: center;
   gap: 0.75rem;
-  border: 1px solid transparent;
+  border: 0;
   border-radius: 0.875rem;
   padding: 0 0.875rem;
   color: var(--muted-foreground);
@@ -272,27 +273,43 @@
   position: relative;
   overflow: hidden;
   transform-origin: center;
-  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1), background-color 220ms ease, color 180ms ease, box-shadow 260ms ease, border-color 220ms ease, backdrop-filter 220ms ease;
+  isolation: isolate;
+  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1), background 220ms ease, color 180ms ease, box-shadow 260ms ease, backdrop-filter 220ms ease;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: radial-gradient(120% 95% at 8% 0%, oklch(1 0 0 / 38%) 0%, oklch(1 0 0 / 9%) 30%, transparent 60%);
+    opacity: 0;
+    transition: opacity 240ms ease;
+    pointer-events: none;
+  }
   &::after {
     content: "";
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background: linear-gradient(168deg, oklch(1 0 0 / 30%) 0%, oklch(1 0 0 / 8%) 30%, oklch(1 0 0 / 0%) 50%, oklch(0.42 0.05 232 / 6%) 100%);
+    z-index: -1;
+    background: linear-gradient(180deg, transparent 64%, color-mix(in oklab, var(--accent) 7%, transparent) 100%);
     opacity: 0;
     transition: opacity 240ms ease;
     pointer-events: none;
   }
   &:hover {
     color: var(--foreground);
-    background: linear-gradient(160deg, oklch(1 0 0 / 20%) 0%, color-mix(in oklab, var(--card) 9%, transparent) 55%, oklch(1 0 0 / 6%) 100%);
-    backdrop-filter: blur(20px) saturate(190%);
-    transform: translateX(4px) scale(1.03);
+    background: linear-gradient(145deg, oklch(1 0 0 / 19%) 0%, oklch(1 0 0 / 7%) 46%, color-mix(in oklab, var(--accent) 5%, transparent) 100%);
+    backdrop-filter: blur(18px) saturate(185%) brightness(1.035);
+    transform: translateX(3px) translateY(-1px) scale(1.018);
     box-shadow:
-      inset 0 1px 0 oklch(1 0 0 / 35%),
-      inset 0 -1px 0 color-mix(in oklab, var(--ink) 5%, transparent),
-      0 14px 28px -18px color-mix(in oklab, var(--ink) 22%, transparent);
-    &::after { opacity: 0.7; }
+      inset 0 1px 0 oklch(1 0 0 / 48%),
+      inset 1px 0 0 oklch(1 0 0 / 13%),
+      inset 0 -1px 0 color-mix(in oklab, var(--ink) 6%, transparent),
+      0 13px 28px -17px color-mix(in oklab, var(--ink) 25%, transparent),
+      0 3px 9px -6px color-mix(in oklab, var(--ink) 14%, transparent);
+    &::before { opacity: 0.72; }
+    &::after { opacity: 0.8; }
   }
   &:active { transform: translateX(2px) scale(0.985); }
 }
@@ -300,15 +317,25 @@
 @utility sidebar-link-active {
   color: var(--foreground);
   font-weight: 600;
-  background: linear-gradient(160deg, oklch(1 0 0 / 42%) 0%, color-mix(in oklab, var(--card) 20%, transparent) 48%, oklch(1 0 0 / 12%) 100%);
-  backdrop-filter: blur(22px) saturate(200%) brightness(1.04);
+  background: linear-gradient(145deg, oklch(1 0 0 / 21%) 0%, oklch(1 0 0 / 8%) 48%, color-mix(in oklab, var(--accent) 6%, transparent) 100%);
+  backdrop-filter: blur(19px) saturate(190%) brightness(1.045);
   box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 55%),
-    inset 0 -1px 0 color-mix(in oklab, var(--ink) 6%, transparent),
-    inset 1px 0 0 oklch(1 0 0 / 14%),
-    0 12px 26px -16px color-mix(in oklab, var(--ink) 26%, transparent),
-    0 3px 10px -6px color-mix(in oklab, var(--ink) 14%, transparent);
-  &::after { opacity: 0.85; }
+    inset 0 1px 0 oklch(1 0 0 / 52%),
+    inset 1px 0 0 oklch(1 0 0 / 15%),
+    inset 0 -1px 0 color-mix(in oklab, var(--ink) 7%, transparent),
+    0 14px 30px -18px color-mix(in oklab, var(--ink) 27%, transparent),
+    0 3px 10px -7px color-mix(in oklab, var(--ink) 16%, transparent);
+  &::before { opacity: 0.8; }
+  &::after { opacity: 0.9; }
+  &:hover {
+    background: linear-gradient(145deg, oklch(1 0 0 / 24%) 0%, oklch(1 0 0 / 9%) 48%, color-mix(in oklab, var(--accent) 7%, transparent) 100%);
+    box-shadow:
+      inset 0 1px 0 oklch(1 0 0 / 58%),
+      inset 1px 0 0 oklch(1 0 0 / 17%),
+      inset 0 -1px 0 color-mix(in oklab, var(--ink) 7%, transparent),
+      0 16px 34px -19px color-mix(in oklab, var(--ink) 29%, transparent),
+      0 4px 11px -7px color-mix(in oklab, var(--ink) 17%, transparent);
+  }
 }
 
 @utility sidebar-subnav {
