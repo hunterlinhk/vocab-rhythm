@@ -133,6 +133,16 @@ export const getBook = (id: string): WordBook => WORD_BOOKS.find((b) => b.id ===
 
 export const TOTAL_WORDS = WORD_BOOKS.reduce((n, b) => n + b.words.length, 0);
 
+export const ALL_WORDS: WordEntry[] = WORD_BOOKS.flatMap((b) => b.words);
+
+const WORD_INDEX = new Map(ALL_WORDS.map((w) => [w.word.toLowerCase(), w]));
+
+export const findWord = (word: string): WordEntry | undefined => WORD_INDEX.get(word.toLowerCase());
+
+/** Build a queue of entries from a list of words, skipping unknown ones. */
+export const entriesFor = (words: string[]): WordEntry[] =>
+  words.map((w) => findWord(w)).filter((e): e is WordEntry => !!e);
+
 export function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
