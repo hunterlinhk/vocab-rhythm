@@ -12,10 +12,12 @@ type Props = {
   target: string;
   size?: "word" | "sentence";
   paused?: boolean;
+  /** dictation mode: untyped characters are hidden */
+  masked?: boolean;
   onComplete: (result: TypingResult) => void;
 };
 
-export function TypingBoard({ target, size = "word", paused = false, onComplete }: Props) {
+export function TypingBoard({ target, size = "word", paused = false, masked = false, onComplete }: Props) {
   const [typed, setTyped] = useState("");
   const [typos, setTypos] = useState(0);
   const [mistouch, setMistouch] = useState(false);
@@ -120,7 +122,7 @@ export function TypingBoard({ target, size = "word", paused = false, onComplete 
                 current && wrongAt === i && "text-destructive",
               )}
             >
-              {isSpace ? "\u00A0" : ch}
+              {isSpace ? "\u00A0" : masked && !done ? "·" : ch}
               {current && (
                 <span
                   className={cn(
