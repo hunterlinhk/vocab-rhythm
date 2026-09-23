@@ -224,6 +224,7 @@ export const saveSettings = createServerFn({ method: "POST" })
         dailyGoal: z.number().int().min(5).max(300).optional(),
         activeBook: z.string().optional(),
         memorizeSpelling: z.boolean().optional(),
+        strictSpelling: z.boolean().optional(),
       })
       .parse(input),
   )
@@ -234,6 +235,7 @@ export const saveSettings = createServerFn({ method: "POST" })
       daily_goal?: number;
       active_book?: string;
       memorize_spelling?: boolean;
+      strict_spelling?: boolean;
     } = {
       user_id: context.userId,
       updated_at: new Date().toISOString(),
@@ -241,6 +243,7 @@ export const saveSettings = createServerFn({ method: "POST" })
     if (data.dailyGoal !== undefined) patch.daily_goal = data.dailyGoal;
     if (data.activeBook !== undefined) patch.active_book = data.activeBook;
     if (data.memorizeSpelling !== undefined) patch.memorize_spelling = data.memorizeSpelling;
+    if (data.strictSpelling !== undefined) patch.strict_spelling = data.strictSpelling;
     const { error } = await context.supabase.from("user_settings").upsert(patch, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
     return { ok: true };
