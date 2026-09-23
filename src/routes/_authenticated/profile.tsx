@@ -25,8 +25,21 @@ function ProfilePage() {
   const [email, setEmail] = useState("学习者");
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [sound, setSound] = useState(true);
+  const fetchState = useServerFn(getLearningState);
+  const persistSettings = useServerFn(saveSettings);
+  const qc = useQueryClient();
+  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+  const [strict, setStrict] = useState(false);
 
+  useEffect(() => { if (state) setStrict(state.strictSpelling); }, [state]);
   useEffect(() => { void supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? "学习者")); }, []);
+
+  const toggleStrict = (on: boolean) => {
+    setStrict(on);
+    void persistSettings({ data: { strictSpelling: on } })
+      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .catch(() => undefined);
+  };
 
   return (
     <div className="space-y-7 pb-8">
