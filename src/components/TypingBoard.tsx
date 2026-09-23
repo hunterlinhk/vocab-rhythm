@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { sfx } from "@/lib/sound";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useVirtualKeyboard } from "@/lib/virtual-keyboard";
 
 const KEY_ROWS: string[][] = [
   "qwertyuiop".split(""),
