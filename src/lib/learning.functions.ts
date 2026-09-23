@@ -284,12 +284,12 @@ export const getStats = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<LearningStats> => {
     const { data, error } = await context.supabase
       .from("attempts")
-      .select("word, translation, mode, typo_count, mistouch, created_at")
+      .select("word, translation, mode, typo_count, mistouch, skipped, created_at")
       .eq("user_id", context.userId)
       .order("created_at", { ascending: false })
       .limit(1000);
     if (error) throw new Error(error.message);
-    const rows = data ?? [];
+    const rows = (data ?? []).filter((r) => !r.skipped);
 
     const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
     const today = new Date().toLocaleDateString("en-CA");
@@ -374,7 +374,7 @@ export const sendMessage = createServerFn({ method: "POST" })
         .limit(40),
       context.supabase
         .from("attempts")
-        .select("word, translation, typo_count, mistouch, mode, created_at")
+        .select("word, translation, typo_count, mistouch, mode, skipped, created_at")
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(200),
@@ -386,7 +386,9 @@ export const sendMessage = createServerFn({ method: "POST" })
         .limit(120),
     ]);
 
-    const attempts = rows ?? [];
+    const allRows = rows ?? [];
+    const attempts = allRows.filter((r) => !r.skipped);
+    const skippedWords = [...new Set(allRows.filter((r) => r.skipped).map((r) => r.word))].slice(0, 30);
     const today = new Date().toLocaleDateString("en-CA");
     const todayWords = [
       ...new Set(attempts.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today).map((r) => r.word)),
@@ -415,6 +417,7 @@ export const sendMessage = createServerFn({ method: "POST" })
       "尽量结合用户真实学过的词汇作答；数据中没有的内容不要编造。",
       `今天学过的词(${todayWords.length})：${todayWords.join(", ") || "暂无"}`,
       `经常出错的词：${wrongWords.join(", ") || "暂无"}`,
+      `主动跳过(skipped)的词：${skippedWords.join(", ") || "暂无"}（跳过不算错误，也不算误触）`,
       `已学过的词：${learned.join(", ") || "暂无"}`,
       `累计练习次数：${attempts.length}`,
       "背单词模式共三轮强化：1) 语境中选中文释义 2) 只看单词选中文释义 3) 拼写。",
