@@ -147,6 +147,9 @@ function LearnPage() {
   const [dragging, setDragging] = useState(false);
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    // don't hijack pointer from buttons/interactive elements — they need their click
+    if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
     dragX.current = e.clientX;
     setDragging(true);
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
