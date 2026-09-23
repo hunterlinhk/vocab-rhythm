@@ -25,6 +25,9 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
   const startedAt = useRef<number | null>(null);
   const doneRef = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const typedRef = useRef("");
+  const typosRef = useRef(0);
+  const mistouchRef = useRef(false);
 
   useEffect(() => {
     setTyped("");
@@ -33,16 +36,22 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
     setWrongAt(null);
     startedAt.current = null;
     doneRef.current = false;
+    typedRef.current = "";
+    typosRef.current = 0;
+    mistouchRef.current = false;
   }, [target]);
 
   const markMistouch = useCallback(() => {
-    setTypos((n) => Math.max(0, n - 1));
+    typosRef.current = Math.max(0, typosRef.current - 1);
+    mistouchRef.current = true;
+    setTypos(typosRef.current);
     setMistouch(true);
     setWrongAt(null);
   }, []);
 
   const handleBackspace = useCallback(() => {
-    setTyped((t) => t.slice(0, -1));
+    typedRef.current = typedRef.current.slice(0, -1);
+    setTyped(typedRef.current);
     setWrongAt(null);
   }, []);
 
@@ -51,29 +60,30 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
       if (doneRef.current) return;
       if (startedAt.current === null) startedAt.current = performance.now();
 
-      setTyped((prev) => {
-        const expected = target[prev.length];
-        if (expected === undefined) return prev;
-        const ok = key === expected;
-        if (!ok) {
-          setTypos((n) => n + 1);
-          setWrongAt(prev.length);
-          sfx.wrong();
-          window.setTimeout(() => setWrongAt(null), 260);
-          return prev;
-        }
-        const next = prev + expected;
-        sfx.key();
-        if (next.length === target.length) {
-          doneRef.current = true;
-          sfx.complete();
-          const duration = Math.round(performance.now() - (startedAt.current ?? performance.now()));
-          window.setTimeout(() => {
-            onComplete({ typoCount: typosRef.current, mistouch: mistouchRef.current, durationMs: duration });
-          }, 0);
-        }
-        return next;
-      });
+      const prev = typedRef.current;
+      const expected = target[prev.length];
+      if (expected === undefined) return;
+
+      if (key !== expected) {
+        typosRef.current += 1;
+        setTypos(typosRef.current);
+        setWrongAt(prev.length);
+        sfx.wrong();
+        window.setTimeout(() => setWrongAt(null), 260);
+        return;
+      }
+
+      const next = prev + expected;
+      typedRef.current = next;
+      setTyped(next);
+      sfx.key();
+      if (next.length === target.length) {
+        doneRef.current = true;
+        sfx.complete();
+        const duration = Math.round(performance.now() - (startedAt.current ?? performance.now()));
+        const result = { typoCount: typosRef.current, mistouch: mistouchRef.current, durationMs: duration };
+        window.setTimeout(() => onComplete(result), 0);
+      }
     },
     [target, onComplete],
   );
