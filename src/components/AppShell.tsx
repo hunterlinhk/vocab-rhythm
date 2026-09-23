@@ -143,9 +143,9 @@ function SidebarContent({
                       onNavigate?.();
                       return;
                     }
-                    // tapping the current section only folds/unfolds it, never navigates
-                    if (active) event.preventDefault();
-                    else onNavigate?.();
+                    // sections with children never navigate — click only expands/folds,
+                    // navigation happens via the child items
+                    event.preventDefault();
                     setExpandedItem((current) => (current === item.to ? null : item.to));
                   }}
                   className={cn("sidebar-link group", collapsed && "justify-center px-0", active && "sidebar-link-active")}
