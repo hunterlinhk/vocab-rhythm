@@ -6,12 +6,45 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { cn } from "@/lib/utils";
 
 const nav = [
-  { to: "/learn", label: "学习", icon: BookOpen, children: ["单词拼写", "句子拼写", "词库", "学习计划"] },
-  { to: "/review", label: "复习", icon: Brain, children: ["错词", "今日复习", "易错词", "误触记录"] },
-  { to: "/stats", label: "进度", icon: ChartNoAxesCombined, children: ["今日数据", "历史记录", "学习分析"] },
+  {
+    to: "/learn",
+    label: "学习",
+    icon: BookOpen,
+    children: [
+      { label: "单词拼写", to: "/learn" },
+      { label: "句子拼写", to: "/sentence" },
+      { label: "词库", to: "/books" },
+      { label: "学习计划", to: "/plan" },
+    ],
+  },
+  {
+    to: "/review",
+    label: "复习",
+    icon: Brain,
+    children: [
+      { label: "今日复习", to: "/review", search: { tab: "今日复习" } },
+      { label: "错词", to: "/review", search: { tab: "错词" } },
+      { label: "易错词", to: "/review", search: { tab: "易错词" } },
+      { label: "误触记录", to: "/review", search: { tab: "误触记录" } },
+    ],
+  },
+  {
+    to: "/stats",
+    label: "进度",
+    icon: ChartNoAxesCombined,
+    children: [
+      { label: "今日数据", to: "/stats", search: { tab: "今日数据" } },
+      { label: "历史记录", to: "/stats", search: { tab: "历史记录" } },
+      { label: "学习分析", to: "/stats", search: { tab: "学习分析" } },
+    ],
+  },
   { to: "/assistant", label: "AI 助手", icon: Bot },
   { to: "/profile", label: "我的", icon: UserRound },
 ] as const;
+
+const LEARN_PATHS = ["/learn", "/sentence", "/books", "/plan"];
+const isActive = (itemTo: string, pathname: string) =>
+  itemTo === "/learn" ? LEARN_PATHS.includes(pathname) : pathname === itemTo;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -59,7 +92,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname: string }) {
-  const activeParent = nav.find((item) => pathname === item.to || (item.to === "/learn" && pathname === "/sentence"));
+  const activeParent = nav.find((item) => isActive(item.to, pathname));
   const [expandedItem, setExpandedItem] = useState<string | null>(
     activeParent && "children" in activeParent ? activeParent.to : null,
   );
@@ -77,7 +110,7 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
         {!collapsed && <p className="mb-2 px-3 text-[10px] font-semibold text-muted-foreground">学习空间</p>}
         <div className="space-y-1.5">
           {nav.map((item) => {
-            const active = pathname === item.to || (item.to === "/learn" && pathname === "/sentence");
+            const active = isActive(item.to, pathname);
             const hasChildren = "children" in item;
             const expanded = hasChildren && expandedItem === item.to;
             const Icon = item.icon;
@@ -108,8 +141,15 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
                   <div className={cn("sidebar-subnav", expanded && "sidebar-subnav-open")}>
                     <div className="overflow-hidden">
                       <div className="ml-[21px] mt-1 border-l border-border/70 py-1 pl-5">
-                        {item.children.map((child, index) => (
-                          <Link key={child} to={item.to === "/learn" && index === 1 ? "/sentence" : item.to} className="block py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground">{child}</Link>
+                        {item.children.map((child) => (
+                          <Link
+                            key={child.label}
+                            to={child.to}
+                            search={("search" in child ? child.search : {}) as never}
+                            className="block py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            {child.label}
+                          </Link>
                         ))}
                       </div>
                     </div>

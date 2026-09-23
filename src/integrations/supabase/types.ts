@@ -45,6 +45,7 @@ export type Database = {
           created_at: string
           duration_ms: number
           id: string
+          is_review: boolean
           mistouch: boolean
           mode: string
           translation: string | null
@@ -58,6 +59,7 @@ export type Database = {
           created_at?: string
           duration_ms?: number
           id?: string
+          is_review?: boolean
           mistouch?: boolean
           mode?: string
           translation?: string | null
@@ -71,12 +73,34 @@ export type Database = {
           created_at?: string
           duration_ms?: number
           id?: string
+          is_review?: boolean
           mistouch?: boolean
           mode?: string
           translation?: string | null
           typo_count?: number
           user_id?: string
           word?: string
+        }
+        Relationships: []
+      }
+      book_progress: {
+        Row: {
+          book_id: string
+          cursor_index: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          cursor_index?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          cursor_index?: number
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -95,6 +119,27 @@ export type Database = {
           created_at?: string
           display_name?: string | null
           id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          active_book: string
+          daily_goal: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          active_book?: string
+          daily_goal?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          active_book?: string
+          daily_goal?: number
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }

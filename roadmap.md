@@ -1,11 +1,13 @@
 # Roadmap
 
-- [x] Build the responsive glass sidebar and signed-in shell
-- [x] Add the signed-in home dashboard
-- [x] Add grouped review and profile pages
-- [x] Expand the progress page and polish learning/assistant surfaces
-- [x] Redirect sign-in flows to the new home
-- [x] Verify desktop and mobile interactions
-- [x] Replace the warm palette and old logo with glacier-blue iOS glass styling
-- [x] Add pointer-following light and depth to the desktop sidebar
-- [x] Verify the refreshed signed-in workspace on desktop and mobile
+## 已完成
+- [x] 侧栏 / 玻璃材质 / 视觉体系
+- [x] 单词拼写、句子拼写、回顾与手势交互
+- [x] 学习进度持久化（当前词书、学习位置、已学词、词书完成度）
+- [x] 复习队列接入学习流程（今日复习 / 错词 / 易错词 / 误触记录 / 收藏）
+- [x] 学习计划：每日目标 20/30/50 与自定义，首页与进度读取该设置
+- [x] 词库页：切换词书、查看进度并继续学习
+- [x] 二级导航全部指向对应页面或 Tab（含 URL 参数）
+
+## 待用户处理
+- [ ] Google 登录需在后台确认已启用

@@ -6,7 +6,8 @@ import { ArrowRight, BookOpen, Bot, ChevronRight, Clock3, Flame, RotateCcw, Spar
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { SectionHeading } from "@/components/SectionHeading";
-import { getStats } from "@/lib/learning.functions";
+import { getLearningState, getStats } from "@/lib/learning.functions";
+import { getBook } from "@/data/words";
 
 export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
@@ -24,11 +25,18 @@ export const Route = createFileRoute("/_authenticated/home")({
 
 function HomePage() {
   const fetchStats = useServerFn(getStats);
+  const fetchState = useServerFn(getLearningState);
   const { data, isLoading } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats() });
+  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
   const todayCount = data?.todayCount ?? 0;
-  const dailyGoal = 20;
+  const dailyGoal = state?.dailyGoal ?? 20;
   const progress = Math.min(100, Math.round((todayCount / dailyGoal) * 100));
-  const reviewCount = data?.troubleWords.length ?? 0;
+  const reviewCount = new Set([
+    ...(state?.wrongWords.map((w) => w.word) ?? []),
+    ...(state?.troubleWords.map((w) => w.word) ?? []),
+  ]).size;
+  const activeBook = getBook(state?.activeBook ?? "core");
+  const bookLearned = state?.learnedByBook[activeBook.id]?.length ?? 0;
 
   return (
     <div className="space-y-8 pb-8">
@@ -37,7 +45,7 @@ function HomePage() {
           <p className="text-sm font-medium text-primary">今天也保持一点节奏</p>
           <h1 className="mt-3 font-display text-4xl leading-tight text-foreground sm:text-5xl">继续学习</h1>
           <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">
-            从核心词汇继续，把每一次敲击变成稳定、清晰的记忆。
+            {activeBook.name} · 已学 {bookLearned} / {activeBook.words.length}，从上次的位置继续。
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Button asChild size="lg" className="rounded-full px-6 shadow-lg shadow-primary/15">

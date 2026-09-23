@@ -11,6 +11,7 @@ const AttemptInput = z.object({
   mistouch: z.boolean(),
   typoCount: z.number().int().min(0),
   durationMs: z.number().int().min(0),
+  isReview: z.boolean().optional(),
 });
 
 export const recordAttempt = createServerFn({ method: "POST" })
@@ -27,7 +28,119 @@ export const recordAttempt = createServerFn({ method: "POST" })
       mistouch: data.mistouch,
       typo_count: data.typoCount,
       duration_ms: data.durationMs,
+      is_review: data.isReview ?? false,
     });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export type LearningState = {
+  dailyGoal: number;
+  activeBook: string;
+  cursors: Record<string, number>;
+  learnedByBook: Record<string, string[]>;
+  learnedWords: string[];
+  todayWords: string[];
+  wrongWords: { word: string; translation: string | null }[];
+  troubleWords: { word: string; translation: string | null; typos: number }[];
+  mistouchWords: { word: string; translation: string | null; at: string }[];
+};
+
+export const getLearningState = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<LearningState> => {
+    const [settingsRes, progressRes, attemptsRes] = await Promise.all([
+      context.supabase
+        .from("user_settings")
+        .select("daily_goal, active_book")
+        .eq("user_id", context.userId)
+        .maybeSingle(),
+      context.supabase.from("book_progress").select("book_id, cursor_index").eq("user_id", context.userId),
+      context.supabase
+        .from("attempts")
+        .select("word, translation, book_id, typo_count, mistouch, correct, created_at")
+        .eq("user_id", context.userId)
+        .order("created_at", { ascending: false })
+        .limit(2000),
+    ]);
+
+    const rows = attemptsRes.data ?? [];
+    const today = new Date().toLocaleDateString("en-CA");
+
+    const cursors: Record<string, number> = {};
+    for (const p of progressRes.data ?? []) cursors[p.book_id] = p.cursor_index;
+
+    const learnedByBook: Record<string, string[]> = {};
+    for (const r of rows) {
+      const list = (learnedByBook[r.book_id] ??= []);
+      if (!list.includes(r.word)) list.push(r.word);
+    }
+
+    const wrong = new Map<string, { word: string; translation: string | null }>();
+    const trouble = new Map<string, { word: string; translation: string | null; typos: number }>();
+    const mistouch: { word: string; translation: string | null; at: string }[] = [];
+    for (const r of rows) {
+      if (r.mistouch) {
+        if (mistouch.length < 40) mistouch.push({ word: r.word, translation: r.translation, at: r.created_at });
+        continue;
+      }
+      if (r.correct === false) wrong.set(r.word, { word: r.word, translation: r.translation });
+      if (r.typo_count > 0) {
+        const cur = trouble.get(r.word) ?? { word: r.word, translation: r.translation, typos: 0 };
+        cur.typos += r.typo_count;
+        trouble.set(r.word, cur);
+      }
+    }
+
+    return {
+      dailyGoal: settingsRes.data?.daily_goal ?? 20,
+      activeBook: settingsRes.data?.active_book ?? "core",
+      cursors,
+      learnedByBook,
+      learnedWords: [...new Set(rows.map((r) => r.word))],
+      todayWords: [
+        ...new Set(rows.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today).map((r) => r.word)),
+      ],
+      wrongWords: [...wrong.values()].slice(0, 60),
+      troubleWords: [...trouble.values()].sort((a, b) => b.typos - a.typos).slice(0, 60),
+      mistouchWords: mistouch,
+    };
+  });
+
+export const saveSettings = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({ dailyGoal: z.number().int().min(5).max(300).optional(), activeBook: z.string().optional() })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const patch: { user_id: string; updated_at: string; daily_goal?: number; active_book?: string } = {
+      user_id: context.userId,
+      updated_at: new Date().toISOString(),
+    };
+    if (data.dailyGoal !== undefined) patch.daily_goal = data.dailyGoal;
+    if (data.activeBook !== undefined) patch.active_book = data.activeBook;
+    const { error } = await context.supabase.from("user_settings").upsert(patch, { onConflict: "user_id" });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const saveBookCursor = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ bookId: z.string(), cursorIndex: z.number().int().min(0) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase.from("book_progress").upsert(
+      {
+        user_id: context.userId,
+        book_id: data.bookId,
+        cursor_index: data.cursorIndex,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,book_id" },
+    );
     if (error) throw new Error(error.message);
     return { ok: true };
   });

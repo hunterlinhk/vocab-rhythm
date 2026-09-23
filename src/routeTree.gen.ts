@@ -13,8 +13,10 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAssistantRouteImport } from './routes/_authenticated/assistant'
+import { Route as AuthenticatedBooksRouteImport } from './routes/_authenticated/books'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedLearnRouteImport } from './routes/_authenticated/learn'
+import { Route as AuthenticatedPlanRouteImport } from './routes/_authenticated/plan'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
 import { Route as AuthenticatedReviewRouteImport } from './routes/_authenticated/review'
 import { Route as AuthenticatedSentenceRouteImport } from './routes/_authenticated/sentence'
@@ -39,6 +41,11 @@ const AuthenticatedAssistantRoute = AuthenticatedAssistantRouteImport.update({
   path: '/assistant',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedBooksRoute = AuthenticatedBooksRouteImport.update({
+  id: '/books',
+  path: '/books',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedHomeRoute = AuthenticatedHomeRouteImport.update({
   id: '/home',
   path: '/home',
@@ -47,6 +54,11 @@ const AuthenticatedHomeRoute = AuthenticatedHomeRouteImport.update({
 const AuthenticatedLearnRoute = AuthenticatedLearnRouteImport.update({
   id: '/learn',
   path: '/learn',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPlanRoute = AuthenticatedPlanRouteImport.update({
+  id: '/plan',
+  path: '/plan',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
@@ -74,8 +86,10 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/assistant': typeof AuthenticatedAssistantRoute
+  '/books': typeof AuthenticatedBooksRoute
   '/home': typeof AuthenticatedHomeRoute
   '/learn': typeof AuthenticatedLearnRoute
+  '/plan': typeof AuthenticatedPlanRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/review': typeof AuthenticatedReviewRoute
   '/sentence': typeof AuthenticatedSentenceRoute
@@ -85,8 +99,10 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/assistant': typeof AuthenticatedAssistantRoute
+  '/books': typeof AuthenticatedBooksRoute
   '/home': typeof AuthenticatedHomeRoute
   '/learn': typeof AuthenticatedLearnRoute
+  '/plan': typeof AuthenticatedPlanRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/review': typeof AuthenticatedReviewRoute
   '/sentence': typeof AuthenticatedSentenceRoute
@@ -98,8 +114,10 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/assistant': typeof AuthenticatedAssistantRoute
+  '/_authenticated/books': typeof AuthenticatedBooksRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/learn': typeof AuthenticatedLearnRoute
+  '/_authenticated/plan': typeof AuthenticatedPlanRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/review': typeof AuthenticatedReviewRoute
   '/_authenticated/sentence': typeof AuthenticatedSentenceRoute
@@ -111,8 +129,10 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/assistant'
+    | '/books'
     | '/home'
     | '/learn'
+    | '/plan'
     | '/profile'
     | '/review'
     | '/sentence'
@@ -122,8 +142,10 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/assistant'
+    | '/books'
     | '/home'
     | '/learn'
+    | '/plan'
     | '/profile'
     | '/review'
     | '/sentence'
@@ -134,8 +156,10 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/assistant'
+    | '/_authenticated/books'
     | '/_authenticated/home'
     | '/_authenticated/learn'
+    | '/_authenticated/plan'
     | '/_authenticated/profile'
     | '/_authenticated/review'
     | '/_authenticated/sentence'
@@ -178,6 +202,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAssistantRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/books': {
+      id: '/_authenticated/books'
+      path: '/books'
+      fullPath: '/books'
+      preLoaderRoute: typeof AuthenticatedBooksRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/home': {
       id: '/_authenticated/home'
       path: '/home'
@@ -190,6 +221,13 @@ declare module '@tanstack/react-router' {
       path: '/learn'
       fullPath: '/learn'
       preLoaderRoute: typeof AuthenticatedLearnRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/plan': {
+      id: '/_authenticated/plan'
+      path: '/plan'
+      fullPath: '/plan'
+      preLoaderRoute: typeof AuthenticatedPlanRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/profile': {
@@ -225,8 +263,10 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAssistantRoute: typeof AuthenticatedAssistantRoute
+  AuthenticatedBooksRoute: typeof AuthenticatedBooksRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedLearnRoute: typeof AuthenticatedLearnRoute
+  AuthenticatedPlanRoute: typeof AuthenticatedPlanRoute
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedReviewRoute: typeof AuthenticatedReviewRoute
   AuthenticatedSentenceRoute: typeof AuthenticatedSentenceRoute
@@ -235,8 +275,10 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAssistantRoute: AuthenticatedAssistantRoute,
+  AuthenticatedBooksRoute: AuthenticatedBooksRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedLearnRoute: AuthenticatedLearnRoute,
+  AuthenticatedPlanRoute: AuthenticatedPlanRoute,
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedReviewRoute: AuthenticatedReviewRoute,
   AuthenticatedSentenceRoute: AuthenticatedSentenceRoute,

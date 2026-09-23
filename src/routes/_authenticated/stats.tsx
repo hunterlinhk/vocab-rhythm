@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { BarChart3, CalendarDays, CheckCircle2, Flame, History, Target } from "lucide-react";
@@ -7,7 +7,14 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getStats } from "@/lib/learning.functions";
 
+const STAT_TABS = ["今日数据", "历史记录", "学习分析"] as const;
+type StatTab = (typeof STAT_TABS)[number];
+
 export const Route = createFileRoute("/_authenticated/stats")({
+  validateSearch: (search: Record<string, unknown>): { tab?: StatTab } => {
+    const t = search["tab"];
+    return typeof t === "string" && (STAT_TABS as readonly string[]).includes(t) ? { tab: t as StatTab } : {};
+  },
   head: () => ({
     meta: [
       { title: "学习记录 · 韵词 Cadence" },
@@ -22,7 +29,9 @@ export const Route = createFileRoute("/_authenticated/stats")({
 });
 
 function StatsPage() {
-  const [tab, setTab] = useState<"今日数据" | "历史记录" | "学习分析">("今日数据");
+  const { tab = "今日数据" } = Route.useSearch();
+  const navigate = useNavigate();
+  const setTab = (item: StatTab) => void navigate({ to: "/stats", search: { tab: item } });
   const fetchStats = useServerFn(getStats);
   const { data, isLoading } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats() });
 
