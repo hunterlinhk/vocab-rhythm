@@ -139,9 +139,14 @@ function SidebarContent({
                   title={collapsed ? item.label : undefined}
                   aria-expanded={hasChildren ? expanded : undefined}
                   onClick={(event) => {
-                    if (!hasChildren || collapsed) return;
+                    if (!hasChildren || collapsed) {
+                      onNavigate?.();
+                      return;
+                    }
+                    // tapping the current section only folds/unfolds it, never navigates
                     if (active) event.preventDefault();
-                    setExpandedItem((current) => current === item.to ? null : item.to);
+                    else onNavigate?.();
+                    setExpandedItem((current) => (current === item.to ? null : item.to));
                   }}
                   className={cn("sidebar-link group", collapsed && "justify-center px-0", active && "sidebar-link-active")}
                 >
@@ -173,6 +178,7 @@ function SidebarContent({
                               key={child.label}
                               to={child.to}
                               search={("search" in child ? child.search : {}) as never}
+                              onClick={() => onNavigate?.()}
                               className={cn(
                                 "block py-1.5 text-xs transition-colors",
                                 childActive
