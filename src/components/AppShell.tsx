@@ -51,6 +51,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebarRef = useRef<HTMLElement>(null);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
 
+  const handleSidebarPointerMove2 = undefined;
   const handleSidebarPointerMove = (event: PointerEvent<HTMLElement>) => {
     if (event.pointerType === "touch") return;
     const sidebar = sidebarRef.current;
