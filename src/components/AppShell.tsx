@@ -145,7 +145,7 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
                           <Link
                             key={child.label}
                             to={child.to}
-                            search={"search" in child ? (child.search as never) : undefined}
+                            search={("search" in child ? child.search : {}) as never}
                             className="block py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
                           >
                             {child.label}
