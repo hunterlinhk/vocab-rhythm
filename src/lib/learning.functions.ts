@@ -358,6 +358,9 @@ export const clearMessages = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** AI 助手总开关：false 时完全不调用任何模型 */
+export const AI_ASSISTANT_ENABLED = false;
+
 export const sendMessage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ content: z.string().min(1).max(2000) }).parse(input))
