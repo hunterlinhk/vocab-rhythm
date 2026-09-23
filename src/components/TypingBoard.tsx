@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { sfx } from "@/lib/sound";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const isPunct = (ch: string) => ch !== " " && !/[\p{L}\p{N}]/u.test(ch);
 const skipPunct = (target: string, from: number) => {
