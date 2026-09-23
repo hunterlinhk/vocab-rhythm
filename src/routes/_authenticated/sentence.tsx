@@ -174,6 +174,13 @@ function SentencePage() {
     return () => window.clearTimeout(t);
   }, [done, next, reviewIndex]);
 
+  // speak the sentence when a new one appears
+  const sentence = entry?.sentence;
+  useEffect(() => {
+    if (!sentence || done || reviewIndex !== null || !prefs.speech) return;
+    speak(sentence);
+  }, [sentence, done, reviewIndex, prefs.speech]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
