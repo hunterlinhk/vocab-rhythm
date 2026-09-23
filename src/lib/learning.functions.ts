@@ -127,6 +127,7 @@ export type LearningState = {
   dailyGoal: number;
   activeBook: string;
   memorizeSpelling: boolean;
+  strictSpelling: boolean;
   masteredWords: string[];
   cursors: Record<string, number>;
   learnedByBook: Record<string, string[]>;
@@ -135,6 +136,7 @@ export type LearningState = {
   wrongWords: { word: string; translation: string | null }[];
   troubleWords: { word: string; translation: string | null; typos: number }[];
   mistouchWords: { word: string; translation: string | null; at: string }[];
+  skippedWords: { word: string; translation: string | null; at: string }[];
 };
 
 export const getLearningState = createServerFn({ method: "GET" })
@@ -143,13 +145,13 @@ export const getLearningState = createServerFn({ method: "GET" })
     const [settingsRes, progressRes, attemptsRes, masteryRes] = await Promise.all([
       context.supabase
         .from("user_settings")
-        .select("daily_goal, active_book, memorize_spelling")
+        .select("daily_goal, active_book, memorize_spelling, strict_spelling")
         .eq("user_id", context.userId)
         .maybeSingle(),
       context.supabase.from("book_progress").select("book_id, cursor_index").eq("user_id", context.userId),
       context.supabase
         .from("attempts")
-        .select("word, translation, book_id, typo_count, mistouch, correct, created_at")
+        .select("word, translation, book_id, typo_count, mistouch, correct, skipped, created_at")
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(2000),
