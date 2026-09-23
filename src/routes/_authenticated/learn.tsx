@@ -465,16 +465,16 @@ function LearnPage() {
             <div data-selectable className="flex w-full flex-col items-center gap-7 select-text">
               <div className="flex w-full items-start justify-between gap-6 text-left">
                 <div className="w-1/2 min-w-0">
-                  <p className="font-display text-4xl [overflow-wrap:anywhere]">{reviewing.entry.word}</p>
-                  <p className="mt-1 font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
-                  <div className="mt-2 flex items-center gap-1.5">
+                  <p className="font-display text-5xl [overflow-wrap:anywhere]">{reviewing.entry.word}</p>
+                  <p className="mt-2 font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
+                  <div className="mt-3 flex items-center gap-1.5">
                     <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
                     <SpeakerButton word={reviewing.entry.word} />
                   </div>
                 </div>
-                <div className="w-1/2 text-right">
-                  <p className="text-sm text-muted-foreground">{reviewing.entry.sentence}</p>
-                  <p className="mt-1 text-sm text-muted-foreground/80">{reviewing.entry.sentenceCn}</p>
+                <div className="w-1/2 min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
+                  <p className="text-base text-foreground/90">{reviewing.entry.sentence}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">{reviewing.entry.sentenceCn}</p>
                 </div>
               </div>
               <div className="flex flex-wrap justify-center gap-2 pt-1">
@@ -545,16 +545,16 @@ function LearnPage() {
                 <div data-selectable className="sweep-in flex w-full flex-col items-center gap-5 select-text">
                   <div className="flex w-full items-start justify-between gap-6 text-left">
                     <div className="w-1/2 min-w-0">
-                      <p className="font-display text-2xl [overflow-wrap:anywhere]">{entry.word}</p>
-                      <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
-                      <div className="mt-2 flex items-center gap-1.5">
-                        <p className="text-base text-foreground">{entry.cn}</p>
+                      <p className="font-display text-4xl [overflow-wrap:anywhere]">{entry.word}</p>
+                      <p className="mt-2 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+                      <div className="mt-3 flex items-center gap-1.5">
+                        <p className="text-lg text-foreground">{entry.cn}</p>
                         <SpeakerButton word={entry.word} />
                       </div>
                     </div>
-                    <div className="w-1/2 text-right">
-                      <p className="text-sm text-muted-foreground">{entry.sentence}</p>
-                      <p className="mt-1 text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
+                    <div className="w-1/2 min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
+                      <p className="text-base text-foreground/90">{entry.sentence}</p>
+                      <p className="mt-2 text-sm text-muted-foreground">{entry.sentenceCn}</p>
                     </div>
                   </div>
                   <div className="flex gap-2 pt-1">
