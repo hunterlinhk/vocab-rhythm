@@ -45,7 +45,9 @@ export function TypingBoard({
   hideMistouch = false,
   onComplete,
 }: Props) {
-  const isMobile = useIsMobile();
+  const isMobileDevice = useIsMobile();
+  const vkOn = useVirtualKeyboard();
+  const isMobile = isMobileDevice && vkOn;
   const [typed, setTyped] = useState("");
   const [typos, setTypos] = useState(0);
   const [mistouch, setMistouch] = useState(false);
@@ -294,7 +296,7 @@ export function TypingBoard({
 
       {isMobile && !paused && typeof document !== "undefined" && createPortal(
         <div
-          className="key-deck fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-lg touch-none select-none px-[clamp(4px,1.3vw,8px)] pb-[max(env(safe-area-inset-bottom),10px)] pt-[clamp(9px,2.6vw,13px)]"
+          className="key-deck fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-lg touch-none select-none px-[clamp(4px,1.3vw,8px)] pb-[max(env(safe-area-inset-bottom),4px)] pt-[clamp(6px,1.8vw,9px)]"
           onPointerDown={(e) => e.preventDefault()}
         >
           <div className="flex justify-center gap-[clamp(5px,1.5vw,7px)]">
