@@ -542,18 +542,21 @@ function LearnPage() {
               />
 
               {done ? (
-                <div data-selectable className="sweep-in flex flex-col items-center gap-3 text-center select-text">
-                  <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
-                    完成 · {(done.durationMs / 1000).toFixed(1)}s
-                    {done.typoCount === 0 ? " · 全对" : ` · ${done.typoCount} 次错误`}
+                <div data-selectable className="sweep-in flex w-full flex-col items-center gap-5 select-text">
+                  <div className="flex w-full items-start justify-between gap-6 text-left">
+                    <div className="w-1/2 min-w-0">
+                      <p className="font-display text-2xl [overflow-wrap:anywhere]">{entry.word}</p>
+                      <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+                      <div className="mt-2 flex items-center gap-1.5">
+                        <p className="text-base text-foreground">{entry.cn}</p>
+                        <SpeakerButton word={entry.word} />
+                      </div>
+                    </div>
+                    <div className="w-1/2 text-right">
+                      <p className="text-sm text-muted-foreground">{entry.sentence}</p>
+                      <p className="mt-1 text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
+                    </div>
                   </div>
-                  <p className="font-display text-2xl">{entry.word}</p>
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-base text-foreground">{entry.cn}</p>
-                    <SpeakerButton word={entry.word} />
-                  </div>
-                  <p className="text-sm text-muted-foreground">{entry.sentence}</p>
-                  <p className="text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
                   <div className="flex gap-2 pt-1">
                     <button
                       type="button"
