@@ -325,6 +325,19 @@ export function TypingBoard({
               )}
             </div>
           ))}
+          {size === "sentence" && (
+            <div className="mt-1 flex justify-center">
+              <button
+                type="button"
+                aria-label="空格"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleChar(" ");
+                }}
+                className="glass-control h-11 w-1/2 rounded-lg transition-transform active:scale-95"
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
