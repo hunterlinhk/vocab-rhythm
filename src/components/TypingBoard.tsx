@@ -209,7 +209,7 @@ export function TypingBoard({
     };
     window.addEventListener("pointerdown", onPointerDown);
     return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [paused]);
+  }, [paused, isMobile]);
 
   return (
     <div className="relative flex flex-col items-center gap-5">
