@@ -462,24 +462,20 @@ function LearnPage() {
           )}
         >
           {reviewing ? (
-            <div data-selectable className="flex flex-col items-center gap-4 text-center select-text">
-              <div className="rounded-full bg-accent/60 px-4 py-1 text-xs text-accent-foreground">
-                回顾 · {reviewIndex! + 1} / {history.length} · ← → 切换
-              </div>
-              <p className="font-display text-4xl">{reviewing.entry.word}</p>
-              <p className="font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
-              <div className="flex items-center gap-1.5">
-                <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
-                <SpeakerButton word={reviewing.entry.word} />
-              </div>
-              <div className="mt-1 space-y-1">
-                <p className="text-sm text-muted-foreground">{reviewing.entry.sentence}</p>
-                <p className="text-sm text-muted-foreground/80">{reviewing.entry.sentenceCn}</p>
-              </div>
-              <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
-                {(reviewing.result.durationMs / 1000).toFixed(1)}s
-                {reviewing.result.typoCount === 0 ? " · 全对" : ` · ${reviewing.result.typoCount} 次错误`}
-                {reviewing.result.mistouch ? " · 含误触" : ""}
+            <div data-selectable className="flex w-full flex-col items-center gap-7 select-text">
+              <div className="flex w-full items-start justify-between gap-6 text-left">
+                <div className="w-1/2 min-w-0">
+                  <p className="font-display text-4xl [overflow-wrap:anywhere]">{reviewing.entry.word}</p>
+                  <p className="mt-1 font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
+                  <div className="mt-2 flex items-center gap-1.5">
+                    <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
+                    <SpeakerButton word={reviewing.entry.word} />
+                  </div>
+                </div>
+                <div className="w-1/2 text-right">
+                  <p className="text-sm text-muted-foreground">{reviewing.entry.sentence}</p>
+                  <p className="mt-1 text-sm text-muted-foreground/80">{reviewing.entry.sentenceCn}</p>
+                </div>
               </div>
               <div className="flex flex-wrap justify-center gap-2 pt-1">
                 <button
