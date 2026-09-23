@@ -375,6 +375,13 @@ function LearnPage() {
     return () => window.clearTimeout(t);
   }, [done, next, reviewIndex]);
 
+  // speak the word when a new one appears
+  const word = entry?.word;
+  useEffect(() => {
+    if (!word || done || reviewIndex !== null || !prefs.speech) return;
+    speak(word);
+  }, [word, done, reviewIndex, prefs.speech]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
