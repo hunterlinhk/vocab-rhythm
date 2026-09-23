@@ -1,14 +1,29 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
-import { WORD_BOOKS, getBook, shuffle, type WordEntry } from "@/data/words";
-import { recordAttempt } from "@/lib/learning.functions";
+import { WORD_BOOKS, entriesFor, getBook, type WordEntry } from "@/data/words";
+import { getLearningState, recordAttempt, saveBookCursor, saveSettings } from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
-import { Volume2, BookOpen, PenLine } from "lucide-react";
+import { Volume2, BookOpen, PenLine, CheckCircle2 } from "lucide-react";
+
+export type QueueKind = "today" | "wrong" | "trouble" | "mistouch" | "favorites";
+
+const QUEUE_LABEL: Record<QueueKind, string> = {
+  today: "今日复习",
+  wrong: "错词",
+  trouble: "易错词",
+  mistouch: "误触记录",
+  favorites: "收藏",
+};
 
 export const Route = createFileRoute("/_authenticated/learn")({
+  validateSearch: (search: Record<string, unknown>): { queue?: QueueKind } => {
+    const q = search["queue"];
+    return typeof q === "string" && q in QUEUE_LABEL ? { queue: q as QueueKind } : {};
+  },
   head: () => ({
     meta: [
       { title: "单词拼写 · 韵词 Cadence" },
@@ -63,18 +78,24 @@ function SpeakerButton({ word, className }: { word: string; className?: string }
 }
 
 function LearnPage() {
+  const { queue: queueKind } = Route.useSearch();
   const save = useServerFn(recordAttempt);
-  const [bookId, setBookId] = useState("core");
-  const [queue, setQueue] = useState<WordEntry[]>(() => shuffle(getBook("core").words));
+  const persistCursor = useServerFn(saveBookCursor);
+  const persistSettings = useServerFn(saveSettings);
+  const fetchState = useServerFn(getLearningState);
+  const qc = useQueryClient();
+  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+
+  const [bookId, setBookId] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
+  const [ready, setReady] = useState(false);
   const [done, setDone] = useState<TypingResult | null>(null);
   const [sessionDone, setSessionDone] = useState(0);
-  // completed words this session, newest last
   const [history, setHistory] = useState<HistoryItem[]>([]);
-  // null = typing current word; number = reviewing history[reviewIndex] (permanent)
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const [finished, setFinished] = useState(false);
   const prefsRef = useRef<Prefs>(DEFAULT_PREFS);
   useEffect(() => {
     prefsRef.current = prefs;
@@ -94,29 +115,76 @@ function LearnPage() {
   const [savedToMistakes, setSavedToMistakes] = useState<Set<string>>(new Set());
   const dragX = useRef<number | null>(null);
 
-  const entry = queue[index % queue.length]!;
-  const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
+  // review queue words (from persisted records)
+  const reviewWords = useMemo(() => {
+    if (!queueKind || !state) return [];
+    if (queueKind === "favorites") return [...favorites];
+    if (queueKind === "today") return state.todayWords;
+    if (queueKind === "wrong") return state.wrongWords.map((w) => w.word);
+    if (queueKind === "trouble") return state.troubleWords.map((w) => w.word);
+    return [...new Set(state.mistouchWords.map((w) => w.word))];
+    // favorites is a Set state; fine to recompute
+  }, [queueKind, state, favorites]);
 
+  const queue: WordEntry[] = useMemo(() => {
+    if (queueKind) return entriesFor(reviewWords);
+    return getBook(bookId ?? "core").words;
+  }, [queueKind, reviewWords, bookId]);
+
+  // hydrate the persisted book + cursor once the state arrives
   useEffect(() => {
-    setQueue(shuffle(getBook(bookId).words));
-    setIndex(0);
-    setDone(null);
-    setHistory([]);
-    setReviewIndex(null);
-  }, [bookId]);
+    if (!state || ready) return;
+    if (queueKind) {
+      setReady(true);
+      return;
+    }
+    const book = state.activeBook || "core";
+    const saved = state.cursors[book] ?? 0;
+    setBookId(book);
+    setIndex(getBook(book).words.length ? saved % getBook(book).words.length : 0);
+    setReady(true);
+  }, [state, ready, queueKind]);
 
-  // navigation direction for slide animation: 1 = forward, -1 = back
   const [navDir, setNavDir] = useState<1 | -1>(1);
+
+  const switchBook = useCallback(
+    (id: string) => {
+      setBookId(id);
+      setIndex(state?.cursors[id] ?? 0);
+      setDone(null);
+      setHistory([]);
+      setReviewIndex(null);
+      setFinished(false);
+      void persistSettings({ data: { activeBook: id } }).catch(() => undefined);
+    },
+    [persistSettings, state],
+  );
 
   const next = useCallback(() => {
     setNavDir(1);
     setDone(null);
     setReviewIndex(null);
-    setIndex((i) => (i + 1) % queue.length);
-  }, [queue.length]);
+    setIndex((i) => {
+      const nextIndex = i + 1;
+      if (queueKind) {
+        if (nextIndex >= queue.length) {
+          setFinished(true);
+          return i;
+        }
+        return nextIndex;
+      }
+      const wrapped = queue.length ? nextIndex % queue.length : 0;
+      if (bookId) void persistCursor({ data: { bookId, cursorIndex: wrapped } }).catch(() => undefined);
+      return wrapped;
+    });
+  }, [queue.length, queueKind, bookId, persistCursor]);
+
+  const entry = queue.length ? queue[Math.min(index, queue.length - 1)]! : undefined;
+  const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
 
   const onComplete = useCallback(
     (r: TypingResult) => {
+      if (!entry) return;
       setDone(r);
       setSessionDone((n) => n + 1);
       setHistory((h) => [...h, { entry, result: r }]);
@@ -124,45 +192,46 @@ function LearnPage() {
       void save({
         data: {
           mode: "word" as const,
-          bookId,
+          bookId: bookId ?? "core",
           word: entry.word,
           translation: entry.cn,
           correct: true,
           mistouch: r.mistouch,
           typoCount: r.typoCount,
           durationMs: r.durationMs,
+          isReview: !!queueKind,
         },
-      }).catch(() => undefined);
+      })
+        .then(() => {
+          void qc.invalidateQueries({ queryKey: ["stats"] });
+          void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        })
+        .catch(() => undefined);
     },
-    [bookId, entry, save],
+    [bookId, entry, save, queueKind, qc],
   );
 
   const goBack = useCallback(() => {
     if (history.length === 0) return;
     setNavDir(-1);
-    setReviewIndex((cur) => {
-      if (cur === null) return history.length - 1;
-      return Math.max(0, cur - 1);
-    });
+    setReviewIndex((cur) => (cur === null ? history.length - 1 : Math.max(0, cur - 1)));
   }, [history.length]);
 
   const goForward = useCallback(() => {
     setNavDir(1);
     setReviewIndex((cur) => {
       if (cur === null) return cur;
-      if (cur >= history.length - 1) return null; // back to typing the current word
+      if (cur >= history.length - 1) return null;
       return cur + 1;
     });
   }, [history.length]);
 
-  // auto-advance after 3s when the reveal shows
   useEffect(() => {
     if (!done || reviewIndex !== null) return;
     const t = window.setTimeout(next, 3000);
     return () => window.clearTimeout(t);
   }, [done, next, reviewIndex]);
 
-  // keyboard: ← back / → forward when reviewing or typing
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -188,13 +257,11 @@ function LearnPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [done, reviewIndex, history.length, goBack, goForward, next]);
 
-  // drag right to go back, drag left to go forward — content follows the pointer
   const [dragDx, setDragDx] = useState(0);
   const [dragging, setDragging] = useState(false);
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    // don't hijack pointer from buttons/interactive elements — they need their click
     if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
     dragX.current = e.clientX;
     setDragging(true);
@@ -203,7 +270,6 @@ function LearnPage() {
   const onPointerMove = (e: React.PointerEvent) => {
     if (dragX.current === null) return;
     const dx = e.clientX - dragX.current;
-    // resist when moving in a direction that cannot navigate
     const blocked = (dx > 0 && history.length === 0) || (dx < 0 && reviewIndex === null);
     setDragDx(dx * (blocked ? 0.25 : 1));
   };
@@ -246,7 +312,7 @@ function LearnPage() {
       void save({
         data: {
           mode: "word" as const,
-          bookId,
+          bookId: bookId ?? "core",
           word: item.entry.word,
           translation: item.entry.cn,
           correct: false,
@@ -254,35 +320,84 @@ function LearnPage() {
           typoCount: Math.max(1, item.result.typoCount),
           durationMs: item.result.durationMs,
         },
-      }).catch(() => undefined);
+      })
+        .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+        .catch(() => undefined);
     },
-    [bookId, save, savedToMistakes],
+    [bookId, save, savedToMistakes, qc],
   );
 
-  const progress = useMemo(() => ((index % queue.length) / queue.length) * 100, [index, queue.length]);
+  const progress = queue.length ? (index / queue.length) * 100 : 0;
+  const learnedInBook = !queueKind && bookId ? (state?.learnedByBook[bookId]?.length ?? 0) : 0;
+
+  if (!ready || !entry) {
+    return (
+      <div className="glass-stage flex min-h-[30rem] flex-col items-center justify-center gap-4 text-center">
+        <p className="font-display text-2xl">{ready ? "这批复习内容是空的" : "载入中…"}</p>
+        {ready && (
+          <Link to="/review" className="rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground">
+            回到复习
+          </Link>
+        )}
+      </div>
+    );
+  }
+
+  if (finished) {
+    return (
+      <div className="glass-stage flex min-h-[30rem] flex-col items-center justify-center gap-5 text-center">
+        <CheckCircle2 className="size-12 text-success" />
+        <p className="font-display text-3xl">{QUEUE_LABEL[queueKind!]}完成</p>
+        <p className="text-sm text-muted-foreground">本次复习 {sessionDone} 个词</p>
+        <div className="flex gap-2">
+          <Link to="/review" className="rounded-full border border-border bg-card px-5 py-2 text-sm">
+            回到复习
+          </Link>
+          <Link to="/learn" className="rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground">
+            继续学习
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center overflow-x-clip pb-4">
       <div className="flex w-full flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1.5">
-          {WORD_BOOKS.map((b) => (
-            <button
-              key={b.id}
-              type="button"
-              onClick={() => setBookId(b.id)}
-              className={cn(
-                "rounded-full border px-3.5 py-1.5 text-sm transition-colors",
-                b.id === bookId
-                  ? "border-primary/40 bg-card text-foreground shadow-sm"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {b.name}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {queueKind ? (
+            <>
+              <span className="rounded-full bg-warning/15 px-3.5 py-1.5 text-sm text-warning">
+                复习 · {QUEUE_LABEL[queueKind]}
+              </span>
+              <Link
+                to="/learn"
+                className="rounded-full px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+              >
+                退出复习
+              </Link>
+            </>
+          ) : (
+            WORD_BOOKS.map((b) => (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => switchBook(b.id)}
+                className={cn(
+                  "rounded-full border px-3.5 py-1.5 text-sm transition-colors",
+                  b.id === bookId
+                    ? "border-primary/40 bg-card text-foreground shadow-sm"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {b.name}
+              </button>
+            ))
+          )}
         </div>
         <div className="font-mono text-sm text-muted-foreground">
-          {(index % queue.length) + 1} / {queue.length} · 本次 {sessionDone}
+          {index + 1} / {queue.length} · 本次 {sessionDone}
+          {queueKind ? "" : ` · 已学 ${learnedInBook}`}
         </div>
       </div>
 
@@ -331,123 +446,123 @@ function LearnPage() {
             navDir === 1 ? "nav-slide-left" : "nav-slide-right",
           )}
         >
-        {reviewing ? (
-          <div className="flex flex-col items-center gap-4 text-center">
-            <div className="rounded-full bg-accent/60 px-4 py-1 text-xs text-accent-foreground">
-              回顾 · {reviewIndex! + 1} / {history.length} · ← → 切换
-            </div>
-            <p className="font-display text-4xl">{reviewing.entry.word}</p>
-            <p className="font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
-            <div className="flex items-center gap-1.5">
-              <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
-              <SpeakerButton word={reviewing.entry.word} />
-            </div>
-            <div className="mt-1 space-y-1">
-              <p className="text-sm text-muted-foreground">{reviewing.entry.sentence}</p>
-              <p className="text-sm text-muted-foreground/80">{reviewing.entry.sentenceCn}</p>
-            </div>
-            <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
-              {(reviewing.result.durationMs / 1000).toFixed(1)}s
-              {reviewing.result.typoCount === 0 ? " · 全对" : ` · ${reviewing.result.typoCount} 次错误`}
-              {reviewing.result.mistouch ? " · 含误触" : ""}
-            </div>
-            <div className="flex flex-wrap justify-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => speak(reviewing.entry.word)}
-                className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
-              >
-                再听一次
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleFavorite(reviewing.entry.word)}
-                className={cn(
-                  "rounded-full border px-4 py-1.5 text-sm transition-colors",
-                  favorites.has(reviewing.entry.word)
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border bg-card hover:border-primary/40",
-                )}
-              >
-                {favorites.has(reviewing.entry.word) ? "已收藏 ★" : "收藏 ☆"}
-              </button>
-              <button
-                type="button"
-                onClick={() => addToMistakes(reviewing)}
-                disabled={savedToMistakes.has(reviewing.entry.word)}
-                className={cn(
-                  "rounded-full border px-4 py-1.5 text-sm transition-colors",
-                  savedToMistakes.has(reviewing.entry.word)
-                    ? "border-border bg-card text-muted-foreground"
-                    : "border-border bg-card hover:border-primary/40",
-                )}
-              >
-                {savedToMistakes.has(reviewing.entry.word) ? "已加入错题本" : "加入错题本"}
-              </button>
-              <button
-                type="button"
-                onClick={() => (reviewIndex! < history.length - 1 ? goForward() : setReviewIndex(null))}
-                className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
-              >
-                下一个 →
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {prefs.meaning ? (
-              <div className="text-center">
-                <div className="flex items-center justify-center gap-1.5">
-                  <p className="font-display text-xl text-foreground">{entry.cn}</p>
-                  <SpeakerButton word={entry.word} />
-                </div>
-                <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+          {reviewing ? (
+            <div className="flex flex-col items-center gap-4 text-center">
+              <div className="rounded-full bg-accent/60 px-4 py-1 text-xs text-accent-foreground">
+                回顾 · {reviewIndex! + 1} / {history.length} · ← → 切换
               </div>
-            ) : (
-              <SpeakerButton word={entry.word} className="size-9" />
-            )}
-
-            <TypingBoard
-              key={entry.word}
-              target={entry.word}
-              masked={prefs.dictation}
-              onComplete={onComplete}
-              paused={!!done}
-            />
-
-            {done ? (
-              <div className="sweep-in flex flex-col items-center gap-3 text-center">
-                <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
-                  完成 · {(done.durationMs / 1000).toFixed(1)}s
-                  {done.typoCount === 0 ? " · 全对" : ` · ${done.typoCount} 次错误`}
-                </div>
-                <p className="font-display text-2xl">{entry.word}</p>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-base text-foreground">{entry.cn}</p>
-                  <SpeakerButton word={entry.word} />
-                </div>
-                <p className="text-sm text-muted-foreground">{entry.sentence}</p>
-                <p className="text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
-                <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => speak(entry.word)}
-                    className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
-                  >
-                    再听一次
-                  </button>
-                  <button
-                    type="button"
-                    onClick={next}
-                    className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
-                  >
-                    下一个 ⏎
-                  </button>
-                </div>
+              <p className="font-display text-4xl">{reviewing.entry.word}</p>
+              <p className="font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
+                <SpeakerButton word={reviewing.entry.word} />
               </div>
-            ) : null}
-          </>
-        )}
+              <div className="mt-1 space-y-1">
+                <p className="text-sm text-muted-foreground">{reviewing.entry.sentence}</p>
+                <p className="text-sm text-muted-foreground/80">{reviewing.entry.sentenceCn}</p>
+              </div>
+              <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
+                {(reviewing.result.durationMs / 1000).toFixed(1)}s
+                {reviewing.result.typoCount === 0 ? " · 全对" : ` · ${reviewing.result.typoCount} 次错误`}
+                {reviewing.result.mistouch ? " · 含误触" : ""}
+              </div>
+              <div className="flex flex-wrap justify-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => speak(reviewing.entry.word)}
+                  className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
+                >
+                  再听一次
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleFavorite(reviewing.entry.word)}
+                  className={cn(
+                    "rounded-full border px-4 py-1.5 text-sm transition-colors",
+                    favorites.has(reviewing.entry.word)
+                      ? "border-primary/40 bg-primary/10 text-primary"
+                      : "border-border bg-card hover:border-primary/40",
+                  )}
+                >
+                  {favorites.has(reviewing.entry.word) ? "已收藏 ★" : "收藏 ☆"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addToMistakes(reviewing)}
+                  disabled={savedToMistakes.has(reviewing.entry.word)}
+                  className={cn(
+                    "rounded-full border px-4 py-1.5 text-sm transition-colors",
+                    savedToMistakes.has(reviewing.entry.word)
+                      ? "border-border bg-card text-muted-foreground"
+                      : "border-border bg-card hover:border-primary/40",
+                  )}
+                >
+                  {savedToMistakes.has(reviewing.entry.word) ? "已加入错题本" : "加入错题本"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => (reviewIndex! < history.length - 1 ? goForward() : setReviewIndex(null))}
+                  className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
+                >
+                  下一个 →
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {prefs.meaning ? (
+                <div className="text-center">
+                  <div className="flex items-center justify-center gap-1.5">
+                    <p className="font-display text-xl text-foreground">{entry.cn}</p>
+                    <SpeakerButton word={entry.word} />
+                  </div>
+                  <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+                </div>
+              ) : (
+                <SpeakerButton word={entry.word} className="size-9" />
+              )}
+
+              <TypingBoard
+                key={entry.word}
+                target={entry.word}
+                masked={prefs.dictation}
+                onComplete={onComplete}
+                paused={!!done}
+              />
+
+              {done ? (
+                <div className="sweep-in flex flex-col items-center gap-3 text-center">
+                  <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
+                    完成 · {(done.durationMs / 1000).toFixed(1)}s
+                    {done.typoCount === 0 ? " · 全对" : ` · ${done.typoCount} 次错误`}
+                  </div>
+                  <p className="font-display text-2xl">{entry.word}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-base text-foreground">{entry.cn}</p>
+                    <SpeakerButton word={entry.word} />
+                  </div>
+                  <p className="text-sm text-muted-foreground">{entry.sentence}</p>
+                  <p className="text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => speak(entry.word)}
+                      className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
+                    >
+                      再听一次
+                    </button>
+                    <button
+                      type="button"
+                      onClick={next}
+                      className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
+                    >
+                      下一个 ⏎
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     </div>
