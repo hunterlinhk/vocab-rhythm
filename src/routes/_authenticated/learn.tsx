@@ -6,6 +6,7 @@ import { WORD_BOOKS, getBook, shuffle, type WordEntry } from "@/data/words";
 import { recordAttempt } from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
+import { Volume2, BookOpen, PenLine } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/learn")({
   head: () => ({
@@ -24,6 +25,18 @@ export const Route = createFileRoute("/_authenticated/learn")({
 type HistoryItem = { entry: WordEntry; result: TypingResult };
 
 const FAV_KEY = "cadence:favorites";
+const PREF_KEY = "cadence:learn-prefs";
+
+type Prefs = { speech: boolean; meaning: boolean; dictation: boolean };
+const DEFAULT_PREFS: Prefs = { speech: true, meaning: true, dictation: false };
+
+function loadPrefs(): Prefs {
+  try {
+    return { ...DEFAULT_PREFS, ...(JSON.parse(window.localStorage.getItem(PREF_KEY) ?? "{}") as Partial<Prefs>) };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
 
 function loadFavorites(): Set<string> {
   try {
@@ -31,6 +44,22 @@ function loadFavorites(): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+function SpeakerButton({ word, className }: { word: string; className?: string }) {
+  return (
+    <button
+      type="button"
+      aria-label="播放发音"
+      onClick={() => speak(word)}
+      className={cn(
+        "inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all duration-200 hover:scale-110 hover:bg-card/70 hover:text-primary",
+        className,
+      )}
+    >
+      <Volume2 className="size-4" />
+    </button>
+  );
 }
 
 function LearnPage() {
