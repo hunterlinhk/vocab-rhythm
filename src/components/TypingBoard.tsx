@@ -283,6 +283,44 @@ export function TypingBoard({
           </button>
         )}
       </div>
+
+      {isMobile && !paused && (
+        <div
+          className="glass-panel w-full max-w-md touch-none select-none p-2"
+          onPointerDown={(e) => e.preventDefault()}
+        >
+          {KEY_ROWS.map((row, r) => (
+            <div key={r} className="mt-1 flex justify-center gap-1 first:mt-0">
+              {row.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    handleChar(k);
+                  }}
+                  className="glass-control h-11 min-w-0 flex-1 rounded-lg font-mono text-base text-foreground transition-transform active:scale-95"
+                >
+                  {k}
+                </button>
+              ))}
+              {r === 2 && (
+                <button
+                  type="button"
+                  aria-label="退格"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    handleBackspace();
+                  }}
+                  className="glass-control h-11 flex-[1.4] rounded-lg text-base text-muted-foreground transition-transform active:scale-95"
+                >
+                  ⌫
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
