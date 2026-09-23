@@ -582,6 +582,15 @@ function LearnPage() {
             </button>
           ))}
         </div>
+        {!done && !reviewing && (
+          <button
+            type="button"
+            onClick={skipCurrent}
+            className="absolute top-5 right-6 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+          >
+            Skip
+          </button>
+        )}
         {(done || reviewing) && panelResult && (
           <div className="absolute top-5 right-6 text-right text-xs leading-5">
             {reviewing && (
@@ -620,6 +629,9 @@ function LearnPage() {
                       : setReviewIndex(null)
                     : next()
                 }
+                showMistouch={strict}
+                mistouched={mistouched.has(resultItem.entry.word)}
+                onMistouch={() => markMistouch(resultItem.entry.word)}
               />
             )
           ) : (
@@ -640,6 +652,8 @@ function LearnPage() {
                 key={entry.word}
                 target={entry.word}
                 masked={prefs.dictation}
+                strict={strict}
+                hideMistouch={strict}
                 onComplete={onComplete}
               />
             </>
