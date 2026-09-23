@@ -102,6 +102,11 @@ export function TypingBoard({
         }
         setWrongAt(i);
         sfx.wrong();
+        if (strict && !repeated) {
+          typedRef.current = "";
+          setTyped("");
+          lastWrongRef.current = null;
+        }
         window.setTimeout(() => setWrongAt(null), 260);
         return;
       }
@@ -251,7 +256,7 @@ export function TypingBoard({
           错误 <span className="font-mono text-foreground">{typos}</span>
         </span>
         {mistouch && <span className="text-accent-foreground/70">已标记误触</span>}
-        {(typos > 0 || wrongAt !== null) && !mistouch && (
+        {!hideMistouch && (typos > 0 || wrongAt !== null) && !mistouch && (
           <button
             type="button"
             onClick={markMistouch}
