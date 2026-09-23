@@ -49,8 +49,14 @@ const isActive = (itemTo: string, pathname: string) =>
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  // kept in the shell so the mobile drawer remembers what the user expanded or collapsed
+  const [expandedItem, setExpandedItem] = useState<string | null>(() => {
+    const parent = nav.find((item) => isActive(item.to, pathname));
+    return parent && "children" in parent ? parent.to : null;
+  });
 
   const handleSidebarPointerMove = (event: PointerEvent<HTMLElement>) => {
     if (event.pointerType === "touch") return;
