@@ -6,7 +6,8 @@ import { ArrowRight, BookOpen, Bot, ChevronRight, Clock3, Flame, RotateCcw, Spar
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { SectionHeading } from "@/components/SectionHeading";
-import { getStats } from "@/lib/learning.functions";
+import { getLearningState, getStats } from "@/lib/learning.functions";
+import { getBook } from "@/data/words";
 
 export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
