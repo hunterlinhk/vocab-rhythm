@@ -24,6 +24,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
   const [wrongAt, setWrongAt] = useState<number | null>(null);
   const startedAt = useRef<number | null>(null);
   const doneRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setTyped("");
@@ -45,7 +46,12 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const target_ = e.target as HTMLElement | null;
-      if (target_ && ["INPUT", "TEXTAREA"].includes(target_.tagName)) return;
+      if (
+        target_ &&
+        ["INPUT", "TEXTAREA"].includes(target_.tagName) &&
+        target_ !== inputRef.current
+      )
+        return;
 
       if (e.key === "Backspace") {
         e.preventDefault();
