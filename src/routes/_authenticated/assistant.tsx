@@ -151,12 +151,13 @@ function AssistantPage() {
               void submit(input);
             }
           }}
-          placeholder="问点什么，比如：解释一下 maintain"
-          className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2.5 text-sm outline-none"
+          placeholder={AI_ASSISTANT_ENABLED ? "问点什么，比如：解释一下 maintain" : "AI 助手已暂停"}
+          disabled={!AI_ASSISTANT_ENABLED}
+          className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2.5 text-sm outline-none disabled:cursor-not-allowed"
         />
         <Button
           type="submit"
-          disabled={!!pending}
+          disabled={!!pending || !AI_ASSISTANT_ENABLED}
           className="h-10 rounded-xl px-4"
         >
           发送
