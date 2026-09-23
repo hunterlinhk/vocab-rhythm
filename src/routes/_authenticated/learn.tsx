@@ -322,6 +322,38 @@ function LearnPage() {
     [bookId, entry, save, queueKind, qc],
   );
 
+  const skipCurrent = useCallback(() => {
+    if (!entry) return;
+    void save({
+      data: {
+        mode: "word" as const,
+        bookId: bookId ?? "core",
+        word: entry.word,
+        translation: entry.cn,
+        correct: true,
+        mistouch: false,
+        typoCount: 0,
+        durationMs: 0,
+        isReview: !!queueKind,
+        skipped: true,
+      },
+    })
+      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .catch(() => undefined);
+    next();
+  }, [entry, bookId, save, queueKind, qc, next]);
+
+  const markMistouch = useCallback(
+    (word: string) => {
+      if (mistouched.has(word)) return;
+      setMistouched((s) => new Set(s).add(word));
+      void flagMistouch({ data: { word } })
+        .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+        .catch(() => undefined);
+    },
+    [flagMistouch, mistouched, qc],
+  );
+
   const goBack = useCallback(() => {
     if (history.length === 0) return;
     setNavDir(-1);
