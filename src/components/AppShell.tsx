@@ -92,6 +92,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname: string }) {
+  const currentTab = useRouterState({
+    select: (state) => (state.location.search as { tab?: string } | undefined)?.tab,
+  });
   const activeParent = nav.find((item) => isActive(item.to, pathname));
   const [expandedItem, setExpandedItem] = useState<string | null>(
     activeParent && "children" in activeParent ? activeParent.to : null,
