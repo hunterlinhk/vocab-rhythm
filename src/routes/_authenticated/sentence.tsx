@@ -7,7 +7,7 @@ import { WORD_BOOKS, getBook, type WordEntry } from "@/data/words";
 import { recordAttempt } from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
-import { Volume2, BookOpen, PenLine } from "lucide-react";
+import { Volume2, BookOpen, PenLine, Languages } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/sentence")({
   head: () => ({
@@ -27,8 +27,8 @@ type HistoryItem = { entry: WordEntry; result: TypingResult };
 
 const PREF_KEY = "cadence:learn-prefs";
 
-type Prefs = { speech: boolean; meaning: boolean; dictation: boolean };
-const DEFAULT_PREFS: Prefs = { speech: true, meaning: true, dictation: false };
+type Prefs = { speech: boolean; meaning: boolean; english: boolean; dictation: boolean };
+const DEFAULT_PREFS: Prefs = { speech: true, meaning: true, english: true, dictation: false };
 
 function loadPrefs(): Prefs {
   try {
@@ -256,7 +256,8 @@ function SentencePage() {
           {(
             [
               { key: "speech", on: prefs.speech, icon: Volume2, label: "朗读" },
-              { key: "meaning", on: prefs.meaning, icon: BookOpen, label: "释义" },
+              { key: "meaning", on: prefs.meaning, icon: Languages, label: "中文" },
+              { key: "english", on: prefs.english, icon: BookOpen, label: "英文" },
               { key: "dictation", on: prefs.dictation, icon: PenLine, label: "默写" },
             ] as const
           ).map((t) => (
@@ -296,7 +297,8 @@ function SentencePage() {
               </div>
               <p className="text-lg text-foreground">{reviewing.entry.sentenceCn}</p>
               <p className="text-sm text-muted-foreground">
-                围绕单词 <span className="font-mono text-foreground">{reviewing.entry.word}</span> · {reviewing.entry.cn}
+                围绕单词 <span className="font-mono text-foreground">{reviewing.entry.word}</span>{" "}
+                <span className="font-mono">{reviewing.entry.phonetic}</span> · {reviewing.entry.cn}
               </p>
               {reviewing.entry.svo && (
                 <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
@@ -329,15 +331,17 @@ function SentencePage() {
             </div>
           ) : (
             <>
-              {prefs.meaning ? (
+              {prefs.meaning || prefs.english ? (
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1.5">
-                    <p className="font-display text-xl text-foreground">{entry.sentenceCn}</p>
+                    {prefs.meaning && <p className="font-display text-xl text-foreground">{entry.sentenceCn}</p>}
                     <SpeakerButton text={entry.sentence} />
                   </div>
-                  <p className="mt-1 font-mono text-sm text-muted-foreground">
-                    {entry.word} · {entry.cn}
-                  </p>
+                  {prefs.english && (
+                    <p className="mt-1 font-mono text-sm text-muted-foreground">
+                      {entry.word} {entry.phonetic}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <SpeakerButton text={entry.sentence} className="size-9" />
@@ -363,6 +367,9 @@ function SentencePage() {
                     <SpeakerButton text={entry.sentence} />
                   </div>
                   <p className="text-base text-foreground">{entry.sentenceCn}</p>
+                  <p className="font-mono text-sm text-muted-foreground">
+                    {entry.word} {entry.phonetic} · {entry.cn}
+                  </p>
                   {entry.svo && (
                     <div className="flex flex-wrap items-center justify-center gap-2 text-sm">
                       <Part label="主语" value={entry.svo.s} />

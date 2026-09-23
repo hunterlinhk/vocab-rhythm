@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { sfx } from "@/lib/sound";
 
+const isPunct = (ch: string) => ch !== " " && !/[\p{L}\p{N}]/u.test(ch);
+const skipPunct = (target: string, from: number) => {
+  let i = from;
+  while (i < target.length && isPunct(target[i]!)) i += 1;
+  return i;
+};
+
 export type TypingResult = {
   typoCount: number;
   mistouch: boolean;
@@ -50,10 +57,12 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
   }, []);
 
   const handleBackspace = useCallback(() => {
-    typedRef.current = typedRef.current.slice(0, -1);
+    let n = typedRef.current.length;
+    while (n > 0 && isPunct(target[n - 1]!)) n -= 1;
+    typedRef.current = target.slice(0, Math.max(0, n - 1));
     setTyped(typedRef.current);
     setWrongAt(null);
-  }, []);
+  }, [target]);
 
   const handleChar = useCallback(
     (key: string) => {
@@ -61,19 +70,21 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
       if (startedAt.current === null) startedAt.current = performance.now();
 
       const prev = typedRef.current;
-      const expected = target[prev.length];
+      // punctuation is never typed by the user: skip over it
+      let i = skipPunct(target, prev.length);
+      const expected = target[i];
       if (expected === undefined) return;
 
-      if (key !== expected) {
+      if (key.toLowerCase() !== expected.toLowerCase()) {
         typosRef.current += 1;
         setTypos(typosRef.current);
-        setWrongAt(prev.length);
+        setWrongAt(i);
         sfx.wrong();
         window.setTimeout(() => setWrongAt(null), 260);
         return;
       }
 
-      const next = prev + expected;
+      const next = target.slice(0, skipPunct(target, i + 1));
       typedRef.current = next;
       setTyped(next);
       sfx.key();
@@ -142,6 +153,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
 
   const chars = target.split("");
   const big = size === "word";
+  const caretIndex = skipPunct(target, typed.length);
 
   // tapping anywhere while typing (touch devices) summons the soft keyboard
   useEffect(() => {
@@ -180,7 +192,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
       >
         {chars.map((ch, i) => {
           const done = i < typed.length;
-          const current = i === typed.length;
+          const current = i === caretIndex;
           const isSpace = ch === " ";
           return (
             <span
@@ -192,8 +204,8 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
                 current && wrongAt === i && "text-destructive",
               )}
             >
-              {isSpace ? "\u00A0" : masked && !done ? "\u00A0" : ch}
-              {masked && !done && !isSpace && (
+              {isSpace ? "\u00A0" : masked && !done && !isPunct(ch) ? "\u00A0" : ch}
+              {masked && !done && !isSpace && !isPunct(ch) && (
                 <span
                   className="absolute -bottom-2 left-[0.15em] right-[0.15em] mx-auto h-px rounded-full bg-muted-foreground/30"
                 />

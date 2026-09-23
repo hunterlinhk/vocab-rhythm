@@ -92,6 +92,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname: string }) {
+  const currentTab = useRouterState({
+    select: (state) => (state.location.search as { tab?: string } | undefined)?.tab,
+  });
   const activeParent = nav.find((item) => isActive(item.to, pathname));
   const [expandedItem, setExpandedItem] = useState<string | null>(
     activeParent && "children" in activeParent ? activeParent.to : null,
@@ -141,16 +144,31 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
                   <div className={cn("sidebar-subnav", expanded && "sidebar-subnav-open")}>
                     <div className="overflow-hidden">
                       <div className="ml-[21px] mt-1 border-l border-border/70 py-1 pl-5">
-                        {item.children.map((child) => (
-                          <Link
-                            key={child.label}
-                            to={child.to}
-                            search={("search" in child ? child.search : {}) as never}
-                            className="block py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
-                          >
-                            {child.label}
-                          </Link>
-                        ))}
+                        {item.children.map((child, childIndex) => {
+                          const childTab = "search" in child ? child.search.tab : undefined;
+                          const childActive =
+                            pathname === child.to &&
+                            (childTab === undefined
+                              ? true
+                              : currentTab === undefined
+                                ? childIndex === 0
+                                : currentTab === childTab);
+                          return (
+                            <Link
+                              key={child.label}
+                              to={child.to}
+                              search={("search" in child ? child.search : {}) as never}
+                              className={cn(
+                                "block py-1.5 text-xs transition-colors",
+                                childActive
+                                  ? "font-semibold text-foreground"
+                                  : "text-muted-foreground hover:text-foreground",
+                              )}
+                            >
+                              {child.label}
+                            </Link>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
