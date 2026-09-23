@@ -12,6 +12,7 @@ const nav = [
     icon: BookOpen,
     children: [
       { label: "单词拼写", to: "/learn" },
+      { label: "背单词", to: "/memorize" },
       { label: "句子拼写", to: "/sentence" },
       { label: "词库", to: "/books" },
       { label: "学习计划", to: "/plan" },
@@ -42,7 +43,7 @@ const nav = [
   { to: "/profile", label: "我的", icon: UserRound },
 ] as const;
 
-const LEARN_PATHS = ["/learn", "/sentence", "/books", "/plan"];
+const LEARN_PATHS = ["/learn", "/memorize", "/sentence", "/books", "/plan"];
 const isActive = (itemTo: string, pathname: string) =>
   itemTo === "/learn" ? LEARN_PATHS.includes(pathname) : pathname === itemTo;
 
