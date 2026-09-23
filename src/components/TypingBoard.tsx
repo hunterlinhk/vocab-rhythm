@@ -139,15 +139,6 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
     [handleChar, handleBackspace],
   );
 
-  // keep latest values available inside the keydown closure
-  const typosRef = useRef(0);
-  const mistouchRef = useRef(false);
-  useEffect(() => {
-    typosRef.current = typos;
-  }, [typos]);
-  useEffect(() => {
-    mistouchRef.current = mistouch;
-  }, [mistouch]);
 
   const chars = target.split("");
   const big = size === "word";
