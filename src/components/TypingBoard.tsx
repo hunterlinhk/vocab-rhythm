@@ -3,6 +3,12 @@ import { cn } from "@/lib/utils";
 import { sfx } from "@/lib/sound";
 import { useIsMobile } from "@/hooks/use-mobile";
 
+const KEY_ROWS: string[][] = [
+  "qwertyuiop".split(""),
+  "asdfghjkl".split(""),
+  "zxcvbnm".split(""),
+];
+
 const isPunct = (ch: string) => ch !== " " && !/[\p{L}\p{N}]/u.test(ch);
 const skipPunct = (target: string, from: number) => {
   let i = from;
