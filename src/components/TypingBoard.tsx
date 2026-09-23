@@ -159,10 +159,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
         autoCapitalize="off"
         spellCheck={false}
         tabIndex={-1}
-        onInput={(e) => {
-          // keep the hidden input empty; keys are handled via keydown
-          e.currentTarget.value = "";
-        }}
+        onInput={onHiddenInput}
         className="pointer-events-none absolute top-0 left-1/2 h-px w-px opacity-0"
       />
       <div
