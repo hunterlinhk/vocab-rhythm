@@ -356,6 +356,7 @@ function LearnPage() {
             ) : null}
           </>
         )}
+        </div>
       </div>
     </div>
   );
