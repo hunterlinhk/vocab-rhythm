@@ -7,7 +7,14 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getStats } from "@/lib/learning.functions";
 
+const STAT_TABS = ["今日数据", "历史记录", "学习分析"] as const;
+type StatTab = (typeof STAT_TABS)[number];
+
 export const Route = createFileRoute("/_authenticated/stats")({
+  validateSearch: (search: Record<string, unknown>): { tab?: StatTab } => {
+    const t = search["tab"];
+    return typeof t === "string" && (STAT_TABS as readonly string[]).includes(t) ? { tab: t as StatTab } : {};
+  },
   head: () => ({
     meta: [
       { title: "学习记录 · 韵词 Cadence" },
