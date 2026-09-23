@@ -163,6 +163,7 @@ export const getLearningState = createServerFn({ method: "GET" })
     ]);
 
     const rows = attemptsRes.data ?? [];
+    const studied = rows.filter((r) => !r.skipped);
     const today = new Date().toLocaleDateString("en-CA");
 
     const cursors: Record<string, number> = {};
