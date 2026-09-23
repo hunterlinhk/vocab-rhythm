@@ -327,7 +327,7 @@ export const sendMessage = createServerFn({ method: "POST" })
     const key = process.env["LOVABLE_API_KEY"];
     if (!key) throw new Error("AI 服务暂未配置");
 
-    const [{ data: history }, { data: rows }] = await Promise.all([
+    const [{ data: history }, { data: rows }, { data: mastery }] = await Promise.all([
       context.supabase
         .from("assistant_messages")
         .select("role, content")
@@ -340,6 +340,12 @@ export const sendMessage = createServerFn({ method: "POST" })
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(200),
+      context.supabase
+        .from("word_mastery")
+        .select("word, translation, rounds, context_ok, recall_ok, spell_ok")
+        .eq("user_id", context.userId)
+        .order("updated_at", { ascending: false })
+        .limit(120),
     ]);
 
     const attempts = rows ?? [];
