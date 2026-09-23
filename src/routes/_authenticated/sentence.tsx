@@ -330,15 +330,17 @@ function SentencePage() {
             </div>
           ) : (
             <>
-              {prefs.meaning ? (
+              {prefs.meaning || prefs.english ? (
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1.5">
-                    <p className="font-display text-xl text-foreground">{entry.sentenceCn}</p>
+                    {prefs.meaning && <p className="font-display text-xl text-foreground">{entry.sentenceCn}</p>}
                     <SpeakerButton text={entry.sentence} />
                   </div>
-                  <p className="mt-1 font-mono text-sm text-muted-foreground">
-                    {entry.word} · {entry.cn}
-                  </p>
+                  {prefs.english && (
+                    <p className="mt-1 font-mono text-sm text-muted-foreground">
+                      {entry.word} {entry.phonetic}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <SpeakerButton text={entry.sentence} className="size-9" />
