@@ -375,12 +375,16 @@ function LearnPage() {
     return () => window.clearTimeout(t);
   }, [done, next, reviewIndex]);
 
-  // speak the word when a new one appears
+  // speak the word only once when a genuinely new one appears
   const word = entry?.word;
+  const spokenRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!word || done || reviewIndex !== null || !prefs.speech) return;
-    speak(word);
-  }, [word, done, reviewIndex, prefs.speech]);
+    if (!word || done || reviewIndex !== null) return;
+    const key = `${index}:${word}`;
+    if (spokenRef.current === key) return;
+    spokenRef.current = key;
+    if (prefsRef.current.speech) speak(word);
+  }, [word, index, done, reviewIndex]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
