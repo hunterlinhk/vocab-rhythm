@@ -192,7 +192,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
       >
         {chars.map((ch, i) => {
           const done = i < typed.length;
-          const current = i === typed.length;
+          const current = i === caretIndex;
           const isSpace = ch === " ";
           return (
             <span
