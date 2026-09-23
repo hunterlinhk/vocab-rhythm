@@ -220,7 +220,9 @@ function LearnPage() {
     });
   }, []);
   const [savedToMistakes, setSavedToMistakes] = useState<Set<string>>(new Set());
+  const [mistouched, setMistouched] = useState<Set<string>>(new Set());
   const dragX = useRef<number | null>(null);
+  const strict = state?.strictSpelling ?? false;
 
   // review queue words (from persisted records)
   const reviewWords = useMemo(() => {
