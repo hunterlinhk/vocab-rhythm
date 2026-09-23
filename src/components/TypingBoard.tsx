@@ -292,11 +292,14 @@ export function TypingBoard({
 
       {isMobile && !paused && (
         <div
-          className="glass-panel w-full max-w-md touch-none select-none p-2"
+          className="glass-panel w-full max-w-lg touch-none select-none p-[max(2vw,10px)]"
           onPointerDown={(e) => e.preventDefault()}
         >
           {KEY_ROWS.map((row, r) => (
-            <div key={r} className="mt-1 flex justify-center gap-1 first:mt-0">
+            <div
+              key={r}
+              className="mt-[max(1.3vw,6px)] flex justify-center gap-[max(1.2vw,5px)] first:mt-0"
+            >
               {row.map((k) => (
                 <button
                   key={k}
@@ -305,7 +308,7 @@ export function TypingBoard({
                     e.preventDefault();
                     handleChar(k);
                   }}
-                  className="glass-control h-11 min-w-0 flex-1 rounded-lg font-mono text-base text-foreground transition-transform active:scale-95"
+                  className="key-cap flex h-[clamp(76px,19vw,112px)] min-w-0 flex-1 items-center justify-center rounded-[clamp(12px,3vw,18px)] font-mono text-[clamp(26px,6.5vw,38px)] font-medium text-foreground"
                 >
                   {k}
                 </button>
@@ -318,26 +321,26 @@ export function TypingBoard({
                     e.preventDefault();
                     handleBackspace();
                   }}
-                  className="glass-control h-11 flex-[1.4] rounded-lg text-base text-muted-foreground transition-transform active:scale-95"
+                  className="key-cap flex h-[clamp(76px,19vw,112px)] flex-[1.5] items-center justify-center rounded-[clamp(12px,3vw,18px)] text-[clamp(22px,5.5vw,32px)] text-muted-foreground"
                 >
                   ⌫
                 </button>
               )}
             </div>
           ))}
-          {size === "sentence" && (
-            <div className="mt-1 flex justify-center">
-              <button
-                type="button"
-                aria-label="空格"
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  handleChar(" ");
-                }}
-                className="glass-control h-11 w-1/2 rounded-lg transition-transform active:scale-95"
-              />
-            </div>
-          )}
+          <div className="mt-[max(1.3vw,6px)] flex justify-center">
+            <button
+              type="button"
+              aria-label="空格"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                handleChar(" ");
+              }}
+              className="key-cap flex h-[clamp(64px,16vw,92px)] w-[52%] items-center justify-center rounded-[clamp(12px,3vw,18px)]"
+            >
+              <span className="mx-auto block h-[clamp(3px,1vw,5px)] w-[26%] rounded-full bg-muted-foreground/40" />
+            </button>
+          </div>
         </div>
       )}
     </div>
