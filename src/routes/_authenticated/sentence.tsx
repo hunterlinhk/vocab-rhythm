@@ -317,7 +317,7 @@ function SentencePage() {
                     </div>
                   )}
                 </div>
-                <div className="w-1/2 text-right">
+                <div className="w-1/2 min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
                   <p className="text-lg text-foreground">{reviewing.entry.sentenceCn}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     <span className="font-mono text-foreground">{reviewing.entry.word}</span>{" "}
@@ -385,7 +385,7 @@ function SentencePage() {
                         </div>
                       )}
                     </div>
-                    <div className="w-1/2 text-right">
+                    <div className="w-1/2 min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
                       <p className="text-base text-foreground">{entry.sentenceCn}</p>
                       <p className="mt-1 font-mono text-sm text-muted-foreground">
                         {entry.word} {entry.phonetic} · {entry.cn}
