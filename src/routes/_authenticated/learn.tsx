@@ -6,6 +6,7 @@ import { WORD_BOOKS, getBook, shuffle, type WordEntry } from "@/data/words";
 import { recordAttempt } from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
+import { Volume2, BookOpen, PenLine } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/learn")({
   head: () => ({
@@ -24,6 +25,18 @@ export const Route = createFileRoute("/_authenticated/learn")({
 type HistoryItem = { entry: WordEntry; result: TypingResult };
 
 const FAV_KEY = "cadence:favorites";
+const PREF_KEY = "cadence:learn-prefs";
+
+type Prefs = { speech: boolean; meaning: boolean; dictation: boolean };
+const DEFAULT_PREFS: Prefs = { speech: true, meaning: true, dictation: false };
+
+function loadPrefs(): Prefs {
+  try {
+    return { ...DEFAULT_PREFS, ...(JSON.parse(window.localStorage.getItem(PREF_KEY) ?? "{}") as Partial<Prefs>) };
+  } catch {
+    return DEFAULT_PREFS;
+  }
+}
 
 function loadFavorites(): Set<string> {
   try {
@@ -31,6 +44,22 @@ function loadFavorites(): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+function SpeakerButton({ word, className }: { word: string; className?: string }) {
+  return (
+    <button
+      type="button"
+      aria-label="播放发音"
+      onClick={() => speak(word)}
+      className={cn(
+        "inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all duration-200 hover:scale-110 hover:bg-card/70 hover:text-primary",
+        className,
+      )}
+    >
+      <Volume2 className="size-4" />
+    </button>
+  );
 }
 
 function LearnPage() {
@@ -45,6 +74,23 @@ function LearnPage() {
   // null = typing current word; number = reviewing history[reviewIndex] (permanent)
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
+  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const prefsRef = useRef<Prefs>(DEFAULT_PREFS);
+  useEffect(() => {
+    prefsRef.current = prefs;
+  }, [prefs]);
+  useEffect(() => setPrefs(loadPrefs()), []);
+  const togglePref = useCallback((key: keyof Prefs) => {
+    setPrefs((p) => {
+      const nextPrefs = { ...p, [key]: !p[key] };
+      try {
+        window.localStorage.setItem(PREF_KEY, JSON.stringify(nextPrefs));
+      } catch {
+        /* ignore */
+      }
+      return nextPrefs;
+    });
+  }, []);
   const [savedToMistakes, setSavedToMistakes] = useState<Set<string>>(new Set());
   const dragX = useRef<number | null>(null);
 
@@ -74,7 +120,7 @@ function LearnPage() {
       setDone(r);
       setSessionDone((n) => n + 1);
       setHistory((h) => [...h, { entry, result: r }]);
-      speak(entry.word);
+      if (prefsRef.current.speech) speak(entry.word);
       void save({
         data: {
           mode: "word" as const,
@@ -216,7 +262,7 @@ function LearnPage() {
   const progress = useMemo(() => ((index % queue.length) / queue.length) * 100, [index, queue.length]);
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col items-center overflow-x-clip pb-4">
       <div className="flex w-full items-center justify-between gap-4">
         <div className="flex gap-1.5">
           {WORD_BOOKS.map((b) => (
@@ -245,13 +291,39 @@ function LearnPage() {
       </div>
 
       <div
-        className="glass-stage mt-10 flex min-h-[33.25rem] w-full touch-pan-y flex-col items-center justify-center gap-8 px-6 py-14 select-none"
+        className="glass-stage relative mt-10 flex min-h-[33.25rem] w-full touch-pan-y flex-col items-center justify-center gap-8 px-6 py-14 select-none"
         style={dragStyle}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
       >
+        <div className="absolute top-5 left-6 flex gap-1.5">
+          {(
+            [
+              { key: "speech", on: prefs.speech, icon: Volume2, label: "朗读" },
+              { key: "meaning", on: prefs.meaning, icon: BookOpen, label: "释义" },
+              { key: "dictation", on: prefs.dictation, icon: PenLine, label: "默写" },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              aria-pressed={t.on}
+              title={`${t.on ? "关闭" : "开启"}${t.label}`}
+              onClick={() => togglePref(t.key)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-all duration-300",
+                t.on
+                  ? "bg-card/70 text-primary shadow-[0_6px_16px_-12px_var(--ink)]"
+                  : "text-muted-foreground/60 hover:bg-card/40 hover:text-muted-foreground",
+              )}
+            >
+              <t.icon className="size-3.5" />
+              {t.label}
+            </button>
+          ))}
+        </div>
         <div
           key={reviewing ? `r-${reviewIndex}` : `w-${entry.word}`}
           className={cn(
@@ -266,7 +338,10 @@ function LearnPage() {
             </div>
             <p className="font-display text-4xl">{reviewing.entry.word}</p>
             <p className="font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
-            <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
+              <SpeakerButton word={reviewing.entry.word} />
+            </div>
             <div className="mt-1 space-y-1">
               <p className="text-sm text-muted-foreground">{reviewing.entry.sentence}</p>
               <p className="text-sm text-muted-foreground/80">{reviewing.entry.sentenceCn}</p>
@@ -320,12 +395,25 @@ function LearnPage() {
           </div>
         ) : (
           <>
-            <div className="text-center">
-              <p className="font-display text-xl text-foreground">{entry.cn}</p>
-              <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
-            </div>
+            {prefs.meaning ? (
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-1.5">
+                  <p className="font-display text-xl text-foreground">{entry.cn}</p>
+                  <SpeakerButton word={entry.word} />
+                </div>
+                <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+              </div>
+            ) : (
+              <SpeakerButton word={entry.word} className="size-9" />
+            )}
 
-            <TypingBoard key={entry.word} target={entry.word} onComplete={onComplete} paused={!!done} />
+            <TypingBoard
+              key={entry.word}
+              target={entry.word}
+              masked={prefs.dictation}
+              onComplete={onComplete}
+              paused={!!done}
+            />
 
             {done ? (
               <div className="sweep-in flex flex-col items-center gap-3 text-center">
@@ -334,6 +422,10 @@ function LearnPage() {
                   {done.typoCount === 0 ? " · 全对" : ` · ${done.typoCount} 次错误`}
                 </div>
                 <p className="font-display text-2xl">{entry.word}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-base text-foreground">{entry.cn}</p>
+                  <SpeakerButton word={entry.word} />
+                </div>
                 <p className="text-sm text-muted-foreground">{entry.sentence}</p>
                 <p className="text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
                 <div className="flex gap-2 pt-1">
