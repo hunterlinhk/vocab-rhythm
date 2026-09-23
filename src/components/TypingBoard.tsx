@@ -35,6 +35,8 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
   const typedRef = useRef("");
   const typosRef = useRef(0);
   const mistouchRef = useRef(false);
+  // repeated identical wrong key at the same position counts as one error
+  const lastWrongRef = useRef<{ index: number; key: string } | null>(null);
 
   useEffect(() => {
     setTyped("");
@@ -76,8 +78,14 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
       if (expected === undefined) return;
 
       if (key.toLowerCase() !== expected.toLowerCase()) {
-        typosRef.current += 1;
-        setTypos(typosRef.current);
+        const lower = key.toLowerCase();
+        const last = lastWrongRef.current;
+        const repeated = last !== null && last.index === i && last.key === lower;
+        lastWrongRef.current = { index: i, key: lower };
+        if (!repeated) {
+          typosRef.current += 1;
+          setTypos(typosRef.current);
+        }
         setWrongAt(i);
         sfx.wrong();
         window.setTimeout(() => setWrongAt(null), 260);
