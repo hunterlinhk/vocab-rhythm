@@ -463,8 +463,8 @@ function LearnPage() {
         >
           {reviewing ? (
             <div data-selectable className="flex w-full flex-col items-center gap-7 select-text">
-              <div className="flex w-full items-start justify-center gap-8 text-left sm:gap-14">
-                <div className="w-[44%] max-w-md min-w-0">
+              <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
+                <div className="w-[45%] min-w-0">
                   <p className="font-display text-5xl [overflow-wrap:anywhere]">{reviewing.entry.word}</p>
                   <p className="mt-2 font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
                   <div className="mt-3 flex items-center gap-1.5">
@@ -472,7 +472,7 @@ function LearnPage() {
                     <SpeakerButton word={reviewing.entry.word} />
                   </div>
                 </div>
-                <div className="w-[44%] max-w-md min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
+                <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
                   <p className="text-base text-foreground/90">{reviewing.entry.sentence}</p>
                   <p className="mt-2 text-sm text-muted-foreground">{reviewing.entry.sentenceCn}</p>
                 </div>
@@ -543,8 +543,8 @@ function LearnPage() {
 
               {done ? (
                 <div data-selectable className="sweep-in flex w-full flex-col items-center gap-5 select-text">
-                  <div className="flex w-full items-start justify-center gap-8 text-left sm:gap-14">
-                    <div className="w-[44%] max-w-md min-w-0">
+                  <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
+                    <div className="w-[45%] min-w-0">
                       <p className="font-display text-4xl [overflow-wrap:anywhere]">{entry.word}</p>
                       <p className="mt-2 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
                       <div className="mt-3 flex items-center gap-1.5">
@@ -552,7 +552,7 @@ function LearnPage() {
                         <SpeakerButton word={entry.word} />
                       </div>
                     </div>
-                    <div className="w-[44%] max-w-md min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
+                    <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
                       <p className="text-base text-foreground/90">{entry.sentence}</p>
                       <p className="mt-2 text-sm text-muted-foreground">{entry.sentenceCn}</p>
                     </div>
