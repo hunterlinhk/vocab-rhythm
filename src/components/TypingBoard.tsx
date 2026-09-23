@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { sfx } from "@/lib/sound";
+import { useIsMobile } from "@/hooks/use-mobile";
+
+const KEY_ROWS: string[][] = [
+  "qwertyuiop".split(""),
+  "asdfghjkl".split(""),
+  "zxcvbnm".split(""),
+];
 
 const isPunct = (ch: string) => ch !== " " && !/[\p{L}\p{N}]/u.test(ch);
 const skipPunct = (target: string, from: number) => {
@@ -37,6 +44,7 @@ export function TypingBoard({
   hideMistouch = false,
   onComplete,
 }: Props) {
+  const isMobile = useIsMobile();
   const [typed, setTyped] = useState("");
   const [typos, setTypos] = useState(0);
   const [mistouch, setMistouch] = useState(false);
@@ -161,13 +169,17 @@ export function TypingBoard({
   const onHiddenInput = useCallback(
     (e: React.FormEvent<HTMLInputElement>) => {
       const el = e.currentTarget;
-      if (!keyHandledRef.current) {
-        const data = (e.nativeEvent as InputEvent).data;
+      const native = e.nativeEvent as InputEvent;
+      const data = native.data ?? el.value;
+      // batch input (IME, autocomplete, paste, whole-word commit) always wins
+      if (data && data.length > 1) {
+        for (const ch of data) if (ch.length === 1) handleChar(ch);
+      } else if (!keyHandledRef.current) {
         if (data) {
           for (const ch of data) {
             if (ch.length === 1) handleChar(ch);
           }
-        } else if ((e.nativeEvent as InputEvent).inputType === "deleteContentBackward") {
+        } else if (native.inputType === "deleteContentBackward") {
           handleBackspace();
         }
       }
@@ -177,6 +189,17 @@ export function TypingBoard({
     [handleChar, handleBackspace],
   );
 
+  const onComposition = useCallback(
+    (e: React.CompositionEvent<HTMLInputElement>) => {
+      const data = e.data;
+      if (data) for (const ch of data) if (ch.length === 1) handleChar(ch);
+      e.currentTarget.value = "";
+      keyHandledRef.current = false;
+    },
+    [handleChar],
+  );
+
+
 
   const chars = target.split("");
   const big = size === "word";
@@ -184,7 +207,7 @@ export function TypingBoard({
 
   // tapping anywhere while typing (touch devices) summons the soft keyboard
   useEffect(() => {
-    if (paused) return;
+    if (paused || isMobile) return;
     const onPointerDown = (e: PointerEvent) => {
       const t = e.target as HTMLElement | null;
       if (t?.closest("button, a, input, textarea")) return;
@@ -194,7 +217,7 @@ export function TypingBoard({
     };
     window.addEventListener("pointerdown", onPointerDown);
     return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [paused]);
+  }, [paused, isMobile]);
 
   return (
     <div className="relative flex flex-col items-center gap-5">
@@ -208,6 +231,7 @@ export function TypingBoard({
         spellCheck={false}
         tabIndex={-1}
         onInput={onHiddenInput}
+        onCompositionEnd={onComposition}
         className="pointer-events-none absolute top-0 left-1/2 h-px w-px opacity-0"
       />
       <div
@@ -265,6 +289,57 @@ export function TypingBoard({
           </button>
         )}
       </div>
+
+      {isMobile && !paused && (
+        <div
+          className="glass-panel w-full max-w-md touch-none select-none p-2"
+          onPointerDown={(e) => e.preventDefault()}
+        >
+          {KEY_ROWS.map((row, r) => (
+            <div key={r} className="mt-1 flex justify-center gap-1 first:mt-0">
+              {row.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    handleChar(k);
+                  }}
+                  className="glass-control h-11 min-w-0 flex-1 rounded-lg font-mono text-base text-foreground transition-transform active:scale-95"
+                >
+                  {k}
+                </button>
+              ))}
+              {r === 2 && (
+                <button
+                  type="button"
+                  aria-label="退格"
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    handleBackspace();
+                  }}
+                  className="glass-control h-11 flex-[1.4] rounded-lg text-base text-muted-foreground transition-transform active:scale-95"
+                >
+                  ⌫
+                </button>
+              )}
+            </div>
+          ))}
+          {size === "sentence" && (
+            <div className="mt-1 flex justify-center">
+              <button
+                type="button"
+                aria-label="空格"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleChar(" ");
+                }}
+                className="glass-control h-11 w-1/2 rounded-lg transition-transform active:scale-95"
+              />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
