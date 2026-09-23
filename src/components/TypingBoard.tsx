@@ -21,10 +21,22 @@ type Props = {
   paused?: boolean;
   /** dictation mode: untyped characters are hidden */
   masked?: boolean;
+  /** strict mode: a real mistake clears the input and the word restarts from the beginning */
+  strict?: boolean;
+  /** hide the inline mistouch button (strict mode offers it on the result panel instead) */
+  hideMistouch?: boolean;
   onComplete: (result: TypingResult) => void;
 };
 
-export function TypingBoard({ target, size = "word", paused = false, masked = false, onComplete }: Props) {
+export function TypingBoard({
+  target,
+  size = "word",
+  paused = false,
+  masked = false,
+  strict = false,
+  hideMistouch = false,
+  onComplete,
+}: Props) {
   const [typed, setTyped] = useState("");
   const [typos, setTypos] = useState(0);
   const [mistouch, setMistouch] = useState(false);
