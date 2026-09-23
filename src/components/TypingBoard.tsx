@@ -204,8 +204,8 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
                 current && wrongAt === i && "text-destructive",
               )}
             >
-              {isSpace ? "\u00A0" : masked && !done ? "\u00A0" : ch}
-              {masked && !done && !isSpace && (
+              {isSpace ? "\u00A0" : masked && !done && !isPunct(ch) ? "\u00A0" : ch}
+              {masked && !done && !isSpace && !isPunct(ch) && (
                 <span
                   className="absolute -bottom-2 left-[0.15em] right-[0.15em] mx-auto h-px rounded-full bg-muted-foreground/30"
                 />
