@@ -8,6 +8,13 @@
       "when": 1790091809743,
       "tag": "0000_create_learning_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790138522105,
+      "tag": "0001_create_learning_state",
+      "breakpoints": true
     }
   ]
 }
