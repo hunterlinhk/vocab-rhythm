@@ -116,10 +116,10 @@ export type LearningState = {
 export const getLearningState = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<LearningState> => {
-    const [settingsRes, progressRes, attemptsRes] = await Promise.all([
+    const [settingsRes, progressRes, attemptsRes, masteryRes] = await Promise.all([
       context.supabase
         .from("user_settings")
-        .select("daily_goal, active_book")
+        .select("daily_goal, active_book, memorize_spelling")
         .eq("user_id", context.userId)
         .maybeSingle(),
       context.supabase.from("book_progress").select("book_id, cursor_index").eq("user_id", context.userId),
@@ -129,6 +129,11 @@ export const getLearningState = createServerFn({ method: "GET" })
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(2000),
+      context.supabase
+        .from("word_mastery")
+        .select("word")
+        .eq("user_id", context.userId)
+        .gte("rounds", 3),
     ]);
 
     const rows = attemptsRes.data ?? [];
@@ -162,6 +167,8 @@ export const getLearningState = createServerFn({ method: "GET" })
     return {
       dailyGoal: settingsRes.data?.daily_goal ?? 20,
       activeBook: settingsRes.data?.active_book ?? "core",
+      memorizeSpelling: settingsRes.data?.memorize_spelling ?? true,
+      masteredWords: (masteryRes.data ?? []).map((m) => m.word),
       cursors,
       learnedByBook,
       learnedWords: [...new Set(rows.map((r) => r.word))],
