@@ -186,6 +186,7 @@ function ResultPanel({
 function LearnPage() {
   const { queue: queueKind } = Route.useSearch();
   const save = useServerFn(recordAttempt);
+  const flagMistouch = useServerFn(markAttemptMistouch);
   const persistCursor = useServerFn(saveBookCursor);
   const persistSettings = useServerFn(saveSettings);
   const fetchState = useServerFn(getLearningState);
