@@ -245,7 +245,7 @@ function LearnPage() {
       </div>
 
       <div
-        className="glass-stage mt-10 flex w-full touch-pan-y flex-col items-center gap-8 px-6 py-14 select-none"
+        className="glass-stage mt-10 flex min-h-[33.25rem] w-full touch-pan-y flex-col items-center justify-center gap-8 px-6 py-14 select-none"
         style={dragStyle}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
