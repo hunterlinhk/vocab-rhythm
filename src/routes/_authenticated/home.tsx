@@ -45,7 +45,7 @@ function HomePage() {
           <p className="text-sm font-medium text-primary">今天也保持一点节奏</p>
           <h1 className="mt-3 font-display text-4xl leading-tight text-foreground sm:text-5xl">继续学习</h1>
           <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">
-            从核心词汇继续，把每一次敲击变成稳定、清晰的记忆。
+            {activeBook.name} · 已学 {bookLearned} / {activeBook.words.length}，从上次的位置继续。
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Button asChild size="lg" className="rounded-full px-6 shadow-lg shadow-primary/15">
