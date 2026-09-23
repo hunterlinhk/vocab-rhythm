@@ -27,8 +27,8 @@ type HistoryItem = { entry: WordEntry; result: TypingResult };
 
 const PREF_KEY = "cadence:learn-prefs";
 
-type Prefs = { speech: boolean; meaning: boolean; dictation: boolean };
-const DEFAULT_PREFS: Prefs = { speech: true, meaning: true, dictation: false };
+type Prefs = { speech: boolean; meaning: boolean; english: boolean; dictation: boolean };
+const DEFAULT_PREFS: Prefs = { speech: true, meaning: true, english: true, dictation: false };
 
 function loadPrefs(): Prefs {
   try {
