@@ -262,7 +262,7 @@ function LearnPage() {
   const progress = useMemo(() => ((index % queue.length) / queue.length) * 100, [index, queue.length]);
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col items-center overflow-x-clip pb-4">
       <div className="flex w-full items-center justify-between gap-4">
         <div className="flex gap-1.5">
           {WORD_BOOKS.map((b) => (
@@ -291,13 +291,39 @@ function LearnPage() {
       </div>
 
       <div
-        className="glass-stage mt-10 flex min-h-[33.25rem] w-full touch-pan-y flex-col items-center justify-center gap-8 px-6 py-14 select-none"
+        className="glass-stage relative mt-10 flex min-h-[33.25rem] w-full touch-pan-y flex-col items-center justify-center gap-8 px-6 py-14 select-none"
         style={dragStyle}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
       >
+        <div className="absolute top-5 left-6 flex gap-1.5">
+          {(
+            [
+              { key: "speech", on: prefs.speech, icon: Volume2, label: "朗读" },
+              { key: "meaning", on: prefs.meaning, icon: BookOpen, label: "释义" },
+              { key: "dictation", on: prefs.dictation, icon: PenLine, label: "默写" },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              aria-pressed={t.on}
+              title={`${t.on ? "关闭" : "开启"}${t.label}`}
+              onClick={() => togglePref(t.key)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-all duration-300",
+                t.on
+                  ? "bg-card/70 text-primary shadow-[0_6px_16px_-12px_var(--ink)]"
+                  : "text-muted-foreground/60 hover:bg-card/40 hover:text-muted-foreground",
+              )}
+            >
+              <t.icon className="size-3.5" />
+              {t.label}
+            </button>
+          ))}
+        </div>
         <div
           key={reviewing ? `r-${reviewIndex}` : `w-${entry.word}`}
           className={cn(
