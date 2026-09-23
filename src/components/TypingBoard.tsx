@@ -38,6 +38,7 @@ export function TypingBoard({
   hideMistouch = false,
   onComplete,
 }: Props) {
+  const isMobile = useIsMobile();
   const [typed, setTyped] = useState("");
   const [typos, setTypos] = useState(0);
   const [mistouch, setMistouch] = useState(false);
