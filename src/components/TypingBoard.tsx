@@ -105,7 +105,6 @@ export function TypingBoard({
         if (strict && !repeated) {
           typedRef.current = "";
           setTyped("");
-          lastWrongRef.current = null;
         }
         window.setTimeout(() => setWrongAt(null), 260);
         return;
