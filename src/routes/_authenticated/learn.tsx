@@ -263,8 +263,8 @@ function LearnPage() {
 
   return (
     <div className="flex flex-col items-center overflow-x-clip pb-4">
-      <div className="flex w-full items-center justify-between gap-4">
-        <div className="flex gap-1.5">
+      <div className="flex w-full flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1.5">
           {WORD_BOOKS.map((b) => (
             <button
               key={b.id}
@@ -291,7 +291,7 @@ function LearnPage() {
       </div>
 
       <div
-        className="glass-stage relative mt-10 flex min-h-[33.25rem] w-full touch-pan-y flex-col items-center justify-center gap-8 px-6 py-14 select-none"
+        className="glass-stage relative mt-6 flex min-h-[30rem] w-full touch-pan-y flex-col items-center justify-center gap-6 px-4 py-10 select-none sm:mt-10 sm:min-h-[33.25rem] sm:gap-8 sm:px-6 sm:py-14"
         style={dragStyle}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

@@ -24,6 +24,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
   const [wrongAt, setWrongAt] = useState<number | null>(null);
   const startedAt = useRef<number | null>(null);
   const doneRef = useRef(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setTyped("");
@@ -40,28 +41,20 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
     setWrongAt(null);
   }, []);
 
-  useEffect(() => {
-    if (paused) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const target_ = e.target as HTMLElement | null;
-      if (target_ && ["INPUT", "TEXTAREA"].includes(target_.tagName)) return;
+  const handleBackspace = useCallback(() => {
+    setTyped((t) => t.slice(0, -1));
+    setWrongAt(null);
+  }, []);
 
-      if (e.key === "Backspace") {
-        e.preventDefault();
-        setTyped((t) => t.slice(0, -1));
-        setWrongAt(null);
-        return;
-      }
-      if (e.key.length !== 1) return;
-      e.preventDefault();
+  const handleChar = useCallback(
+    (key: string) => {
       if (doneRef.current) return;
       if (startedAt.current === null) startedAt.current = performance.now();
 
       setTyped((prev) => {
         const expected = target[prev.length];
         if (expected === undefined) return prev;
-        const ok = e.key === expected || (expected === " " && e.key === " ");
+        const ok = key === expected;
         if (!ok) {
           setTypos((n) => n + 1);
           setWrongAt(prev.length);
@@ -81,10 +74,60 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
         }
         return next;
       });
+    },
+    [target, onComplete],
+  );
+
+  // some mobile keyboards report key "Unidentified"; fall back to the input event data
+  const keyHandledRef = useRef(false);
+
+  useEffect(() => {
+    if (paused) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target_ = e.target as HTMLElement | null;
+      if (
+        target_ &&
+        ["INPUT", "TEXTAREA"].includes(target_.tagName) &&
+        target_ !== inputRef.current
+      )
+        return;
+
+      keyHandledRef.current = true;
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        handleBackspace();
+        return;
+      }
+      if (e.key.length !== 1) {
+        keyHandledRef.current = e.key !== "Unidentified";
+        return;
+      }
+      e.preventDefault();
+      handleChar(e.key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [target, paused, onComplete]);
+  }, [target, paused, handleChar, handleBackspace]);
+
+  const onHiddenInput = useCallback(
+    (e: React.FormEvent<HTMLInputElement>) => {
+      const el = e.currentTarget;
+      if (!keyHandledRef.current) {
+        const data = (e.nativeEvent as InputEvent).data;
+        if (data) {
+          for (const ch of data) {
+            if (ch.length === 1) handleChar(ch);
+          }
+        } else if ((e.nativeEvent as InputEvent).inputType === "deleteContentBackward") {
+          handleBackspace();
+        }
+      }
+      keyHandledRef.current = false;
+      el.value = "";
+    },
+    [handleChar, handleBackspace],
+  );
 
   // keep latest values available inside the keydown closure
   const typosRef = useRef(0);
@@ -99,8 +142,34 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
   const chars = target.split("");
   const big = size === "word";
 
+  // tapping anywhere while typing (touch devices) summons the soft keyboard
+  useEffect(() => {
+    if (paused) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("button, a, input, textarea")) return;
+      inputRef.current?.focus({ preventScroll: true });
+      // keep the synthetic click from stealing the focus back to <body>
+      e.preventDefault();
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [paused]);
+
   return (
-    <div className="flex flex-col items-center gap-5">
+    <div className="relative flex flex-col items-center gap-5">
+      <input
+        ref={inputRef}
+        type="text"
+        aria-label="输入拼写"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        tabIndex={-1}
+        onInput={onHiddenInput}
+        className="pointer-events-none absolute top-0 left-1/2 h-px w-px opacity-0"
+      />
       <div
         className={cn(
           "flex flex-wrap items-end justify-center gap-x-0 gap-y-3 font-mono tracking-tight select-none",
