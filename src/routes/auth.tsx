@@ -61,6 +61,18 @@ function AuthPage() {
     void navigate({ to: "/home" });
   }
 
+  async function guest() {
+    setLoading(true);
+    setMsg(null);
+    const { error } = await supabase.auth.signInAnonymously();
+    setLoading(false);
+    if (error) {
+      setMsg(error.message);
+      return;
+    }
+    void navigate({ to: "/home" });
+  }
+
   return (
     <div className="flex min-h-screen items-center justify-center px-5">
       <div className="card-surface rise-in w-full max-w-md rounded-3xl p-8">
@@ -77,6 +89,16 @@ function AuthPage() {
         >
           使用 Google 继续
         </button>
+
+        <button
+          type="button"
+          onClick={guest}
+          disabled={loading}
+          className="mt-3 w-full rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium transition-colors hover:border-primary/40 disabled:opacity-60"
+        >
+          访客登录
+        </button>
+
 
         <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
           <span className="h-px flex-1 bg-border" /> 或使用邮箱 <span className="h-px flex-1 bg-border" />
