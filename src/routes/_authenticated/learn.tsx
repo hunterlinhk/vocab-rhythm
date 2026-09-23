@@ -59,7 +59,11 @@ function LearnPage() {
     setReviewIndex(null);
   }, [bookId]);
 
+  // navigation direction for slide animation: 1 = forward, -1 = back
+  const [navDir, setNavDir] = useState<1 | -1>(1);
+
   const next = useCallback(() => {
+    setNavDir(1);
     setDone(null);
     setReviewIndex(null);
     setIndex((i) => (i + 1) % queue.length);
@@ -88,14 +92,16 @@ function LearnPage() {
   );
 
   const goBack = useCallback(() => {
+    if (history.length === 0) return;
+    setNavDir(-1);
     setReviewIndex((cur) => {
-      if (history.length === 0) return cur;
       if (cur === null) return history.length - 1;
       return Math.max(0, cur - 1);
     });
   }, [history.length]);
 
   const goForward = useCallback(() => {
+    setNavDir(1);
     setReviewIndex((cur) => {
       if (cur === null) return cur;
       if (cur >= history.length - 1) return null; // back to typing the current word
@@ -141,6 +147,9 @@ function LearnPage() {
   const [dragging, setDragging] = useState(false);
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    // don't hijack pointer from buttons/interactive elements — they need their click
+    if ((e.target as HTMLElement).closest("button, a, input, textarea")) return;
     dragX.current = e.clientX;
     setDragging(true);
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
@@ -243,8 +252,15 @@ function LearnPage() {
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
       >
+        <div
+          key={reviewing ? `r-${reviewIndex}` : `w-${entry.word}`}
+          className={cn(
+            "flex w-full flex-col items-center gap-8",
+            navDir === 1 ? "nav-slide-left" : "nav-slide-right",
+          )}
+        >
         {reviewing ? (
-          <div className="sweep-in flex flex-col items-center gap-4 text-center">
+          <div className="flex flex-col items-center gap-4 text-center">
             <div className="rounded-full bg-accent/60 px-4 py-1 text-xs text-accent-foreground">
               回顾 · {reviewIndex! + 1} / {history.length} · ← → 切换
             </div>
@@ -340,6 +356,7 @@ function LearnPage() {
             ) : null}
           </>
         )}
+        </div>
       </div>
     </div>
   );
