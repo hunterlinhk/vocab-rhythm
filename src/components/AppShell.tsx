@@ -52,6 +52,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const sidebarRef = useRef<HTMLElement>(null);
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const focusMode = ["/learn", "/sentence", "/memorize"].includes(pathname);
   // kept in the shell so the mobile drawer remembers what the user expanded or collapsed
   const [expandedItem, setExpandedItem] = useState<string | null>(() => {
     const parent = nav.find((item) => isActive(item.to, pathname));
@@ -84,6 +85,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </aside>
 
         <div className="min-w-0 flex-1">
+          {focusMode ? (
+            <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+              <SheetTrigger asChild><Button variant="ghost" size="icon" className="glass-mobile-bar fixed left-2 top-2 z-40 size-10 rounded-full animate-in fade-in slide-in-from-left-4 duration-300 lg:hidden" aria-label="打开目录"><Menu className="size-4" /></Button></SheetTrigger>
+              <SheetContent side="left" className="glass-drawer w-[86vw] border-card/60 p-0 sm:max-w-80"><SheetTitle className="sr-only">学习目录</SheetTitle><SidebarContent collapsed={false} pathname={pathname} expandedItem={expandedItem} setExpandedItem={setExpandedItem} onNavigate={() => setMobileOpen(false)} /></SheetContent>
+            </Sheet>
+          ) : (
           <header className="glass-mobile-bar sticky top-2 z-40 mb-3 flex h-14 items-center justify-between px-4 lg:hidden">
             <Link to="/home" className="font-display text-lg font-semibold text-foreground">Cadence <span className="font-sans text-xs font-medium text-muted-foreground">韵词</span></Link>
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -91,7 +98,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               <SheetContent side="left" className="glass-drawer w-[86vw] border-card/60 p-0 sm:max-w-80"><SheetTitle className="sr-only">学习目录</SheetTitle><SidebarContent collapsed={false} pathname={pathname} expandedItem={expandedItem} setExpandedItem={setExpandedItem} onNavigate={() => setMobileOpen(false)} /></SheetContent>
             </Sheet>
           </header>
-          <main className="mx-auto w-full max-w-[1240px] px-2 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-7">{children}</main>
+          )}
+          <main className={cn("mx-auto w-full max-w-[1240px] px-2 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-7", focusMode && "max-lg:pl-14 max-lg:pt-2")}>{children}</main>
         </div>
       </div>
     </div>
