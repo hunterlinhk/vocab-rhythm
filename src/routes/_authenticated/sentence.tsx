@@ -7,7 +7,7 @@ import { WORD_BOOKS, getBook, type WordEntry } from "@/data/words";
 import { recordAttempt } from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
-import { Volume2, BookOpen, PenLine } from "lucide-react";
+import { Volume2, BookOpen, PenLine, Languages } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/sentence")({
   head: () => ({
@@ -256,7 +256,8 @@ function SentencePage() {
           {(
             [
               { key: "speech", on: prefs.speech, icon: Volume2, label: "朗读" },
-              { key: "meaning", on: prefs.meaning, icon: BookOpen, label: "释义" },
+              { key: "meaning", on: prefs.meaning, icon: Languages, label: "中文" },
+              { key: "english", on: prefs.english, icon: BookOpen, label: "英文" },
               { key: "dictation", on: prefs.dictation, icon: PenLine, label: "默写" },
             ] as const
           ).map((t) => (
