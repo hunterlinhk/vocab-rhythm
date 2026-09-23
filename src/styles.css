@@ -418,43 +418,94 @@
 }
 
 /* translucent deck under the on-screen keyboard */
+/* keyboard tray: luminous light/dark field so glass keys have something to refract */
 @utility key-deck {
-  background: linear-gradient(180deg, color-mix(in oklab, var(--card) 22%, transparent), color-mix(in oklab, var(--accent) 14%, transparent));
-  backdrop-filter: blur(22px) saturate(160%);
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  background:
+    radial-gradient(60% 90% at 12% 0%, oklch(1 0 0 / 55%), transparent 70%),
+    radial-gradient(50% 80% at 88% 20%, color-mix(in oklab, var(--accent) 38%, transparent), transparent 72%),
+    radial-gradient(70% 90% at 50% 110%, color-mix(in oklab, var(--primary) 22%, transparent), transparent 70%),
+    linear-gradient(180deg, oklch(0.96 0.015 230 / 38%), oklch(0.82 0.04 232 / 34%));
+  backdrop-filter: blur(26px) saturate(180%);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 55%);
 }
 
-/* frosted raised glass keycap */
+/* Liquid Glass keycap: clear body, specular rim, thickness, soft float */
 @utility key-cap {
-  background: linear-gradient(160deg, oklch(1 0 0 / 82%) 0%, oklch(0.97 0.012 230 / 62%) 55%, oklch(0.93 0.02 230 / 55%) 100%);
-  backdrop-filter: blur(14px) saturate(150%);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    linear-gradient(165deg, oklch(1 0 0 / 30%) 0%, oklch(1 0 0 / 8%) 42%, oklch(1 0 0 / 3%) 62%, oklch(1 0 0 / 14%) 100%);
+  backdrop-filter: blur(16px) saturate(190%) brightness(1.06) contrast(1.04);
   box-shadow:
-    inset 0 1.5px 0 oklch(1 0 0 / 95%),
-    inset 1px 0 0 oklch(1 0 0 / 55%),
-    inset 0 -2px 3px oklch(0.6 0.04 235 / 14%),
-    0 1.5px 0 oklch(0.6 0.04 235 / 18%),
-    0 6px 14px -6px oklch(0.45 0.05 235 / 30%);
-  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+    inset 0 0 0 0.5px oklch(1 0 0 / 55%),
+    inset 1.5px 1.5px 1px -0.5px oklch(1 0 0 / 80%),
+    inset 0 -1.5px 2px -0.5px oklch(0.35 0.04 235 / 22%),
+    inset 0 -6px 10px -6px color-mix(in oklab, var(--primary) 18%, transparent),
+    0 4px 10px -5px oklch(0.4 0.05 235 / 20%);
+  transition: transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 140ms ease, backdrop-filter 140ms ease;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background:
+      radial-gradient(120% 70% at 22% -10%, oklch(1 0 0 / 60%), transparent 55%),
+      radial-gradient(80% 60% at 110% 120%, oklch(1 0 0 / 22%), transparent 60%);
+    opacity: 0.85;
+    pointer-events: none;
+  }
+  &::after {
+    content: "";
+    position: absolute;
+    left: 14%;
+    right: 14%;
+    top: 1px;
+    height: 38%;
+    z-index: -1;
+    border-radius: 999px;
+    background: linear-gradient(180deg, oklch(1 0 0 / 38%), transparent);
+    filter: blur(1px);
+    pointer-events: none;
+  }
   &:active {
-    transform: translateY(2px) scale(0.975);
-    filter: brightness(1.05);
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 80%), inset 0 2px 5px oklch(0.5 0.04 235 / 16%);
+    transform: translateY(1.5px) scale(0.97);
+    backdrop-filter: blur(20px) saturate(220%) brightness(1.12);
+    box-shadow:
+      inset 0 0 0 0.5px oklch(1 0 0 / 70%),
+      inset 1px 1px 1px -0.5px oklch(1 0 0 / 70%),
+      inset 0 -1px 2px oklch(0.35 0.04 235 / 18%),
+      0 2px 5px -3px oklch(0.4 0.05 235 / 18%);
   }
 }
 
-/* helper keys: same glass, more see-through and cooler */
+/* helper keys: same glass, slightly deeper tint for hierarchy */
 @utility key-cap-alt {
-  background: linear-gradient(160deg, oklch(0.97 0.015 230 / 55%) 0%, oklch(0.9 0.03 235 / 42%) 100%);
-  backdrop-filter: blur(14px) saturate(150%);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    linear-gradient(165deg, oklch(1 0 0 / 16%) 0%, color-mix(in oklab, var(--primary) 7%, transparent) 55%, oklch(1 0 0 / 8%) 100%);
+  backdrop-filter: blur(16px) saturate(170%) brightness(0.98);
   box-shadow:
-    inset 0 1.5px 0 oklch(1 0 0 / 80%),
-    inset 0 -2px 3px oklch(0.55 0.05 235 / 16%),
-    0 1.5px 0 oklch(0.6 0.04 235 / 16%),
-    0 6px 14px -6px oklch(0.45 0.05 235 / 26%);
-  transition: transform 120ms ease, box-shadow 120ms ease;
+    inset 0 0 0 0.5px oklch(1 0 0 / 45%),
+    inset 1.5px 1.5px 1px -0.5px oklch(1 0 0 / 65%),
+    inset 0 -1.5px 2px -0.5px oklch(0.35 0.04 235 / 24%),
+    0 4px 10px -5px oklch(0.4 0.05 235 / 18%);
+  transition: transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 140ms ease;
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    background: radial-gradient(120% 70% at 22% -10%, oklch(1 0 0 / 40%), transparent 55%);
+    pointer-events: none;
+  }
   &:active {
-    transform: translateY(2px) scale(0.975);
-    box-shadow: inset 0 1px 0 oklch(1 0 0 / 70%), inset 0 2px 5px oklch(0.5 0.04 235 / 16%);
+    transform: translateY(1.5px) scale(0.97);
+    box-shadow: inset 0 0 0 0.5px oklch(1 0 0 / 60%), inset 0 -1px 2px oklch(0.35 0.04 235 / 18%);
   }
 }
 
