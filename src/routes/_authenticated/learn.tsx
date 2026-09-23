@@ -4,7 +4,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { WORD_BOOKS, entriesFor, getBook, type WordEntry } from "@/data/words";
-import { getLearningState, recordAttempt, saveBookCursor, saveSettings } from "@/lib/learning.functions";
+import {
+  getLearningState,
+  markAttemptMistouch,
+  recordAttempt,
+  saveBookCursor,
+  saveSettings,
+} from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 import { Volume2, BookOpen, PenLine, CheckCircle2 } from "lucide-react";
@@ -86,6 +92,9 @@ function ResultPanel({
   onSave,
   onListen,
   onNext,
+  showMistouch = false,
+  mistouched = false,
+  onMistouch,
 }: {
   item: HistoryItem;
   sweeping?: boolean;
@@ -95,6 +104,9 @@ function ResultPanel({
   onSave: () => void;
   onListen: () => void;
   onNext: () => void;
+  showMistouch?: boolean;
+  mistouched?: boolean;
+  onMistouch?: () => void;
 }) {
   return (
     <div
@@ -151,6 +163,21 @@ function ResultPanel({
         >
           下一个 →
         </button>
+        {showMistouch && (
+          <button
+            type="button"
+            onClick={onMistouch}
+            disabled={mistouched}
+            className={cn(
+              "rounded-full border px-4 py-1.5 text-sm transition-colors",
+              mistouched
+                ? "border-border bg-card text-muted-foreground"
+                : "border-border bg-card hover:border-primary/40",
+            )}
+          >
+            {mistouched ? "已标记误触" : "刚才是误触"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -159,6 +186,7 @@ function ResultPanel({
 function LearnPage() {
   const { queue: queueKind } = Route.useSearch();
   const save = useServerFn(recordAttempt);
+  const flagMistouch = useServerFn(markAttemptMistouch);
   const persistCursor = useServerFn(saveBookCursor);
   const persistSettings = useServerFn(saveSettings);
   const fetchState = useServerFn(getLearningState);
@@ -192,7 +220,9 @@ function LearnPage() {
     });
   }, []);
   const [savedToMistakes, setSavedToMistakes] = useState<Set<string>>(new Set());
+  const [mistouched, setMistouched] = useState<Set<string>>(new Set());
   const dragX = useRef<number | null>(null);
+  const strict = state?.strictSpelling ?? false;
 
   // review queue words (from persisted records)
   const reviewWords = useMemo(() => {
@@ -290,6 +320,38 @@ function LearnPage() {
         .catch(() => undefined);
     },
     [bookId, entry, save, queueKind, qc],
+  );
+
+  const skipCurrent = useCallback(() => {
+    if (!entry) return;
+    void save({
+      data: {
+        mode: "word" as const,
+        bookId: bookId ?? "core",
+        word: entry.word,
+        translation: entry.cn,
+        correct: true,
+        mistouch: false,
+        typoCount: 0,
+        durationMs: 0,
+        isReview: !!queueKind,
+        skipped: true,
+      },
+    })
+      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .catch(() => undefined);
+    next();
+  }, [entry, bookId, save, queueKind, qc, next]);
+
+  const markMistouch = useCallback(
+    (word: string) => {
+      if (mistouched.has(word)) return;
+      setMistouched((s) => new Set(s).add(word));
+      void flagMistouch({ data: { word } })
+        .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+        .catch(() => undefined);
+    },
+    [flagMistouch, mistouched, qc],
   );
 
   const goBack = useCallback(() => {
@@ -520,6 +582,15 @@ function LearnPage() {
             </button>
           ))}
         </div>
+        {!done && !reviewing && (
+          <button
+            type="button"
+            onClick={skipCurrent}
+            className="absolute top-5 right-6 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+          >
+            Skip
+          </button>
+        )}
         {(done || reviewing) && panelResult && (
           <div className="absolute top-5 right-6 text-right text-xs leading-5">
             {reviewing && (
@@ -558,6 +629,9 @@ function LearnPage() {
                       : setReviewIndex(null)
                     : next()
                 }
+                showMistouch={strict}
+                mistouched={mistouched.has(resultItem.entry.word)}
+                onMistouch={() => markMistouch(resultItem.entry.word)}
               />
             )
           ) : (
@@ -578,6 +652,8 @@ function LearnPage() {
                 key={entry.word}
                 target={entry.word}
                 masked={prefs.dictation}
+                strict={strict}
+                hideMistouch={strict}
                 onComplete={onComplete}
               />
             </>

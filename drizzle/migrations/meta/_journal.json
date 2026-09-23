@@ -22,6 +22,13 @@
       "when": 1790147287779,
       "tag": "0002_create_word_mastery",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790157899837,
+      "tag": "0003_add_skip_and_strict_spelling",
+      "breakpoints": true
     }
   ]
 }

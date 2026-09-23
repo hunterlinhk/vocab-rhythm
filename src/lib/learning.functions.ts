@@ -12,6 +12,7 @@ const AttemptInput = z.object({
   typoCount: z.number().int().min(0),
   durationMs: z.number().int().min(0),
   isReview: z.boolean().optional(),
+  skipped: z.boolean().optional(),
 });
 
 export const recordAttempt = createServerFn({ method: "POST" })
@@ -29,7 +30,30 @@ export const recordAttempt = createServerFn({ method: "POST" })
       typo_count: data.typoCount,
       duration_ms: data.durationMs,
       is_review: data.isReview ?? false,
+      skipped: data.skipped ?? false,
     });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** marks the most recent attempt of a word as a mistouch (used by the strict-spelling review panel) */
+export const markAttemptMistouch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ word: z.string() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: row } = await context.supabase
+      .from("attempts")
+      .select("id, typo_count")
+      .eq("user_id", context.userId)
+      .eq("word", data.word)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!row) return { ok: false };
+    const { error } = await context.supabase
+      .from("attempts")
+      .update({ mistouch: true, typo_count: Math.max(0, (row.typo_count ?? 0) - 1) })
+      .eq("id", row.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -103,6 +127,7 @@ export type LearningState = {
   dailyGoal: number;
   activeBook: string;
   memorizeSpelling: boolean;
+  strictSpelling: boolean;
   masteredWords: string[];
   cursors: Record<string, number>;
   learnedByBook: Record<string, string[]>;
@@ -111,6 +136,7 @@ export type LearningState = {
   wrongWords: { word: string; translation: string | null }[];
   troubleWords: { word: string; translation: string | null; typos: number }[];
   mistouchWords: { word: string; translation: string | null; at: string }[];
+  skippedWords: { word: string; translation: string | null; at: string }[];
 };
 
 export const getLearningState = createServerFn({ method: "GET" })
@@ -119,13 +145,13 @@ export const getLearningState = createServerFn({ method: "GET" })
     const [settingsRes, progressRes, attemptsRes, masteryRes] = await Promise.all([
       context.supabase
         .from("user_settings")
-        .select("daily_goal, active_book, memorize_spelling")
+        .select("daily_goal, active_book, memorize_spelling, strict_spelling")
         .eq("user_id", context.userId)
         .maybeSingle(),
       context.supabase.from("book_progress").select("book_id, cursor_index").eq("user_id", context.userId),
       context.supabase
         .from("attempts")
-        .select("word, translation, book_id, typo_count, mistouch, correct, created_at")
+        .select("word, translation, book_id, typo_count, mistouch, correct, skipped, created_at")
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(2000),
@@ -137,13 +163,14 @@ export const getLearningState = createServerFn({ method: "GET" })
     ]);
 
     const rows = attemptsRes.data ?? [];
+    const studied = rows.filter((r) => !r.skipped);
     const today = new Date().toLocaleDateString("en-CA");
 
     const cursors: Record<string, number> = {};
     for (const p of progressRes.data ?? []) cursors[p.book_id] = p.cursor_index;
 
     const learnedByBook: Record<string, string[]> = {};
-    for (const r of rows) {
+    for (const r of studied) {
       const list = (learnedByBook[r.book_id] ??= []);
       if (!list.includes(r.word)) list.push(r.word);
     }
@@ -151,7 +178,7 @@ export const getLearningState = createServerFn({ method: "GET" })
     const wrong = new Map<string, { word: string; translation: string | null }>();
     const trouble = new Map<string, { word: string; translation: string | null; typos: number }>();
     const mistouch: { word: string; translation: string | null; at: string }[] = [];
-    for (const r of rows) {
+    for (const r of studied) {
       if (r.mistouch) {
         if (mistouch.length < 40) mistouch.push({ word: r.word, translation: r.translation, at: r.created_at });
         continue;
@@ -164,20 +191,28 @@ export const getLearningState = createServerFn({ method: "GET" })
       }
     }
 
+    const skippedRows = rows.filter((r) => r.skipped);
+
     return {
       dailyGoal: settingsRes.data?.daily_goal ?? 20,
       activeBook: settingsRes.data?.active_book ?? "core",
       memorizeSpelling: settingsRes.data?.memorize_spelling ?? true,
+      strictSpelling: settingsRes.data?.strict_spelling ?? false,
       masteredWords: (masteryRes.data ?? []).map((m) => m.word),
       cursors,
       learnedByBook,
-      learnedWords: [...new Set(rows.map((r) => r.word))],
+      learnedWords: [...new Set(studied.map((r) => r.word))],
       todayWords: [
-        ...new Set(rows.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today).map((r) => r.word)),
+        ...new Set(
+          studied.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today).map((r) => r.word),
+        ),
       ],
       wrongWords: [...wrong.values()].slice(0, 60),
       troubleWords: [...trouble.values()].sort((a, b) => b.typos - a.typos).slice(0, 60),
       mistouchWords: mistouch,
+      skippedWords: skippedRows
+        .slice(0, 40)
+        .map((r) => ({ word: r.word, translation: r.translation, at: r.created_at })),
     };
   });
 
@@ -189,6 +224,7 @@ export const saveSettings = createServerFn({ method: "POST" })
         dailyGoal: z.number().int().min(5).max(300).optional(),
         activeBook: z.string().optional(),
         memorizeSpelling: z.boolean().optional(),
+        strictSpelling: z.boolean().optional(),
       })
       .parse(input),
   )
@@ -199,6 +235,7 @@ export const saveSettings = createServerFn({ method: "POST" })
       daily_goal?: number;
       active_book?: string;
       memorize_spelling?: boolean;
+      strict_spelling?: boolean;
     } = {
       user_id: context.userId,
       updated_at: new Date().toISOString(),
@@ -206,6 +243,7 @@ export const saveSettings = createServerFn({ method: "POST" })
     if (data.dailyGoal !== undefined) patch.daily_goal = data.dailyGoal;
     if (data.activeBook !== undefined) patch.active_book = data.activeBook;
     if (data.memorizeSpelling !== undefined) patch.memorize_spelling = data.memorizeSpelling;
+    if (data.strictSpelling !== undefined) patch.strict_spelling = data.strictSpelling;
     const { error } = await context.supabase.from("user_settings").upsert(patch, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -246,12 +284,12 @@ export const getStats = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<LearningStats> => {
     const { data, error } = await context.supabase
       .from("attempts")
-      .select("word, translation, mode, typo_count, mistouch, created_at")
+      .select("word, translation, mode, typo_count, mistouch, skipped, created_at")
       .eq("user_id", context.userId)
       .order("created_at", { ascending: false })
       .limit(1000);
     if (error) throw new Error(error.message);
-    const rows = data ?? [];
+    const rows = (data ?? []).filter((r) => !r.skipped);
 
     const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
     const today = new Date().toLocaleDateString("en-CA");
@@ -336,7 +374,7 @@ export const sendMessage = createServerFn({ method: "POST" })
         .limit(40),
       context.supabase
         .from("attempts")
-        .select("word, translation, typo_count, mistouch, mode, created_at")
+        .select("word, translation, typo_count, mistouch, mode, skipped, created_at")
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(200),
@@ -348,7 +386,9 @@ export const sendMessage = createServerFn({ method: "POST" })
         .limit(120),
     ]);
 
-    const attempts = rows ?? [];
+    const allRows = rows ?? [];
+    const attempts = allRows.filter((r) => !r.skipped);
+    const skippedWords = [...new Set(allRows.filter((r) => r.skipped).map((r) => r.word))].slice(0, 30);
     const today = new Date().toLocaleDateString("en-CA");
     const todayWords = [
       ...new Set(attempts.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today).map((r) => r.word)),
@@ -377,6 +417,7 @@ export const sendMessage = createServerFn({ method: "POST" })
       "尽量结合用户真实学过的词汇作答；数据中没有的内容不要编造。",
       `今天学过的词(${todayWords.length})：${todayWords.join(", ") || "暂无"}`,
       `经常出错的词：${wrongWords.join(", ") || "暂无"}`,
+      `主动跳过(skipped)的词：${skippedWords.join(", ") || "暂无"}（跳过不算错误，也不算误触）`,
       `已学过的词：${learned.join(", ") || "暂无"}`,
       `累计练习次数：${attempts.length}`,
       "背单词模式共三轮强化：1) 语境中选中文释义 2) 只看单词选中文释义 3) 拼写。",

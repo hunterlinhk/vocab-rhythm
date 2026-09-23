@@ -1,8 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
-import { Bell, ChevronRight, Crown, Headphones, LogOut, Moon, UserRound } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { Bell, ChevronRight, Crown, Headphones, LogOut, Moon, ShieldCheck, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { getLearningState, saveSettings } from "@/lib/learning.functions";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/profile")({
@@ -22,8 +25,21 @@ function ProfilePage() {
   const [email, setEmail] = useState("学习者");
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [sound, setSound] = useState(true);
+  const fetchState = useServerFn(getLearningState);
+  const persistSettings = useServerFn(saveSettings);
+  const qc = useQueryClient();
+  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+  const [strict, setStrict] = useState(false);
 
+  useEffect(() => { if (state) setStrict(state.strictSpelling); }, [state]);
   useEffect(() => { void supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? "学习者")); }, []);
+
+  const toggleStrict = (on: boolean) => {
+    setStrict(on);
+    void persistSettings({ data: { strictSpelling: on } })
+      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .catch(() => undefined);
+  };
 
   return (
     <div className="space-y-7 pb-8">
@@ -43,6 +59,7 @@ function ProfilePage() {
 
       <section className="glass-panel overflow-hidden">
         <Setting icon={Headphones} title="完成后自动发音" description="每题完成后朗读单词或句子"><Switch checked={autoSpeak} onCheckedChange={setAutoSpeak}/></Setting>
+        <Setting icon={ShieldCheck} title="严格拼写模式" description="拼错时清空输入，从头重新拼这个单词"><Switch checked={strict} onCheckedChange={toggleStrict}/></Setting>
         <Setting icon={Bell} title="按键与完成音效" description="保留轻量、克制的操作反馈"><Switch checked={sound} onCheckedChange={setSound}/></Setting>
         <Setting icon={Moon} title="主题" description="当前为浅色玻璃主题"><ChevronRight className="size-5 text-muted-foreground"/></Setting>
       </section>

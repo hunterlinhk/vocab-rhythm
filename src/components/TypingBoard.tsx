@@ -21,10 +21,22 @@ type Props = {
   paused?: boolean;
   /** dictation mode: untyped characters are hidden */
   masked?: boolean;
+  /** strict mode: a real mistake clears the input and the word restarts from the beginning */
+  strict?: boolean;
+  /** hide the inline mistouch button (strict mode offers it on the result panel instead) */
+  hideMistouch?: boolean;
   onComplete: (result: TypingResult) => void;
 };
 
-export function TypingBoard({ target, size = "word", paused = false, masked = false, onComplete }: Props) {
+export function TypingBoard({
+  target,
+  size = "word",
+  paused = false,
+  masked = false,
+  strict = false,
+  hideMistouch = false,
+  onComplete,
+}: Props) {
   const [typed, setTyped] = useState("");
   const [typos, setTypos] = useState(0);
   const [mistouch, setMistouch] = useState(false);
@@ -90,6 +102,10 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
         }
         setWrongAt(i);
         sfx.wrong();
+        if (strict && !repeated) {
+          typedRef.current = "";
+          setTyped("");
+        }
         window.setTimeout(() => setWrongAt(null), 260);
         return;
       }
@@ -107,7 +123,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
         window.setTimeout(() => onComplete(result), 0);
       }
     },
-    [target, onComplete],
+    [target, onComplete, strict],
   );
 
   // some mobile keyboards report key "Unidentified"; fall back to the input event data
@@ -239,7 +255,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
           错误 <span className="font-mono text-foreground">{typos}</span>
         </span>
         {mistouch && <span className="text-accent-foreground/70">已标记误触</span>}
-        {(typos > 0 || wrongAt !== null) && !mistouch && (
+        {!hideMistouch && (typos > 0 || wrongAt !== null) && !mistouch && (
           <button
             type="button"
             onClick={markMistouch}

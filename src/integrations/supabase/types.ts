@@ -48,6 +48,7 @@ export type Database = {
           is_review: boolean
           mistouch: boolean
           mode: string
+          skipped: boolean
           translation: string | null
           typo_count: number
           user_id: string
@@ -62,6 +63,7 @@ export type Database = {
           is_review?: boolean
           mistouch?: boolean
           mode?: string
+          skipped?: boolean
           translation?: string | null
           typo_count?: number
           user_id: string
@@ -76,6 +78,7 @@ export type Database = {
           is_review?: boolean
           mistouch?: boolean
           mode?: string
+          skipped?: boolean
           translation?: string | null
           typo_count?: number
           user_id?: string
@@ -127,6 +130,7 @@ export type Database = {
           active_book: string
           daily_goal: number
           memorize_spelling: boolean
+          strict_spelling: boolean
           updated_at: string
           user_id: string
         }
@@ -134,6 +138,7 @@ export type Database = {
           active_book?: string
           daily_goal?: number
           memorize_spelling?: boolean
+          strict_spelling?: boolean
           updated_at?: string
           user_id: string
         }
@@ -141,6 +146,7 @@ export type Database = {
           active_book?: string
           daily_goal?: number
           memorize_spelling?: boolean
+          strict_spelling?: boolean
           updated_at?: string
           user_id?: string
         }

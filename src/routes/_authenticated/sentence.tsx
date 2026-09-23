@@ -133,6 +133,26 @@ function SentencePage() {
     [bookId, entry, save, qc],
   );
 
+  const skipCurrent = useCallback(() => {
+    if (!entry) return;
+    void save({
+      data: {
+        mode: "sentence" as const,
+        bookId,
+        word: entry.word,
+        translation: entry.cn,
+        correct: true,
+        mistouch: false,
+        typoCount: 0,
+        durationMs: 0,
+        skipped: true,
+      },
+    })
+      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .catch(() => undefined);
+    next();
+  }, [entry, bookId, save, qc, next]);
+
   const goBack = useCallback(() => {
     if (history.length === 0) return;
     setNavDir(-1);
@@ -281,6 +301,15 @@ function SentencePage() {
             </button>
           ))}
         </div>
+        {!done && !reviewing && (
+          <button
+            type="button"
+            onClick={skipCurrent}
+            className="absolute top-5 right-6 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+          >
+            Skip
+          </button>
+        )}
         {(done || reviewing) && panelResult && (
           <div className="absolute top-5 right-6 text-right text-xs leading-5">
             {reviewing && (
