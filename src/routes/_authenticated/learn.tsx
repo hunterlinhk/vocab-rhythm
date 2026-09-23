@@ -252,8 +252,15 @@ function LearnPage() {
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
       >
+        <div
+          key={reviewing ? `r-${reviewIndex}` : `w-${entry.word}`}
+          className={cn(
+            "flex w-full flex-col items-center gap-8",
+            navDir === 1 ? "nav-slide-left" : "nav-slide-right",
+          )}
+        >
         {reviewing ? (
-          <div className="sweep-in flex flex-col items-center gap-4 text-center">
+          <div className="flex flex-col items-center gap-4 text-center">
             <div className="rounded-full bg-accent/60 px-4 py-1 text-xs text-accent-foreground">
               回顾 · {reviewIndex! + 1} / {history.length} · ← → 切换
             </div>
