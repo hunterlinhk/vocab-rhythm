@@ -417,53 +417,44 @@
   box-shadow: inset 0 1px 0 var(--glass-edge);
 }
 
-/* raised glass keycap for the on-screen keyboard */
-@utility key-cap {
-  border: 1px solid color-mix(in oklab, var(--card) 72%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklab, var(--card) 94%, transparent) 0%,
-    color-mix(in oklab, var(--card) 68%, transparent) 52%,
-    color-mix(in oklab, var(--paper) 58%, transparent) 100%
-  );
-  backdrop-filter: blur(16px) saturate(140%);
-  box-shadow:
-    inset 0 1px 0 color-mix(in oklab, white 88%, transparent),
-    inset 0 -1.5px 0 color-mix(in oklab, var(--ink) 7%, transparent),
-    0 2.5px 0 color-mix(in oklab, var(--ink) 9%, transparent),
-    0 8px 18px -8px color-mix(in oklab, var(--ink) 32%, transparent);
-  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+/* translucent deck under the on-screen keyboard */
+@utility key-deck {
+  background: linear-gradient(180deg, color-mix(in oklab, var(--card) 22%, transparent), color-mix(in oklab, var(--accent) 14%, transparent));
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+}
 
+/* frosted raised glass keycap */
+@utility key-cap {
+  background: linear-gradient(160deg, oklch(1 0 0 / 82%) 0%, oklch(0.97 0.012 230 / 62%) 55%, oklch(0.93 0.02 230 / 55%) 100%);
+  backdrop-filter: blur(14px) saturate(150%);
+  box-shadow:
+    inset 0 1.5px 0 oklch(1 0 0 / 95%),
+    inset 1px 0 0 oklch(1 0 0 / 55%),
+    inset 0 -2px 3px oklch(0.6 0.04 235 / 14%),
+    0 1.5px 0 oklch(0.6 0.04 235 / 18%),
+    0 6px 14px -6px oklch(0.45 0.05 235 / 30%);
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
   &:active {
-    transform: translateY(2.5px) scale(0.975);
-    filter: brightness(1.04);
-    box-shadow:
-      inset 0 1px 0 color-mix(in oklab, white 70%, transparent),
-      inset 0 2px 5px color-mix(in oklab, var(--ink) 12%, transparent),
-      0 0.5px 0 color-mix(in oklab, var(--ink) 8%, transparent);
+    transform: translateY(2px) scale(0.975);
+    filter: brightness(1.05);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 80%), inset 0 2px 5px oklch(0.5 0.04 235 / 16%);
   }
 }
 
-/* secondary iOS-style gray keys: shift-off helpers, 123 / emoji / send */
+/* helper keys: same glass, more see-through and cooler */
 @utility key-cap-alt {
-  background: linear-gradient(
-    180deg,
-    color-mix(in oklab, var(--ink) 9%, var(--card) 40%) 0%,
-    color-mix(in oklab, var(--ink) 14%, var(--card) 34%) 100%
-  );
-  backdrop-filter: blur(16px) saturate(130%);
+  background: linear-gradient(160deg, oklch(0.97 0.015 230 / 55%) 0%, oklch(0.9 0.03 235 / 42%) 100%);
+  backdrop-filter: blur(14px) saturate(150%);
   box-shadow:
-    inset 0 1px 0 color-mix(in oklab, white 55%, transparent),
-    0 2px 0 color-mix(in oklab, var(--ink) 8%, transparent),
-    0 7px 14px -8px color-mix(in oklab, var(--ink) 26%, transparent);
-  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
-
+    inset 0 1.5px 0 oklch(1 0 0 / 80%),
+    inset 0 -2px 3px oklch(0.55 0.05 235 / 16%),
+    0 1.5px 0 oklch(0.6 0.04 235 / 16%),
+    0 6px 14px -6px oklch(0.45 0.05 235 / 26%);
+  transition: transform 120ms ease, box-shadow 120ms ease;
   &:active {
     transform: translateY(2px) scale(0.975);
-    box-shadow:
-      inset 0 1px 0 color-mix(in oklab, white 45%, transparent),
-      inset 0 2px 5px color-mix(in oklab, var(--ink) 12%, transparent),
-      0 0.5px 0 color-mix(in oklab, var(--ink) 8%, transparent);
+    box-shadow: inset 0 1px 0 oklch(1 0 0 / 70%), inset 0 2px 5px oklch(0.5 0.04 235 / 16%);
   }
 }
 

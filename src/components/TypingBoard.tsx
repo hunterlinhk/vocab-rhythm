@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { sfx } from "@/lib/sound";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -400,7 +401,8 @@ export function TypingBoard({
               send
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
