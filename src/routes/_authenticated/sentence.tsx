@@ -174,12 +174,16 @@ function SentencePage() {
     return () => window.clearTimeout(t);
   }, [done, next, reviewIndex]);
 
-  // speak the sentence when a new one appears
+  // speak the sentence only once when a genuinely new one appears
   const sentence = entry?.sentence;
+  const spokenRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!sentence || done || reviewIndex !== null || !prefs.speech) return;
-    speak(sentence);
-  }, [sentence, done, reviewIndex, prefs.speech]);
+    if (!sentence || done || reviewIndex !== null) return;
+    const key = `${index}:${sentence}`;
+    if (spokenRef.current === key) return;
+    spokenRef.current = key;
+    if (prefsRef.current.speech) speak(sentence);
+  }, [sentence, index, done, reviewIndex]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
