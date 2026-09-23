@@ -41,33 +41,20 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
     setWrongAt(null);
   }, []);
 
-  useEffect(() => {
-    if (paused) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const target_ = e.target as HTMLElement | null;
-      if (
-        target_ &&
-        ["INPUT", "TEXTAREA"].includes(target_.tagName) &&
-        target_ !== inputRef.current
-      )
-        return;
+  const handleBackspace = useCallback(() => {
+    setTyped((t) => t.slice(0, -1));
+    setWrongAt(null);
+  }, []);
 
-      if (e.key === "Backspace") {
-        e.preventDefault();
-        setTyped((t) => t.slice(0, -1));
-        setWrongAt(null);
-        return;
-      }
-      if (e.key.length !== 1) return;
-      e.preventDefault();
+  const handleChar = useCallback(
+    (key: string) => {
       if (doneRef.current) return;
       if (startedAt.current === null) startedAt.current = performance.now();
 
       setTyped((prev) => {
         const expected = target[prev.length];
         if (expected === undefined) return prev;
-        const ok = e.key === expected || (expected === " " && e.key === " ");
+        const ok = key === expected;
         if (!ok) {
           setTypos((n) => n + 1);
           setWrongAt(prev.length);
@@ -87,10 +74,60 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
         }
         return next;
       });
+    },
+    [target, onComplete],
+  );
+
+  // some mobile keyboards report key "Unidentified"; fall back to the input event data
+  const keyHandledRef = useRef(false);
+
+  useEffect(() => {
+    if (paused) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target_ = e.target as HTMLElement | null;
+      if (
+        target_ &&
+        ["INPUT", "TEXTAREA"].includes(target_.tagName) &&
+        target_ !== inputRef.current
+      )
+        return;
+
+      keyHandledRef.current = true;
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        handleBackspace();
+        return;
+      }
+      if (e.key.length !== 1) {
+        keyHandledRef.current = e.key !== "Unidentified";
+        return;
+      }
+      e.preventDefault();
+      handleChar(e.key);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [target, paused, onComplete]);
+  }, [target, paused, handleChar, handleBackspace]);
+
+  const onHiddenInput = useCallback(
+    (e: React.FormEvent<HTMLInputElement>) => {
+      const el = e.currentTarget;
+      if (!keyHandledRef.current) {
+        const data = (e.nativeEvent as InputEvent).data;
+        if (data) {
+          for (const ch of data) {
+            if (ch.length === 1) handleChar(ch);
+          }
+        } else if ((e.nativeEvent as InputEvent).inputType === "deleteContentBackward") {
+          handleBackspace();
+        }
+      }
+      keyHandledRef.current = false;
+      el.value = "";
+    },
+    [handleChar, handleBackspace],
+  );
 
   // keep latest values available inside the keydown closure
   const typosRef = useRef(0);
