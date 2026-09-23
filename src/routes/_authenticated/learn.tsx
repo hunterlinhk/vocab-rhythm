@@ -375,6 +375,13 @@ function LearnPage() {
     return () => window.clearTimeout(t);
   }, [done, next, reviewIndex]);
 
+  // speak the word when a new one appears
+  const word = entry?.word;
+  useEffect(() => {
+    if (!word || done || reviewIndex !== null || !prefs.speech) return;
+    speak(word);
+  }, [word, done, reviewIndex, prefs.speech]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -606,10 +613,10 @@ function LearnPage() {
           </div>
         )}
         <div
-          key={reviewing ? `r-${reviewIndex}` : `w-${entry.word}`}
+          key={reviewing ? `r-${reviewIndex}` : done ? `d-${entry.word}` : `w-${entry.word}`}
           className={cn(
             "flex w-full flex-col items-center gap-8",
-            navDir === 1 ? "nav-slide-left" : "nav-slide-right",
+            !done && (navDir === 1 ? "nav-slide-left" : "nav-slide-right"),
           )}
         >
           {reviewing || done ? (

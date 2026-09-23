@@ -174,6 +174,13 @@ function SentencePage() {
     return () => window.clearTimeout(t);
   }, [done, next, reviewIndex]);
 
+  // speak the sentence when a new one appears
+  const sentence = entry?.sentence;
+  useEffect(() => {
+    if (!sentence || done || reviewIndex !== null || !prefs.speech) return;
+    speak(sentence);
+  }, [sentence, done, reviewIndex, prefs.speech]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -325,10 +332,10 @@ function SentencePage() {
           </div>
         )}
         <div
-          key={reviewing ? `r-${reviewIndex}` : `s-${entry.word}-${index}`}
+          key={reviewing ? `r-${reviewIndex}` : done ? `d-${entry.word}-${index}` : `s-${entry.word}-${index}`}
           className={cn(
             "flex w-full flex-col items-center gap-8",
-            navDir === 1 ? "nav-slide-left" : "nav-slide-right",
+            !done && (navDir === 1 ? "nav-slide-left" : "nav-slide-right"),
           )}
         >
           {reviewing || done ? (
