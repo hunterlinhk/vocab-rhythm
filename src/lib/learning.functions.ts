@@ -357,6 +357,19 @@ export const sendMessage = createServerFn({ method: "POST" })
       ...new Set(attempts.filter((r) => r.typo_count > 0 && !r.mistouch).map((r) => r.word)),
     ].slice(0, 20);
     const learned = [...new Set(attempts.map((r) => r.word))].slice(0, 60);
+    const masteryRows = mastery ?? [];
+    const mastered = masteryRows.filter((m) => m.rounds >= 3).map((m) => m.word);
+    const inProgress = masteryRows
+      .filter((m) => m.rounds > 0 && m.rounds < 3)
+      .map((m) => {
+        const missing = [
+          m.context_ok ? null : "语境选义",
+          m.recall_ok ? null : "词义回忆",
+          m.spell_ok ? null : "拼写",
+        ].filter(Boolean);
+        return `${m.word}(还差：${missing.join("、")})`;
+      })
+      .slice(0, 30);
 
     const system = [
       "你是一个中文用户的英语学习助手，熟悉用户的真实学习记录。",
@@ -366,6 +379,10 @@ export const sendMessage = createServerFn({ method: "POST" })
       `经常出错的词：${wrongWords.join(", ") || "暂无"}`,
       `已学过的词：${learned.join(", ") || "暂无"}`,
       `累计练习次数：${attempts.length}`,
+      "背单词模式共三轮强化：1) 语境中选中文释义 2) 只看单词选中文释义 3) 拼写。",
+      `已完成三轮强化学习的词(${mastered.length})：${mastered.slice(0, 40).join(", ") || "暂无"}`,
+      `三轮尚未完成的词：${inProgress.join(", ") || "暂无"}`,
+      "回答中可以据此判断哪些词已被真正巩固、哪些还需要再练。",
     ].join("\n");
 
     await context.supabase
