@@ -12,6 +12,7 @@ const AttemptInput = z.object({
   typoCount: z.number().int().min(0),
   durationMs: z.number().int().min(0),
   isReview: z.boolean().optional(),
+  skipped: z.boolean().optional(),
 });
 
 export const recordAttempt = createServerFn({ method: "POST" })
@@ -29,7 +30,30 @@ export const recordAttempt = createServerFn({ method: "POST" })
       typo_count: data.typoCount,
       duration_ms: data.durationMs,
       is_review: data.isReview ?? false,
+      skipped: data.skipped ?? false,
     });
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+/** marks the most recent attempt of a word as a mistouch (used by the strict-spelling review panel) */
+export const markAttemptMistouch = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ word: z.string() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: row } = await context.supabase
+      .from("attempts")
+      .select("id, typo_count")
+      .eq("user_id", context.userId)
+      .eq("word", data.word)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!row) return { ok: false };
+    const { error } = await context.supabase
+      .from("attempts")
+      .update({ mistouch: true, typo_count: Math.max(0, (row.typo_count ?? 0) - 1) })
+      .eq("id", row.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
