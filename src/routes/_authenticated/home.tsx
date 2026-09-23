@@ -24,11 +24,18 @@ export const Route = createFileRoute("/_authenticated/home")({
 
 function HomePage() {
   const fetchStats = useServerFn(getStats);
+  const fetchState = useServerFn(getLearningState);
   const { data, isLoading } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats() });
+  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
   const todayCount = data?.todayCount ?? 0;
-  const dailyGoal = 20;
+  const dailyGoal = state?.dailyGoal ?? 20;
   const progress = Math.min(100, Math.round((todayCount / dailyGoal) * 100));
-  const reviewCount = data?.troubleWords.length ?? 0;
+  const reviewCount = new Set([
+    ...(state?.wrongWords.map((w) => w.word) ?? []),
+    ...(state?.troubleWords.map((w) => w.word) ?? []),
+  ]).size;
+  const activeBook = getBook(state?.activeBook ?? "core");
+  const bookLearned = state?.learnedByBook[activeBook.id]?.length ?? 0;
 
   return (
     <div className="space-y-8 pb-8">

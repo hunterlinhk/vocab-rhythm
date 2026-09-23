@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { BarChart3, CalendarDays, CheckCircle2, Flame, History, Target } from "lucide-react";
@@ -29,7 +29,9 @@ export const Route = createFileRoute("/_authenticated/stats")({
 });
 
 function StatsPage() {
-  const [tab, setTab] = useState<"今日数据" | "历史记录" | "学习分析">("今日数据");
+  const { tab = "今日数据" } = Route.useSearch();
+  const navigate = useNavigate();
+  const setTab = (item: StatTab) => void navigate({ to: "/stats", search: { tab: item } });
   const fetchStats = useServerFn(getStats);
   const { data, isLoading } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats() });
 
