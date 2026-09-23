@@ -16,6 +16,7 @@ import { Route as AuthenticatedAssistantRouteImport } from './routes/_authentica
 import { Route as AuthenticatedBooksRouteImport } from './routes/_authenticated/books'
 import { Route as AuthenticatedHomeRouteImport } from './routes/_authenticated/home'
 import { Route as AuthenticatedLearnRouteImport } from './routes/_authenticated/learn'
+import { Route as AuthenticatedMemorizeRouteImport } from './routes/_authenticated/memorize'
 import { Route as AuthenticatedPlanRouteImport } from './routes/_authenticated/plan'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
 import { Route as AuthenticatedReviewRouteImport } from './routes/_authenticated/review'
@@ -56,6 +57,11 @@ const AuthenticatedLearnRoute = AuthenticatedLearnRouteImport.update({
   path: '/learn',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedMemorizeRoute = AuthenticatedMemorizeRouteImport.update({
+  id: '/memorize',
+  path: '/memorize',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPlanRoute = AuthenticatedPlanRouteImport.update({
   id: '/plan',
   path: '/plan',
@@ -89,6 +95,7 @@ export interface FileRoutesByFullPath {
   '/books': typeof AuthenticatedBooksRoute
   '/home': typeof AuthenticatedHomeRoute
   '/learn': typeof AuthenticatedLearnRoute
+  '/memorize': typeof AuthenticatedMemorizeRoute
   '/plan': typeof AuthenticatedPlanRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/review': typeof AuthenticatedReviewRoute
@@ -102,6 +109,7 @@ export interface FileRoutesByTo {
   '/books': typeof AuthenticatedBooksRoute
   '/home': typeof AuthenticatedHomeRoute
   '/learn': typeof AuthenticatedLearnRoute
+  '/memorize': typeof AuthenticatedMemorizeRoute
   '/plan': typeof AuthenticatedPlanRoute
   '/profile': typeof AuthenticatedProfileRoute
   '/review': typeof AuthenticatedReviewRoute
@@ -117,6 +125,7 @@ export interface FileRoutesById {
   '/_authenticated/books': typeof AuthenticatedBooksRoute
   '/_authenticated/home': typeof AuthenticatedHomeRoute
   '/_authenticated/learn': typeof AuthenticatedLearnRoute
+  '/_authenticated/memorize': typeof AuthenticatedMemorizeRoute
   '/_authenticated/plan': typeof AuthenticatedPlanRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/review': typeof AuthenticatedReviewRoute
@@ -132,6 +141,7 @@ export interface FileRouteTypes {
     | '/books'
     | '/home'
     | '/learn'
+    | '/memorize'
     | '/plan'
     | '/profile'
     | '/review'
@@ -145,6 +155,7 @@ export interface FileRouteTypes {
     | '/books'
     | '/home'
     | '/learn'
+    | '/memorize'
     | '/plan'
     | '/profile'
     | '/review'
@@ -159,6 +170,7 @@ export interface FileRouteTypes {
     | '/_authenticated/books'
     | '/_authenticated/home'
     | '/_authenticated/learn'
+    | '/_authenticated/memorize'
     | '/_authenticated/plan'
     | '/_authenticated/profile'
     | '/_authenticated/review'
@@ -223,6 +235,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLearnRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/memorize': {
+      id: '/_authenticated/memorize'
+      path: '/memorize'
+      fullPath: '/memorize'
+      preLoaderRoute: typeof AuthenticatedMemorizeRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/plan': {
       id: '/_authenticated/plan'
       path: '/plan'
@@ -266,6 +285,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedBooksRoute: typeof AuthenticatedBooksRoute
   AuthenticatedHomeRoute: typeof AuthenticatedHomeRoute
   AuthenticatedLearnRoute: typeof AuthenticatedLearnRoute
+  AuthenticatedMemorizeRoute: typeof AuthenticatedMemorizeRoute
   AuthenticatedPlanRoute: typeof AuthenticatedPlanRoute
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedReviewRoute: typeof AuthenticatedReviewRoute
@@ -278,6 +298,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedBooksRoute: AuthenticatedBooksRoute,
   AuthenticatedHomeRoute: AuthenticatedHomeRoute,
   AuthenticatedLearnRoute: AuthenticatedLearnRoute,
+  AuthenticatedMemorizeRoute: AuthenticatedMemorizeRoute,
   AuthenticatedPlanRoute: AuthenticatedPlanRoute,
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedReviewRoute: AuthenticatedReviewRoute,

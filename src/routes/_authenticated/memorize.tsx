@@ -94,14 +94,18 @@ function MemorizePage() {
     void qc.invalidateQueries({ queryKey: ["learning-state"] });
   }, [qc]);
 
-  const advance = useCallback(() => {
-    setPicked(null);
-    setIndex((i) => {
-      if (i + 1 < batch.length) return i + 1;
-      setPhase((p) => (p === "context" ? "recall" : "done"));
-      return i + 1 < batch.length ? i + 1 : 0;
-    });
-  }, [batch.length]);
+  const advance = useCallback(
+    (from: "context" | "recall") => {
+      setPicked(null);
+      if (index + 1 < batch.length) {
+        setIndex(index + 1);
+        return;
+      }
+      setIndex(0);
+      setPhase(from === "context" ? "recall" : "done");
+    },
+    [index, batch.length],
+  );
 
   const choose = useCallback(
     (option: string) => {
