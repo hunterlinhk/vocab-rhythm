@@ -59,6 +59,7 @@ function ProfilePage() {
 
       <section className="glass-panel overflow-hidden">
         <Setting icon={Headphones} title="完成后自动发音" description="每题完成后朗读单词或句子"><Switch checked={autoSpeak} onCheckedChange={setAutoSpeak}/></Setting>
+        <Setting icon={ShieldCheck} title="严格拼写模式" description="拼错时清空输入，从头重新拼这个单词"><Switch checked={strict} onCheckedChange={toggleStrict}/></Setting>
         <Setting icon={Bell} title="按键与完成音效" description="保留轻量、克制的操作反馈"><Switch checked={sound} onCheckedChange={setSound}/></Setting>
         <Setting icon={Moon} title="主题" description="当前为浅色玻璃主题"><ChevronRight className="size-5 text-muted-foreground"/></Setting>
       </section>
