@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { sfx } from "@/lib/sound";
 
+const isPunct = (ch: string) => ch !== " " && !/[\p{L}\p{N}]/u.test(ch);
+const skipPunct = (target: string, from: number) => {
+  let i = from;
+  while (i < target.length && isPunct(target[i]!)) i += 1;
+  return i;
+};
+
 export type TypingResult = {
   typoCount: number;
   mistouch: boolean;
@@ -50,10 +57,12 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
   }, []);
 
   const handleBackspace = useCallback(() => {
-    typedRef.current = typedRef.current.slice(0, -1);
+    let n = typedRef.current.length;
+    while (n > 0 && isPunct(target[n - 1]!)) n -= 1;
+    typedRef.current = target.slice(0, Math.max(0, n - 1));
     setTyped(typedRef.current);
     setWrongAt(null);
-  }, []);
+  }, [target]);
 
   const handleChar = useCallback(
     (key: string) => {
@@ -61,19 +70,21 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
       if (startedAt.current === null) startedAt.current = performance.now();
 
       const prev = typedRef.current;
-      const expected = target[prev.length];
+      // punctuation is never typed by the user: skip over it
+      let i = skipPunct(target, prev.length);
+      const expected = target[i];
       if (expected === undefined) return;
 
-      if (key !== expected) {
+      if (key.toLowerCase() !== expected.toLowerCase()) {
         typosRef.current += 1;
         setTypos(typosRef.current);
-        setWrongAt(prev.length);
+        setWrongAt(i);
         sfx.wrong();
         window.setTimeout(() => setWrongAt(null), 260);
         return;
       }
 
-      const next = prev + expected;
+      const next = target.slice(0, skipPunct(target, i + 1));
       typedRef.current = next;
       setTyped(next);
       sfx.key();
