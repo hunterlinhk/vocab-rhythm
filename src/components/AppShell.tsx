@@ -92,7 +92,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname: string }) {
-  const activeParent = nav.find((item) => pathname === item.to || (item.to === "/learn" && pathname === "/sentence"));
+  const activeParent = nav.find((item) => isActive(item.to, pathname));
   const [expandedItem, setExpandedItem] = useState<string | null>(
     activeParent && "children" in activeParent ? activeParent.to : null,
   );
@@ -110,7 +110,7 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
         {!collapsed && <p className="mb-2 px-3 text-[10px] font-semibold text-muted-foreground">学习空间</p>}
         <div className="space-y-1.5">
           {nav.map((item) => {
-            const active = pathname === item.to || (item.to === "/learn" && pathname === "/sentence");
+            const active = isActive(item.to, pathname);
             const hasChildren = "children" in item;
             const expanded = hasChildren && expandedItem === item.to;
             const Icon = item.icon;
@@ -141,8 +141,15 @@ function SidebarContent({ collapsed, pathname }: { collapsed: boolean; pathname:
                   <div className={cn("sidebar-subnav", expanded && "sidebar-subnav-open")}>
                     <div className="overflow-hidden">
                       <div className="ml-[21px] mt-1 border-l border-border/70 py-1 pl-5">
-                        {item.children.map((child, index) => (
-                          <Link key={child} to={item.to === "/learn" && index === 1 ? "/sentence" : item.to} className="block py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground">{child}</Link>
+                        {item.children.map((child) => (
+                          <Link
+                            key={child.label}
+                            to={child.to}
+                            search={"search" in child ? (child.search as never) : undefined}
+                            className="block py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            {child.label}
+                          </Link>
                         ))}
                       </div>
                     </div>
