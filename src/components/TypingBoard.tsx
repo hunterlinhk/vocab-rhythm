@@ -153,6 +153,7 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
 
   const chars = target.split("");
   const big = size === "word";
+  const caretIndex = skipPunct(target, typed.length);
 
   // tapping anywhere while typing (touch devices) summons the soft keyboard
   useEffect(() => {
