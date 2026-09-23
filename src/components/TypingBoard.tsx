@@ -161,13 +161,17 @@ export function TypingBoard({
   const onHiddenInput = useCallback(
     (e: React.FormEvent<HTMLInputElement>) => {
       const el = e.currentTarget;
-      if (!keyHandledRef.current) {
-        const data = (e.nativeEvent as InputEvent).data;
+      const native = e.nativeEvent as InputEvent;
+      const data = native.data ?? el.value;
+      // batch input (IME, autocomplete, paste, whole-word commit) always wins
+      if (data && data.length > 1) {
+        for (const ch of data) if (ch.length === 1) handleChar(ch);
+      } else if (!keyHandledRef.current) {
         if (data) {
           for (const ch of data) {
             if (ch.length === 1) handleChar(ch);
           }
-        } else if ((e.nativeEvent as InputEvent).inputType === "deleteContentBackward") {
+        } else if (native.inputType === "deleteContentBackward") {
           handleBackspace();
         }
       }
@@ -176,6 +180,17 @@ export function TypingBoard({
     },
     [handleChar, handleBackspace],
   );
+
+  const onComposition = useCallback(
+    (e: React.CompositionEvent<HTMLInputElement>) => {
+      const data = e.data;
+      if (data) for (const ch of data) if (ch.length === 1) handleChar(ch);
+      e.currentTarget.value = "";
+      keyHandledRef.current = false;
+    },
+    [handleChar],
+  );
+
 
 
   const chars = target.split("");
