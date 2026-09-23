@@ -49,6 +49,7 @@ export function TypingBoard({
   const [typos, setTypos] = useState(0);
   const [mistouch, setMistouch] = useState(false);
   const [wrongAt, setWrongAt] = useState<number | null>(null);
+  const [shifted, setShifted] = useState(true);
   const startedAt = useRef<number | null>(null);
   const doneRef = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -292,43 +293,94 @@ export function TypingBoard({
 
       {isMobile && !paused && (
         <div
-          className="glass-panel w-full max-w-lg touch-none select-none p-[max(2vw,10px)]"
+          className="glass-panel w-full max-w-lg touch-none select-none px-[clamp(4px,1.3vw,8px)] pb-[max(2vw,10px)] pt-[clamp(9px,2.6vw,13px)]"
           onPointerDown={(e) => e.preventDefault()}
         >
-          {KEY_ROWS.map((row, r) => (
-            <div
-              key={r}
-              className="mt-[max(1.3vw,6px)] flex justify-center gap-[max(1.2vw,5px)] first:mt-0"
-            >
-              {row.map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    handleChar(k);
-                  }}
-                  className="key-cap flex h-[clamp(76px,19vw,112px)] min-w-0 flex-1 items-center justify-center rounded-[clamp(12px,3vw,18px)] font-mono text-[clamp(26px,6.5vw,38px)] font-medium text-foreground"
-                >
-                  {k}
-                </button>
-              ))}
-              {r === 2 && (
-                <button
-                  type="button"
-                  aria-label="退格"
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    handleBackspace();
-                  }}
-                  className="key-cap flex h-[clamp(76px,19vw,112px)] flex-[1.5] items-center justify-center rounded-[clamp(12px,3vw,18px)] text-[clamp(22px,5.5vw,32px)] text-muted-foreground"
-                >
-                  ⌫
-                </button>
+          <div className="flex justify-center gap-[clamp(5px,1.5vw,7px)]">
+            {KEY_ROWS[0]!.map((k) => (
+              <button
+                key={k}
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleChar(k);
+                }}
+                className="key-cap flex h-[clamp(37px,10.8vw,47px)] min-w-0 flex-1 items-center justify-center rounded-[clamp(6px,1.5vw,8px)] font-sans text-[clamp(17px,5.4vw,23px)] font-medium text-foreground"
+              >
+                {shifted ? k.toUpperCase() : k}
+              </button>
+            ))}
+          </div>
+          <div className="mt-[clamp(9px,2.7vw,12px)] flex justify-center gap-[clamp(5px,1.5vw,7px)] px-[clamp(21px,5.9vw,27px)]">
+            {KEY_ROWS[1]!.map((k) => (
+              <button
+                key={k}
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleChar(k);
+                }}
+                className="key-cap flex h-[clamp(37px,10.8vw,47px)] min-w-0 flex-1 items-center justify-center rounded-[clamp(6px,1.5vw,8px)] font-sans text-[clamp(17px,5.4vw,23px)] font-medium text-foreground"
+              >
+                {shifted ? k.toUpperCase() : k}
+              </button>
+            ))}
+          </div>
+          <div className="mt-[clamp(9px,2.7vw,12px)] flex justify-center gap-[clamp(5px,1.5vw,7px)]">
+            <button
+              type="button"
+              aria-label="大小写"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                setShifted((s) => !s);
+              }}
+              className={cn(
+                "flex h-[clamp(37px,10.8vw,47px)] flex-[1.4] items-center justify-center rounded-[clamp(6px,1.5vw,8px)] text-[clamp(16px,5vw,22px)]",
+                shifted ? "key-cap text-foreground" : "key-cap-alt text-muted-foreground",
               )}
-            </div>
-          ))}
-          <div className="mt-[max(1.3vw,6px)] flex justify-center">
+            >
+              ⇧
+            </button>
+            {KEY_ROWS[2]!.map((k) => (
+              <button
+                key={k}
+                type="button"
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  handleChar(k);
+                }}
+                className="key-cap flex h-[clamp(37px,10.8vw,47px)] min-w-0 flex-1 items-center justify-center rounded-[clamp(6px,1.5vw,8px)] font-sans text-[clamp(17px,5.4vw,23px)] font-medium text-foreground"
+              >
+                {shifted ? k.toUpperCase() : k}
+              </button>
+            ))}
+            <button
+              type="button"
+              aria-label="退格"
+              onPointerDown={(e) => {
+                e.preventDefault();
+                handleBackspace();
+              }}
+              className="key-cap-alt flex h-[clamp(37px,10.8vw,47px)] flex-[1.4] items-center justify-center rounded-[clamp(6px,1.5vw,8px)] text-[clamp(15px,4.6vw,20px)] text-foreground"
+            >
+              ⌫
+            </button>
+          </div>
+          <div className="mt-[clamp(9px,2.7vw,12px)] flex justify-center gap-[clamp(5px,1.5vw,7px)]">
+            <button
+              type="button"
+              className="key-cap-alt flex h-[clamp(37px,10.8vw,47px)] flex-[1.25] cursor-default items-center justify-center rounded-[clamp(6px,1.5vw,8px)] font-sans text-[clamp(13px,3.8vw,17px)] text-muted-foreground"
+              onPointerDown={(e) => e.preventDefault()}
+            >
+              123
+            </button>
+            <button
+              type="button"
+              className="key-cap-alt flex h-[clamp(37px,10.8vw,47px)] flex-[1.25] cursor-default items-center justify-center rounded-[clamp(6px,1.5vw,8px)] text-[clamp(15px,4.4vw,19px)] text-foreground/70"
+              onPointerDown={(e) => e.preventDefault()}
+            >
+              ☺
+            </button>
             <button
               type="button"
               aria-label="空格"
@@ -336,9 +388,16 @@ export function TypingBoard({
                 e.preventDefault();
                 handleChar(" ");
               }}
-              className="key-cap flex h-[clamp(64px,16vw,92px)] w-[52%] items-center justify-center rounded-[clamp(12px,3vw,18px)]"
+              className="key-cap flex h-[clamp(37px,10.8vw,47px)] min-w-0 flex-[4.6] items-center justify-center rounded-[clamp(6px,1.5vw,8px)] font-sans text-[clamp(13px,3.8vw,17px)] text-muted-foreground"
             >
-              <span className="mx-auto block h-[clamp(3px,1vw,5px)] w-[26%] rounded-full bg-muted-foreground/40" />
+              space
+            </button>
+            <button
+              type="button"
+              className="key-cap-alt flex h-[clamp(37px,10.8vw,47px)] flex-[2.1] cursor-default items-center justify-center rounded-[clamp(6px,1.5vw,8px)] font-sans text-[clamp(13px,3.8vw,17px)] text-muted-foreground"
+              onPointerDown={(e) => e.preventDefault()}
+            >
+              send
             </button>
           </div>
         </div>
