@@ -124,7 +124,7 @@ export function TypingBoard({
         window.setTimeout(() => onComplete(result), 0);
       }
     },
-    [target, onComplete],
+    [target, onComplete, strict],
   );
 
   // some mobile keyboards report key "Unidentified"; fall back to the input event data
