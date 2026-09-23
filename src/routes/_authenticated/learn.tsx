@@ -92,6 +92,9 @@ function ResultPanel({
   onSave,
   onListen,
   onNext,
+  showMistouch = false,
+  mistouched = false,
+  onMistouch,
 }: {
   item: HistoryItem;
   sweeping?: boolean;
@@ -101,6 +104,9 @@ function ResultPanel({
   onSave: () => void;
   onListen: () => void;
   onNext: () => void;
+  showMistouch?: boolean;
+  mistouched?: boolean;
+  onMistouch?: () => void;
 }) {
   return (
     <div
@@ -157,6 +163,21 @@ function ResultPanel({
         >
           下一个 →
         </button>
+        {showMistouch && (
+          <button
+            type="button"
+            onClick={onMistouch}
+            disabled={mistouched}
+            className={cn(
+              "rounded-full border px-4 py-1.5 text-sm transition-colors",
+              mistouched
+                ? "border-border bg-card text-muted-foreground"
+                : "border-border bg-card hover:border-primary/40",
+            )}
+          >
+            {mistouched ? "已标记误触" : "刚才是误触"}
+          </button>
+        )}
       </div>
     </div>
   );
