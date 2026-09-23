@@ -99,7 +99,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Sheet>
           </header>
           )}
-          <main className={cn("mx-auto w-full max-w-[1240px] px-2 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-7", focusMode && "max-lg:pt-2 max-lg:[&>*>*:first-child]:pl-12")}>{children}</main>
+          <main className={cn("mx-auto w-full max-w-[1240px] px-2 py-4 sm:px-4 sm:py-6 lg:px-6 lg:py-7", focusMode && "max-lg:pt-2 max-lg:[&_.focus-top]:pl-12")}>{children}</main>
         </div>
       </div>
     </div>
