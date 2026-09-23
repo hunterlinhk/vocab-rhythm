@@ -291,9 +291,9 @@ export function TypingBoard({
         )}
       </div>
 
-      {isMobile && !paused && (
+      {isMobile && !paused && typeof document !== "undefined" && createPortal(
         <div
-          className="glass-panel w-full max-w-lg touch-none select-none px-[clamp(4px,1.3vw,8px)] pb-[max(2vw,10px)] pt-[clamp(9px,2.6vw,13px)]"
+          className="key-deck fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-lg touch-none select-none px-[clamp(4px,1.3vw,8px)] pb-[max(env(safe-area-inset-bottom),10px)] pt-[clamp(9px,2.6vw,13px)]"
           onPointerDown={(e) => e.preventDefault()}
         >
           <div className="flex justify-center gap-[clamp(5px,1.5vw,7px)]">
