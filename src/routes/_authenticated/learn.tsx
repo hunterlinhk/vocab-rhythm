@@ -636,7 +636,7 @@ function LearnPage() {
                       : setReviewIndex(null)
                     : next()
                 }
-                showMistouch={strict}
+                showMistouch={strict && resultItem.result.typoCount > 0}
                 mistouched={mistouched.has(resultItem.entry.word)}
                 onMistouch={() => markMistouch(resultItem.entry.word)}
               />
