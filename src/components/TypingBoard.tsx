@@ -149,6 +149,8 @@ export function TypingBoard({ target, size = "word", paused = false, masked = fa
       const t = e.target as HTMLElement | null;
       if (t?.closest("button, a, input, textarea")) return;
       inputRef.current?.focus({ preventScroll: true });
+      // keep the synthetic click from stealing the focus back to <body>
+      e.preventDefault();
     };
     window.addEventListener("pointerdown", onPointerDown);
     return () => window.removeEventListener("pointerdown", onPointerDown);
