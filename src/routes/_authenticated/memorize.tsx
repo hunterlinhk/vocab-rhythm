@@ -211,7 +211,7 @@ function MemorizePage() {
 
   return (
     <div className="flex flex-col items-center overflow-x-clip pb-4">
-      <div className="flex w-full flex-wrap items-center justify-between gap-3">
+      <div className="focus-top flex w-full flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-primary/10 px-3.5 py-1.5 text-sm text-primary">
             {phase === "context" ? "第一轮 · 语境选义" : phase === "recall" ? "第二轮 · 词义回忆" : "第三轮 · 拼写"}

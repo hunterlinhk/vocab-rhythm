@@ -250,7 +250,7 @@ function SentencePage() {
 
   return (
     <div className="flex flex-col items-center overflow-x-clip pb-4">
-      <div className="flex w-full flex-wrap items-center justify-between gap-3">
+      <div className="focus-top flex w-full flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
           {WORD_BOOKS.map((b) => (
             <button
