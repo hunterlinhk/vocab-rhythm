@@ -338,7 +338,10 @@ function LearnPage() {
             </div>
             <p className="font-display text-4xl">{reviewing.entry.word}</p>
             <p className="font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
-            <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
+              <SpeakerButton word={reviewing.entry.word} />
+            </div>
             <div className="mt-1 space-y-1">
               <p className="text-sm text-muted-foreground">{reviewing.entry.sentence}</p>
               <p className="text-sm text-muted-foreground/80">{reviewing.entry.sentenceCn}</p>
@@ -392,12 +395,25 @@ function LearnPage() {
           </div>
         ) : (
           <>
-            <div className="text-center">
-              <p className="font-display text-xl text-foreground">{entry.cn}</p>
-              <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
-            </div>
+            {prefs.meaning ? (
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-1.5">
+                  <p className="font-display text-xl text-foreground">{entry.cn}</p>
+                  <SpeakerButton word={entry.word} />
+                </div>
+                <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+              </div>
+            ) : (
+              <SpeakerButton word={entry.word} className="size-9" />
+            )}
 
-            <TypingBoard key={entry.word} target={entry.word} onComplete={onComplete} paused={!!done} />
+            <TypingBoard
+              key={entry.word}
+              target={entry.word}
+              masked={prefs.dictation}
+              onComplete={onComplete}
+              paused={!!done}
+            />
 
             {done ? (
               <div className="sweep-in flex flex-col items-center gap-3 text-center">
