@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { WORD_BOOKS, getBook, shuffle, type WordEntry } from "@/data/words";
@@ -21,6 +21,18 @@ export const Route = createFileRoute("/_authenticated/learn")({
   component: LearnPage,
 });
 
+type HistoryItem = { entry: WordEntry; result: TypingResult };
+
+const FAV_KEY = "cadence:favorites";
+
+function loadFavorites(): Set<string> {
+  try {
+    return new Set(JSON.parse(window.localStorage.getItem(FAV_KEY) ?? "[]") as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
 function LearnPage() {
   const save = useServerFn(recordAttempt);
   const [bookId, setBookId] = useState("core");
@@ -28,17 +40,28 @@ function LearnPage() {
   const [index, setIndex] = useState(0);
   const [done, setDone] = useState<TypingResult | null>(null);
   const [sessionDone, setSessionDone] = useState(0);
+  // completed words this session, newest last
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  // null = typing current word; number = reviewing history[reviewIndex] (permanent)
+  const [reviewIndex, setReviewIndex] = useState<number | null>(null);
+  const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
+  const [savedToMistakes, setSavedToMistakes] = useState<Set<string>>(new Set());
+  const dragX = useRef<number | null>(null);
 
   const entry = queue[index % queue.length]!;
+  const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
 
   useEffect(() => {
     setQueue(shuffle(getBook(bookId).words));
     setIndex(0);
     setDone(null);
+    setHistory([]);
+    setReviewIndex(null);
   }, [bookId]);
 
   const next = useCallback(() => {
     setDone(null);
+    setReviewIndex(null);
     setIndex((i) => (i + 1) % queue.length);
   }, [queue.length]);
 
@@ -46,6 +69,7 @@ function LearnPage() {
     (r: TypingResult) => {
       setDone(r);
       setSessionDone((n) => n + 1);
+      setHistory((h) => [...h, { entry, result: r }]);
       speak(entry.word);
       void save({
         data: {
@@ -63,22 +87,100 @@ function LearnPage() {
     [bookId, entry, save],
   );
 
+  const goBack = useCallback(() => {
+    setReviewIndex((cur) => {
+      if (history.length === 0) return cur;
+      if (cur === null) return history.length - 1;
+      return Math.max(0, cur - 1);
+    });
+  }, [history.length]);
+
+  const goForward = useCallback(() => {
+    setReviewIndex((cur) => {
+      if (cur === null) return cur;
+      if (cur >= history.length - 1) return null; // back to typing the current word
+      return cur + 1;
+    });
+  }, [history.length]);
+
+  // auto-advance after 3s when the reveal shows
   useEffect(() => {
-    if (!done) return;
-    const t = window.setTimeout(next, 1600);
+    if (!done || reviewIndex !== null) return;
+    const t = window.setTimeout(next, 3000);
+    return () => window.clearTimeout(t);
+  }, [done, next, reviewIndex]);
+
+  // keyboard: ← back / → forward when reviewing or typing
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Enter" || e.key === " ") {
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) return;
+      if (e.key === "ArrowLeft") {
         e.preventDefault();
-        window.clearTimeout(t);
-        next();
+        goBack();
+      } else if (e.key === "ArrowRight" && reviewIndex !== null) {
+        e.preventDefault();
+        goForward();
+      } else if ((e.key === "Enter" || e.key === " ") && (done || reviewIndex !== null)) {
+        e.preventDefault();
+        if (reviewIndex !== null && reviewIndex < history.length - 1) {
+          goForward();
+        } else if (reviewIndex !== null) {
+          setReviewIndex(null);
+        } else {
+          next();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
-    return () => {
-      window.clearTimeout(t);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [done, next]);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [done, reviewIndex, history.length, goBack, goForward, next]);
+
+  // drag right to go back, drag left to go forward
+  const onPointerDown = (e: React.PointerEvent) => {
+    dragX.current = e.clientX;
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (dragX.current === null) return;
+    const dx = e.clientX - dragX.current;
+    dragX.current = null;
+    if (dx > 64) goBack();
+    else if (dx < -64 && reviewIndex !== null) goForward();
+  };
+
+  const toggleFavorite = useCallback((word: string) => {
+    setFavorites((prev) => {
+      const nextSet = new Set(prev);
+      if (nextSet.has(word)) nextSet.delete(word);
+      else nextSet.add(word);
+      try {
+        window.localStorage.setItem(FAV_KEY, JSON.stringify([...nextSet]));
+      } catch {
+        /* ignore */
+      }
+      return nextSet;
+    });
+  }, []);
+
+  const addToMistakes = useCallback(
+    (item: HistoryItem) => {
+      if (savedToMistakes.has(item.entry.word)) return;
+      setSavedToMistakes((s) => new Set(s).add(item.entry.word));
+      void save({
+        data: {
+          mode: "word" as const,
+          bookId,
+          word: item.entry.word,
+          translation: item.entry.cn,
+          correct: false,
+          mistouch: false,
+          typoCount: Math.max(1, item.result.typoCount),
+          durationMs: item.result.durationMs,
+        },
+      }).catch(() => undefined);
+    },
+    [bookId, save, savedToMistakes],
+  );
 
   const progress = useMemo(() => ((index % queue.length) / queue.length) * 100, [index, queue.length]);
 
@@ -111,42 +213,111 @@ function LearnPage() {
         <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${progress}%` }} />
       </div>
 
-      <div className="glass-stage mt-10 flex w-full flex-col items-center gap-8 px-6 py-14">
-        <div className="text-center">
-          <p className="font-display text-xl text-foreground">{entry.cn}</p>
-          <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
-        </div>
-
-        <TypingBoard key={entry.word} target={entry.word} onComplete={onComplete} paused={!!done} />
-
-        {done ? (
-          <div className="sweep-in flex flex-col items-center gap-3 text-center">
-            <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
-              完成 · {(done.durationMs / 1000).toFixed(1)}s
-              {done.typoCount === 0 ? " · 全对" : ` · ${done.typoCount} 次错误`}
+      <div
+        className="glass-stage mt-10 flex w-full touch-pan-y flex-col items-center gap-8 px-6 py-14"
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+      >
+        {reviewing ? (
+          <div className="sweep-in flex flex-col items-center gap-4 text-center">
+            <div className="rounded-full bg-accent/60 px-4 py-1 text-xs text-accent-foreground">
+              回顾 · {reviewIndex! + 1} / {history.length} · ← → 切换
             </div>
-            <p className="font-display text-2xl">{entry.word}</p>
-            <p className="text-sm text-muted-foreground">{entry.sentence}</p>
-            <p className="text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
-            <div className="flex gap-2 pt-1">
+            <p className="font-display text-4xl">{reviewing.entry.word}</p>
+            <p className="font-mono text-sm text-muted-foreground">{reviewing.entry.phonetic}</p>
+            <p className="text-lg text-foreground">{reviewing.entry.cn}</p>
+            <div className="mt-1 space-y-1">
+              <p className="text-sm text-muted-foreground">{reviewing.entry.sentence}</p>
+              <p className="text-sm text-muted-foreground/80">{reviewing.entry.sentenceCn}</p>
+            </div>
+            <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
+              {(reviewing.result.durationMs / 1000).toFixed(1)}s
+              {reviewing.result.typoCount === 0 ? " · 全对" : ` · ${reviewing.result.typoCount} 次错误`}
+              {reviewing.result.mistouch ? " · 含误触" : ""}
+            </div>
+            <div className="flex flex-wrap justify-center gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => speak(entry.word)}
+                onClick={() => speak(reviewing.entry.word)}
                 className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
               >
                 再听一次
               </button>
               <button
                 type="button"
-                onClick={next}
+                onClick={() => toggleFavorite(reviewing.entry.word)}
+                className={cn(
+                  "rounded-full border px-4 py-1.5 text-sm transition-colors",
+                  favorites.has(reviewing.entry.word)
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-border bg-card hover:border-primary/40",
+                )}
+              >
+                {favorites.has(reviewing.entry.word) ? "已收藏 ★" : "收藏 ☆"}
+              </button>
+              <button
+                type="button"
+                onClick={() => addToMistakes(reviewing)}
+                disabled={savedToMistakes.has(reviewing.entry.word)}
+                className={cn(
+                  "rounded-full border px-4 py-1.5 text-sm transition-colors",
+                  savedToMistakes.has(reviewing.entry.word)
+                    ? "border-border bg-card text-muted-foreground"
+                    : "border-border bg-card hover:border-primary/40",
+                )}
+              >
+                {savedToMistakes.has(reviewing.entry.word) ? "已加入错题本" : "加入错题本"}
+              </button>
+              <button
+                type="button"
+                onClick={() => (reviewIndex! < history.length - 1 ? goForward() : setReviewIndex(null))}
                 className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
               >
-                下一个 ⏎
+                下一个 →
               </button>
             </div>
           </div>
         ) : (
-          <p className="text-xs text-muted-foreground">直接用键盘输入 · Backspace 可退格</p>
+          <>
+            <div className="text-center">
+              <p className="font-display text-xl text-foreground">{entry.cn}</p>
+              <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+            </div>
+
+            <TypingBoard key={entry.word} target={entry.word} onComplete={onComplete} paused={!!done} />
+
+            {done ? (
+              <div className="sweep-in flex flex-col items-center gap-3 text-center">
+                <div className="rounded-full bg-primary/10 px-4 py-1.5 text-sm text-primary">
+                  完成 · {(done.durationMs / 1000).toFixed(1)}s
+                  {done.typoCount === 0 ? " · 全对" : ` · ${done.typoCount} 次错误`}
+                </div>
+                <p className="font-display text-2xl">{entry.word}</p>
+                <p className="text-sm text-muted-foreground">{entry.sentence}</p>
+                <p className="text-sm text-muted-foreground/80">{entry.sentenceCn}</p>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => speak(entry.word)}
+                    className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
+                  >
+                    再听一次
+                  </button>
+                  <button
+                    type="button"
+                    onClick={next}
+                    className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
+                  >
+                    下一个 ⏎
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                直接用键盘输入 · Backspace 退格{history.length > 0 ? " · ← 或向右拖动回顾上一词" : ""}
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>
