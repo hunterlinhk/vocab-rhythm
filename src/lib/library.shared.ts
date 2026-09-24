@@ -40,10 +40,10 @@ export type EntryRow = {
 export const rowToEntry = (r: EntryRow): WordEntry => ({
   word: r.word,
   bookId: r.book_id,
-  cn: r.translation ?? "",
-  phonetic: r.phonetic ?? "",
-  sentence: r.sentence ?? "",
-  sentenceCn: r.sentence_translation ?? "",
+  cn: r.translation ?? undefined,
+  phonetic: r.phonetic ?? undefined,
+  sentence: r.sentence ?? undefined,
+  sentenceCn: r.sentence_translation ?? undefined,
   svo: r.subject && r.verb ? { s: r.subject, v: r.verb, o: r.object ?? undefined } : undefined,
 });
 

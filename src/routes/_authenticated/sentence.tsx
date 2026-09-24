@@ -3,7 +3,7 @@ import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
-import { hasSentence, type WordEntry } from "@/data/words";
+import { hasSentence, type SentenceEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
 import { recordAttempt } from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
@@ -24,7 +24,7 @@ export const Route = createFileRoute("/_authenticated/sentence")({
   component: SentencePage,
 });
 
-type HistoryItem = { entry: WordEntry; result: TypingResult };
+type HistoryItem = { entry: SentenceEntry; result: TypingResult };
 
 const PREF_KEY = "cadence:learn-prefs";
 
@@ -377,10 +377,11 @@ function SentencePage() {
                     )}
                   </div>
                   <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
-                    <p className="text-lg text-foreground">{resultItem.entry.sentenceCn}</p>
+                    {resultItem.entry.sentenceCn && <p className="text-lg text-foreground">{resultItem.entry.sentenceCn}</p>}
                     <p className="mt-1 text-sm text-muted-foreground">
-                      <span className="font-mono text-foreground">{resultItem.entry.word}</span>{" "}
-                      <span className="font-mono">{resultItem.entry.phonetic}</span> · {resultItem.entry.cn}
+                      <span className="font-mono text-foreground">{resultItem.entry.word}</span>
+                      {resultItem.entry.phonetic && <span className="font-mono"> {resultItem.entry.phonetic}</span>}
+                      {resultItem.entry.cn && <> · {resultItem.entry.cn}</>}
                     </p>
                   </div>
                 </div>
@@ -413,12 +414,12 @@ function SentencePage() {
               {prefs.meaning || prefs.english ? (
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1.5">
-                    {prefs.meaning && <p className="font-display text-xl text-foreground">{entry.sentenceCn}</p>}
+                    {prefs.meaning && entry.sentenceCn && <p className="font-display text-xl text-foreground">{entry.sentenceCn}</p>}
                     <SpeakerButton text={entry.sentence} />
                   </div>
                   {prefs.english && (
                     <p className="mt-1 font-mono text-sm text-muted-foreground">
-                      {entry.word} {entry.phonetic}
+                      {entry.word}{entry.phonetic ? ` ${entry.phonetic}` : ""}
                     </p>
                   )}
                 </div>

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
-import { bareEntry, findInDemoBook, findWord, isDemoBook, type WordEntry } from "@/data/words";
+import { bareEntry, findInBundledBook, findWord, isBundledBook, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
 import { resolveEntries } from "@/lib/library.functions";
 import { entryKey, parseFavorites, type EntryIdentity } from "@/lib/entry-identity";
@@ -268,7 +268,7 @@ function LearnPage() {
   const { book: currentBook } = useBook(queueKind ? null : bookId);
   const resolve = useServerFn(resolveEntries);
   const dbItems = useMemo(
-    () => reviewItems.filter((i) => !isDemoBook(i.bookId)).map((i) => ({ bookId: i.bookId, word: i.word })),
+    () => reviewItems.filter((i) => !isBundledBook(i.bookId)).map((i) => ({ bookId: i.bookId, word: i.word })),
     [reviewItems],
   );
   const { data: resolved, isFetched: resolvedFetched } = useQuery({
@@ -281,7 +281,7 @@ function LearnPage() {
     if (queueKind)
       return reviewItems.map(
         (i) =>
-          findInDemoBook(i.bookId, i.word) ??
+          findInBundledBook(i.bookId, i.word) ??
           resolved?.find((e) => e.bookId === i.bookId && e.word === i.word) ??
           bareEntry(i.word, i.bookId, i.translation),
       );
@@ -715,10 +715,10 @@ function LearnPage() {
               {prefs.meaning ? (
                 <div className="text-center">
                   <div className="flex items-center justify-center gap-1.5">
-                    <p className="font-display text-xl text-foreground">{entry.cn}</p>
+                    <p className="font-display text-xl text-foreground">{entry.cn || entry.word}</p>
                     <SpeakerButton word={entry.word} />
                   </div>
-                  <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+                  {entry.phonetic && <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>}
                 </div>
               ) : (
                 <SpeakerButton word={entry.word} className="size-9" />

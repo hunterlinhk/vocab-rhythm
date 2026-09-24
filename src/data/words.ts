@@ -1,15 +1,20 @@
-/**
- * 统一词条结构。只有 word 必填；缺失的字段用空字符串表示，
- * 各学习模式据此优雅跳过（无释义不进选义环节，无例句不进句子练习）。
- */
+import { NGSL_BOOK_ID, NGSL_WORDS } from "./ngsl";
+
+/** Only the headword is required; study content may be added independently later. */
 export type WordEntry = {
   word: string;
   /** 词条所属词书（复习队列会混合多本词书，用于按词书记录） */
   bookId?: string | undefined;
-  phonetic: string;
-  cn: string;
-  sentence: string;
-  sentenceCn: string;
+  /** Published source statistics, when available. */
+  rank?: number | undefined;
+  sfi?: number | undefined;
+  frequencyPerMillion?: number | undefined;
+  /** Optional editorial learning fields. */
+  partOfSpeech?: string | undefined;
+  phonetic?: string | undefined;
+  cn?: string | undefined;
+  sentence?: string | undefined;
+  sentenceCn?: string | undefined;
   svo?: { s: string; v: string; o?: string | undefined } | undefined;
 };
 
@@ -23,6 +28,9 @@ export type WordBook = {
   /** 内置演示词库：仅用于开发测试，并非正式授权词库 */
   demo?: boolean;
 };
+
+export type MeaningfulEntry = WordEntry & { cn: string };
+export type SentenceEntry = WordEntry & { sentence: string };
 
 const core: WordEntry[] = [
   { word: "achieve", phonetic: "/əˈtʃiːv/", cn: "v. 实现，达到", sentence: "She achieved her goal.", sentenceCn: "她实现了她的目标。", svo: { s: "She", v: "achieved", o: "her goal" } },
@@ -135,33 +143,31 @@ const business: WordEntry[] = [
 
 const tag = (id: string, list: WordEntry[]) => list.map((w) => ({ ...w, bookId: id }));
 
-/** 内置演示词库（开发测试用，非正式授权内容） */
+/** Bundled official source list plus legacy demo books. */
 export const WORD_BOOKS: WordBook[] = [
+  { id: NGSL_BOOK_ID, name: "NGSL 1.2", desc: "New General Service List · 2,809 词 · CC BY-SA 4.0", words: NGSL_WORDS, source: "official" },
   { id: "core", name: "核心词汇", desc: "常见学术与通用高频词", words: tag("core", core), source: "official", demo: true },
   { id: "daily", name: "日常生活", desc: "生活场景里最常用的词", words: tag("daily", daily), source: "official", demo: true },
   { id: "business", name: "职场商务", desc: "工作与商务沟通词汇", words: tag("business", business), source: "official", demo: true },
 ];
 
-export const isDemoBook = (id: string) => WORD_BOOKS.some((b) => b.id === id);
+export const isBundledBook = (id: string) => WORD_BOOKS.some((b) => b.id === id);
 
-export const getBook = (id: string): WordBook => WORD_BOOKS.find((b) => b.id === id) ?? WORD_BOOKS[0]!;
+export const getBook = (id: string): WordBook => WORD_BOOKS.find((b) => b.id === id) ?? WORD_BOOKS.find((b) => b.id === "core")!;
 
-/** 在指定演示词书里查词（不跨书） */
-export const findInDemoBook = (bookId: string, word: string): WordEntry | undefined =>
+/** Look up a bundled entry in its own book, without crossing book boundaries. */
+export const findInBundledBook = (bookId: string, word: string): WordEntry | undefined =>
   WORD_BOOKS.find((b) => b.id === bookId)?.words.find((w) => w.word.toLowerCase() === word.toLowerCase());
 
 /** 仅有英文单词时构造最小词条 */
 export const bareEntry = (word: string, bookId?: string, cn?: string | null): WordEntry => ({
   word,
   bookId,
-  phonetic: "",
-  cn: cn ?? "",
-  sentence: "",
-  sentenceCn: "",
+  cn: cn ?? undefined,
 });
 
-export const hasMeaning = (e: WordEntry) => e.cn.trim().length > 0;
-export const hasSentence = (e: WordEntry) => e.sentence.trim().length > 0;
+export const hasMeaning = (e: WordEntry): e is MeaningfulEntry => !!e.cn?.trim();
+export const hasSentence = (e: WordEntry): e is SentenceEntry => !!e.sentence?.trim();
 
 export const TOTAL_WORDS = WORD_BOOKS.reduce((n, b) => n + b.words.length, 0);
 

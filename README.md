@@ -1,5 +1,9 @@
 # FluentKey Learn
 
+## Official vocabulary source
+
+The bundled NGSL 1.2 book contains 2,809 ranked entries from the official New General Service List Project. It retains each source lemma, SFI rank, SFI, and adjusted frequency per million. Chinese meanings, part of speech, IPA, and examples are optional learning content kept separately from the published statistics. See [NGSL source and CC BY-SA 4.0 attribution](src/data/NGSL-SOURCE.md).
+
 我想做一个面向中文用户的英语单词与句子学习 Web App。
 
 产品的核心体验可以参考 Qwerty Learner 的键盘打字背单词模式：用户通过键盘连续输入英文单词，在输入过程中获得即时、流畅、清晰的字符反馈。这种连续打字学习的手感是整个产品最重要的体验之一。
