@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 import { useLibrary, type BookSummary } from "@/hooks/use-library";
 import { getLearningState, saveSettings } from "@/lib/learning.functions";
 import { createCustomBook, deleteCustomBook } from "@/lib/library.functions";
-import { parsePastedWords } from "@/lib/library.shared";
+import { parsePastedWords, type EntryInputT } from "@/lib/library.shared";
 
 const tabs = ["官方词库", "我的词库"] as const;
 type Tab = (typeof tabs)[number];
@@ -211,7 +211,7 @@ function CreateBookDialog({
   const create = useServerFn(createCustomBook);
   const [name, setName] = useState("");
   const [text, setText] = useState("");
-  const [parsed, setParsed] = useState<{ word: string; translation: string | null }[] | null>(null);
+  const [parsed, setParsed] = useState<EntryInputT[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const withMeaning = useMemo(() => parsed?.filter((p) => p.translation).length ?? 0, [parsed]);

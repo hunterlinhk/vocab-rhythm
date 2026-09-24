@@ -15,6 +15,9 @@ export type WordEntry = {
   cn?: string | undefined;
   sentence?: string | undefined;
   sentenceCn?: string | undefined;
+  subject?: string | undefined;
+  verb?: string | undefined;
+  object?: string | undefined;
   svo?: { s: string; v: string; o?: string | undefined } | undefined;
 };
 
@@ -141,7 +144,13 @@ const business: WordEntry[] = [
   { word: "decision", phonetic: "/dɪˈsɪʒn/", cn: "n. 决定", sentence: "The decision came fast.", sentenceCn: "决定来得很快。", svo: { s: "The decision", v: "came" } },
 ];
 
-const tag = (id: string, list: WordEntry[]) => list.map((w) => ({ ...w, bookId: id }));
+const tag = (id: string, list: WordEntry[]) => list.map((w) => ({
+  ...w,
+  bookId: id,
+  subject: w.subject ?? w.svo?.s,
+  verb: w.verb ?? w.svo?.v,
+  object: w.object ?? w.svo?.o,
+}));
 
 /** Bundled official source list plus legacy demo books. */
 export const WORD_BOOKS: WordBook[] = [

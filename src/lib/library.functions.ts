@@ -1,10 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
-import { EntryInput, rowToEntry, type BookMeta, type EntryRow } from "./library.shared";
+import { ENTRY_COLS, EntryInput, rowToEntry, type BookMeta, type EntryRow } from "./library.shared";
 import type { WordEntry } from "@/data/words";
-
-const ENTRY_COLS = "book_id, word, translation, phonetic, sentence, sentence_translation, subject, verb, object";
 
 /** 官方词库（数据库中的正式词库）+ 当前用户的自定义词库 */
 export const listLibrary = createServerFn({ method: "GET" })

@@ -36,6 +36,13 @@
       "when": 1790209180776,
       "tag": "0004_word_library_and_mastery_per_book",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790210000000,
+      "tag": "0005_add_word_entry_part_of_speech",
+      "breakpoints": true
     }
   ]
 }

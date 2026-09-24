@@ -191,10 +191,14 @@ export type Database = {
           created_at: string
           id: string
           object: string | null
+          part_of_speech: string | null
           phonetic: string | null
           position: number
           sentence: string | null
           sentence_translation: string | null
+          source_frequency_per_million: number | null
+          source_rank: number | null
+          source_sfi: number | null
           subject: string | null
           translation: string | null
           verb: string | null
@@ -205,10 +209,14 @@ export type Database = {
           created_at?: string
           id?: string
           object?: string | null
+          part_of_speech?: string | null
           phonetic?: string | null
           position?: number
           sentence?: string | null
           sentence_translation?: string | null
+          source_frequency_per_million?: number | null
+          source_rank?: number | null
+          source_sfi?: number | null
           subject?: string | null
           translation?: string | null
           verb?: string | null
@@ -219,10 +227,14 @@ export type Database = {
           created_at?: string
           id?: string
           object?: string | null
+          part_of_speech?: string | null
           phonetic?: string | null
           position?: number
           sentence?: string | null
           sentence_translation?: string | null
+          source_frequency_per_million?: number | null
+          source_rank?: number | null
+          source_sfi?: number | null
           subject?: string | null
           translation?: string | null
           verb?: string | null

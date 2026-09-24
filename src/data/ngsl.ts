@@ -31,12 +31,20 @@ export const NGSL_WORDS: WordEntry[] = rows.map((line, index) => {
   ) {
     throw new Error(`Invalid NGSL 1.2 source row: ${line}`);
   }
+  const learning = NGSL_LEARNING_DATA[word] ?? {};
+  const subject = learning.subject ?? learning.svo?.s;
+  const verb = learning.verb ?? learning.svo?.v;
+  const object = learning.object ?? learning.svo?.o;
   return {
     word,
     bookId: NGSL_BOOK_ID,
     rank,
     sfi,
     frequencyPerMillion,
-    ...NGSL_LEARNING_DATA[word],
+    ...learning,
+    subject,
+    verb,
+    object,
+    svo: learning.svo ?? (subject && verb ? { s: subject, v: verb, o: object } : undefined),
   };
 });
