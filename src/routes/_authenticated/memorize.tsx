@@ -188,7 +188,11 @@ function MemorizePage() {
   };
 
   if (!state || !entry) {
-    return <div className="glass-stage flex min-h-[30rem] items-center justify-center">载入中…</div>;
+    return (
+      <div className="glass-stage flex min-h-[30rem] items-center justify-center">
+        {book && !batch.length ? "这本词书暂无中文释义" : "载入中…"}
+      </div>
+    );
   }
 
   const total = batch.length * 2;
