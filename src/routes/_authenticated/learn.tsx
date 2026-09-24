@@ -685,7 +685,7 @@ function LearnPage() {
                 }
                 showMistouch={strict && resultItem.result.typoCount > 0}
                 mistouched={mistouched.has(resultItem.entry.word)}
-                onMistouch={() => markMistouch(resultItem.entry.word)}
+                onMistouch={() => markMistouch(resultItem.entry.word, resultItem.entry.bookId)}
               />
             )
           ) : (
