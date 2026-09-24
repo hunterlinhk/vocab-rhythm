@@ -118,16 +118,20 @@ function ResultPanel({
       <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
         <div className="w-[45%] min-w-0">
           <p className="font-display text-5xl [overflow-wrap:anywhere]">{item.entry.word}</p>
-          <p className="mt-2 font-mono text-sm text-muted-foreground">{item.entry.phonetic}</p>
+          {item.entry.phonetic && (
+            <p className="mt-2 font-mono text-sm text-muted-foreground">{item.entry.phonetic}</p>
+          )}
           <div className="mt-3 flex items-center gap-1.5">
-            <p className="text-lg text-foreground">{item.entry.cn}</p>
+            {item.entry.cn && <p className="text-lg text-foreground">{item.entry.cn}</p>}
             <SpeakerButton word={item.entry.word} />
           </div>
         </div>
-        <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
-          <p className="text-base text-foreground/90">{item.entry.sentence}</p>
-          <p className="mt-2 text-sm text-muted-foreground">{item.entry.sentenceCn}</p>
-        </div>
+        {item.entry.sentence && (
+          <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
+            <p className="text-base text-foreground/90">{item.entry.sentence}</p>
+            {item.entry.sentenceCn && <p className="mt-2 text-sm text-muted-foreground">{item.entry.sentenceCn}</p>}
+          </div>
+        )}
       </div>
       <div className="flex flex-wrap justify-center gap-2 pt-1">
         <button
