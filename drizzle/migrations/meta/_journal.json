@@ -29,6 +29,13 @@
       "when": 1790157899837,
       "tag": "0003_add_skip_and_strict_spelling",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790209180776,
+      "tag": "0004_word_library_and_mastery_per_book",
+      "breakpoints": true
     }
   ]
 }
