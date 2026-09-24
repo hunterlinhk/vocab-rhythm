@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, PenLine, Sparkles, Volume2 } from "lucide-react";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
-import { ALL_WORDS, hasMeaning, type WordEntry } from "@/data/words";
+import { ALL_WORDS, hasMeaning, type MeaningfulEntry, type WordEntry } from "@/data/words";
 import { useBook } from "@/hooks/use-library";
 import { getLearningState, recordMemorizeStage, saveSettings } from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
@@ -28,9 +28,9 @@ export const Route = createFileRoute("/_authenticated/memorize")({
 
 type Phase = "context" | "recall" | "spell" | "done";
 
-function pickOptions(entry: WordEntry, extra: WordEntry[]): string[] {
+function pickOptions(entry: MeaningfulEntry, extra: MeaningfulEntry[]): string[] {
   const seed = [...entry.word].reduce((n, c) => n + c.charCodeAt(0), 0);
-  const pool = [...extra, ...ALL_WORDS].filter((w) => hasMeaning(w) && w.cn !== entry.cn);
+  const pool = [...extra, ...ALL_WORDS].filter(hasMeaning).filter((w) => w.cn !== entry.cn);
   const a = pool[seed % pool.length]!;
   const b = pool[(seed * 7 + 11) % pool.length]!;
   const distractors = [a.cn, b.cn === a.cn ? pool[(seed * 13 + 5) % pool.length]!.cn : b.cn];
@@ -86,15 +86,17 @@ function MemorizePage() {
   const { book } = useBook(state ? bookId : null);
   // 选义环节只使用有中文释义的词条
   const meaningful = useMemo(() => (book?.words ?? []).filter(hasMeaning), [book]);
-  const batch: WordEntry[] = useMemo(() => {
+  const spellingOnly = !!book?.words.length && meaningful.length === 0;
+  const batch = useMemo(() => {
     if (!book) return [];
     const words = book.words;
     const start = (state?.cursors[book.id] ?? 0) % Math.max(1, words.length);
-    const list = [...words.slice(start), ...words.slice(0, start)].filter(hasMeaning);
+    const ordered = [...words.slice(start), ...words.slice(0, start)];
+    const list = spellingOnly ? ordered : ordered.filter(hasMeaning);
     return list.slice(0, BATCH);
-  }, [state, book]);
+  }, [state, book, spellingOnly]);
   const entry = batch[Math.min(index, batch.length - 1)];
-  const options = useMemo(() => (entry ? pickOptions(entry, meaningful) : []), [entry, meaningful]);
+  const options = useMemo(() => (entry && hasMeaning(entry) ? pickOptions(entry, meaningful) : []), [entry, meaningful]);
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["stats"] });
@@ -109,14 +111,14 @@ function MemorizePage() {
         return;
       }
       setIndex(0);
-      setPhase(from === "context" ? "recall" : "done");
+      setPhase(spellingOnly ? "done" : from === "context" ? "recall" : "done");
     },
-    [index, batch.length],
+    [index, batch.length, spellingOnly],
   );
 
   const choose = useCallback(
     (option: string) => {
-      if (!entry || picked) return;
+      if (!entry || !hasMeaning(entry) || picked) return;
       setPicked(option);
       const correct = option === entry.cn;
       if (correct) setRightCount((n) => n + 1);
@@ -164,11 +166,11 @@ function MemorizePage() {
         .then(invalidate)
         .catch(() => undefined);
       window.setTimeout(() => {
-        setPhase("recall");
+        if (!spellingOnly) setPhase("recall");
         advance("recall");
       }, 1200);
     },
-    [entry, record, bookId, invalidate, advance],
+    [entry, record, bookId, invalidate, advance, spellingOnly],
   );
 
   const toggleSpell = () => {
@@ -190,13 +192,13 @@ function MemorizePage() {
   if (!state || !entry) {
     return (
       <div className="glass-stage flex min-h-[30rem] items-center justify-center">
-        {book && !batch.length ? "这本词书暂无中文释义" : "载入中…"}
+        {book && !batch.length ? "这本词书暂无词条" : "载入中…"}
       </div>
     );
   }
 
-  const total = batch.length * 2;
-  const stepDone = (phase === "context" ? index : batch.length + index) + (picked ? 1 : 0);
+  const total = batch.length * (spellingOnly ? 1 : 2);
+  const stepDone = spellingOnly ? index : (phase === "context" ? index : batch.length + index) + (picked ? 1 : 0);
   const progress = Math.min(100, (stepDone / total) * 100);
 
   if (phase === "done") {
@@ -205,8 +207,8 @@ function MemorizePage() {
         <CheckCircle2 className="size-12 text-success" />
         <p className="font-display text-3xl">这一组背完了</p>
         <p className="text-sm text-muted-foreground">
-          答对 {rightCount} / {total}
-          {spellOn ? ` · 完成三轮强化 ${masteredNow} 词` : ""}
+          {spellingOnly ? `完成拼写 ${masteredNow} / ${batch.length} 词` : `答对 ${rightCount} / ${total}`}
+          {!spellingOnly && spellOn ? ` · 完成三轮强化 ${masteredNow} 词` : ""}
         </p>
         <div className="flex flex-wrap justify-center gap-2">
           <button type="button" onClick={restart} className="rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground">
@@ -225,25 +227,27 @@ function MemorizePage() {
       <div className="focus-top flex w-full flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-primary/10 px-3.5 py-1.5 text-sm text-primary">
-            {phase === "context" ? "第一轮 · 语境选义" : phase === "recall" ? "第二轮 · 词义回忆" : "第三轮 · 拼写"}
+            {spellingOnly ? "单词拼写" : phase === "context" ? "第一轮 · 语境选义" : phase === "recall" ? "第二轮 · 词义回忆" : "第三轮 · 拼写"}
           </span>
-          <button
-            type="button"
-            onClick={toggleSpell}
-            aria-pressed={spellOn}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-all duration-300",
-              spellOn
-                ? "bg-card/70 text-primary shadow-[0_6px_16px_-12px_var(--ink)]"
-                : "text-muted-foreground/60 hover:bg-card/40 hover:text-muted-foreground",
-            )}
-          >
-            <PenLine className="size-3.5" />
-            拼写轮
-          </button>
+          {!spellingOnly && (
+            <button
+              type="button"
+              onClick={toggleSpell}
+              aria-pressed={spellOn}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-all duration-300",
+                spellOn
+                  ? "bg-card/70 text-primary shadow-[0_6px_16px_-12px_var(--ink)]"
+                  : "text-muted-foreground/60 hover:bg-card/40 hover:text-muted-foreground",
+              )}
+            >
+              <PenLine className="size-3.5" />
+              拼写轮
+            </button>
+          )}
         </div>
         <div className="font-mono text-sm text-muted-foreground">
-          {Math.min(index + 1, batch.length)} / {batch.length} · 答对 {rightCount}
+          {Math.min(index + 1, batch.length)} / {batch.length} · {spellingOnly ? `完成 ${masteredNow}` : `答对 ${rightCount}`}
         </div>
       </div>
 
@@ -252,12 +256,12 @@ function MemorizePage() {
       </div>
 
       <div className="glass-stage relative mt-6 flex min-h-[30rem] w-full flex-col items-center justify-center gap-7 px-4 py-10 sm:mt-10 sm:min-h-[33.25rem] sm:gap-9 sm:px-6 sm:py-14">
-        {phase === "spell" ? (
+        {phase === "spell" || spellingOnly ? (
           <div key={`s-${entry.word}`} className="nav-slide-left flex w-full flex-col items-center gap-7">
             <div className="flex flex-col items-center gap-2 text-center">
               <Sparkles className="size-5 text-primary" />
-              <p className="text-lg text-foreground">{entry.cn}</p>
-              <p className="font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+              <p className="text-lg text-foreground">{entry.cn || entry.word}</p>
+              {entry.phonetic && <p className="font-mono text-sm text-muted-foreground">{entry.phonetic}</p>}
             </div>
             <TypingBoard target={entry.word} size="word" onComplete={onSpelled} />
           </div>
@@ -305,7 +309,7 @@ function MemorizePage() {
 
             {picked && phase === "context" && (
               <p className="rise-in text-sm text-muted-foreground">
-                {entry.word} {entry.phonetic} · {entry.sentenceCn}
+                {entry.word}{entry.phonetic ? ` ${entry.phonetic}` : ""}{entry.sentenceCn ? ` · ${entry.sentenceCn}` : ""}
               </p>
             )}
           </div>
