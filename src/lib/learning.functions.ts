@@ -39,13 +39,15 @@ export const recordAttempt = createServerFn({ method: "POST" })
 /** marks the most recent attempt of a word as a mistouch (used by the strict-spelling review panel) */
 export const markAttemptMistouch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ word: z.string() }).parse(input))
+  .inputValidator((input: unknown) => z.object({ word: z.string(), bookId: z.string().optional() }).parse(input))
   .handler(async ({ data, context }) => {
-    const { data: row } = await context.supabase
+    let q = context.supabase
       .from("attempts")
       .select("id, typo_count")
       .eq("user_id", context.userId)
-      .eq("word", data.word)
+      .eq("word", data.word);
+    if (data.bookId) q = q.eq("book_id", data.bookId);
+    const { data: row } = await q
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -77,6 +79,7 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
       .from("word_mastery")
       .select("context_ok, recall_ok, spell_ok")
       .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
       .eq("word", data.word)
       .maybeSingle();
 
@@ -103,7 +106,7 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
         reinforced_at: rounds >= 3 ? new Date().toISOString() : null,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "user_id,word" },
+      { onConflict: "user_id,book_id,word" },
     );
     if (error) throw new Error(error.message);
 
@@ -128,15 +131,17 @@ export type LearningState = {
   activeBook: string;
   memorizeSpelling: boolean;
   strictSpelling: boolean;
-  masteredWords: string[];
+  /** 完成三轮强化的词，按 book_id 区分 */
+  masteredByBook: Record<string, string[]>;
   cursors: Record<string, number>;
   learnedByBook: Record<string, string[]>;
   learnedWords: string[];
   todayWords: string[];
-  wrongWords: { word: string; translation: string | null }[];
-  troubleWords: { word: string; translation: string | null; typos: number }[];
-  mistouchWords: { word: string; translation: string | null; at: string }[];
-  skippedWords: { word: string; translation: string | null; at: string }[];
+  todayItems: { word: string; bookId: string; translation: string | null }[];
+  wrongWords: { word: string; bookId: string; translation: string | null }[];
+  troubleWords: { word: string; bookId: string; translation: string | null; typos: number }[];
+  mistouchWords: { word: string; bookId: string; translation: string | null; at: string }[];
+  skippedWords: { word: string; bookId: string; translation: string | null; at: string }[];
 };
 
 export const getLearningState = createServerFn({ method: "GET" })
@@ -157,7 +162,7 @@ export const getLearningState = createServerFn({ method: "GET" })
         .limit(2000),
       context.supabase
         .from("word_mastery")
-        .select("word")
+        .select("word, book_id")
         .eq("user_id", context.userId)
         .gte("rounds", 3),
     ]);
@@ -175,21 +180,30 @@ export const getLearningState = createServerFn({ method: "GET" })
       if (!list.includes(r.word)) list.push(r.word);
     }
 
-    const wrong = new Map<string, { word: string; translation: string | null }>();
-    const trouble = new Map<string, { word: string; translation: string | null; typos: number }>();
-    const mistouch: { word: string; translation: string | null; at: string }[] = [];
+    // 所有记录都以 book_id + word 为键，不同词书的同一单词互不影响
+    const k = (r: { book_id: string; word: string }) => `${r.book_id}\u0000${r.word}`;
+    const wrong = new Map<string, { word: string; bookId: string; translation: string | null }>();
+    const trouble = new Map<string, { word: string; bookId: string; translation: string | null; typos: number }>();
+    const mistouch: { word: string; bookId: string; translation: string | null; at: string }[] = [];
     for (const r of studied) {
       if (r.mistouch) {
-        if (mistouch.length < 40) mistouch.push({ word: r.word, translation: r.translation, at: r.created_at });
+        if (mistouch.length < 40)
+          mistouch.push({ word: r.word, bookId: r.book_id, translation: r.translation, at: r.created_at });
         continue;
       }
-      if (r.correct === false) wrong.set(r.word, { word: r.word, translation: r.translation });
+      if (r.correct === false) wrong.set(k(r), { word: r.word, bookId: r.book_id, translation: r.translation });
       if (r.typo_count > 0) {
-        const cur = trouble.get(r.word) ?? { word: r.word, translation: r.translation, typos: 0 };
+        const cur = trouble.get(k(r)) ?? { word: r.word, bookId: r.book_id, translation: r.translation, typos: 0 };
         cur.typos += r.typo_count;
-        trouble.set(r.word, cur);
+        trouble.set(k(r), cur);
       }
     }
+    const masteredByBook: Record<string, string[]> = {};
+    for (const m of masteryRes.data ?? []) (masteredByBook[m.book_id] ??= []).push(m.word);
+    const todayMap = new Map<string, { word: string; bookId: string; translation: string | null }>();
+    for (const r of studied)
+      if (new Date(r.created_at).toLocaleDateString("en-CA") === today && !todayMap.has(k(r)))
+        todayMap.set(k(r), { word: r.word, bookId: r.book_id, translation: r.translation });
 
     const skippedRows = rows.filter((r) => r.skipped);
 
@@ -198,7 +212,7 @@ export const getLearningState = createServerFn({ method: "GET" })
       activeBook: settingsRes.data?.active_book ?? "core",
       memorizeSpelling: settingsRes.data?.memorize_spelling ?? true,
       strictSpelling: settingsRes.data?.strict_spelling ?? false,
-      masteredWords: (masteryRes.data ?? []).map((m) => m.word),
+      masteredByBook,
       cursors,
       learnedByBook,
       learnedWords: [...new Set(studied.map((r) => r.word))],
@@ -207,12 +221,13 @@ export const getLearningState = createServerFn({ method: "GET" })
           studied.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today).map((r) => r.word),
         ),
       ],
+      todayItems: [...todayMap.values()],
       wrongWords: [...wrong.values()].slice(0, 60),
       troubleWords: [...trouble.values()].sort((a, b) => b.typos - a.typos).slice(0, 60),
       mistouchWords: mistouch,
       skippedWords: skippedRows
         .slice(0, 40)
-        .map((r) => ({ word: r.word, translation: r.translation, at: r.created_at })),
+        .map((r) => ({ word: r.word, bookId: r.book_id, translation: r.translation, at: r.created_at })),
     };
   });
 
