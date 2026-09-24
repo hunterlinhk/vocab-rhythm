@@ -5,12 +5,12 @@
 export type WordEntry = {
   word: string;
   /** 词条所属词书（复习队列会混合多本词书，用于按词书记录） */
-  bookId?: string;
+  bookId?: string | undefined;
   phonetic: string;
   cn: string;
   sentence: string;
   sentenceCn: string;
-  svo?: { s: string; v: string; o?: string };
+  svo?: { s: string; v: string; o?: string | undefined } | undefined;
 };
 
 export type WordBook = {
