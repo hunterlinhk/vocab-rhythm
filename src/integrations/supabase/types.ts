@@ -138,9 +138,12 @@ export type Database = {
           id: string
           imported_at: string
           license_id: string
+          license_notice: string | null
           license_url: string
+          source_sha256: string | null
           source_url: string
           title: string
+          transformation: string | null
           version: string | null
         }
         Insert: {
@@ -149,9 +152,12 @@ export type Database = {
           id: string
           imported_at?: string
           license_id: string
+          license_notice?: string | null
           license_url: string
+          source_sha256?: string | null
           source_url: string
           title: string
+          transformation?: string | null
           version?: string | null
         }
         Update: {
@@ -160,9 +166,12 @@ export type Database = {
           id?: string
           imported_at?: string
           license_id?: string
+          license_notice?: string | null
           license_url?: string
+          source_sha256?: string | null
           source_url?: string
           title?: string
+          transformation?: string | null
           version?: string | null
         }
         Relationships: []
