@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getStats } from "@/lib/learning.functions";
+import { entryKey } from "@/lib/entry-identity";
 
 const STAT_TABS = ["今日数据", "历史记录", "学习分析"] as const;
 type StatTab = (typeof STAT_TABS)[number];
@@ -60,9 +61,9 @@ function StatsPage() {
         <div className="flex items-center gap-3"><CalendarDays className="size-5 text-primary"/><h2 className="font-display text-2xl">今天学过的词</h2></div>
         {data.todayWords.length ? (
           <div className="mt-4 flex flex-wrap gap-2">
-            {data.todayWords.map((w) => (
-              <span key={w} className="rounded-full border border-border bg-card px-3 py-1 font-mono text-sm">
-                {w}
+            {data.todayWords.map((item) => (
+              <span key={entryKey(item)} className="rounded-full border border-border bg-card px-3 py-1 font-mono text-sm">
+                {item.word}
               </span>
             ))}
           </div>
@@ -76,7 +77,7 @@ function StatsPage() {
         {data.troubleWords.length ? (
           <ul className="mt-4 divide-y divide-border/70">
             {data.troubleWords.map((t) => (
-              <li key={t.word} className="flex items-center justify-between py-2.5 text-sm">
+              <li key={entryKey(t)} className="flex items-center justify-between py-2.5 text-sm">
                 <span className="font-mono">{t.word}</span>
                 <span className="text-muted-foreground">
                   {t.translation} · 错 {t.typos} 次 / 练 {t.times} 次
@@ -93,7 +94,7 @@ function StatsPage() {
         <div className="flex items-center gap-3"><History className="size-5 text-primary"/><h2 className="font-display text-2xl">最近练习</h2></div>
         <ul className="mt-4 divide-y divide-border/70">
           {data.recent.map((r, i) => (
-            <li key={`${r.word}-${i}`} className="flex items-center justify-between py-2.5 text-sm">
+            <li key={`${entryKey(r)}-${i}`} className="flex items-center justify-between py-2.5 text-sm">
               <span className="font-mono">{r.word}</span>
               <span className="text-muted-foreground">
                 {r.mode === "word" ? "单词" : "句子"} · {r.mistouch ? "误触" : `${r.typos} 次错误`} ·{" "}
