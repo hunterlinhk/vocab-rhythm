@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { SectionHeading } from "@/components/SectionHeading";
 import { getLearningState, getStats } from "@/lib/learning.functions";
 import { useLibrary } from "@/hooks/use-library";
+import { entryKey } from "@/lib/entry-identity";
 
 export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
@@ -32,8 +33,8 @@ function HomePage() {
   const dailyGoal = state?.dailyGoal ?? 20;
   const progress = Math.min(100, Math.round((todayCount / dailyGoal) * 100));
   const reviewCount = new Set([
-    ...(state?.wrongWords.map((w) => w.word) ?? []),
-    ...(state?.troubleWords.map((w) => w.word) ?? []),
+    ...(state?.wrongWords.map(entryKey) ?? []),
+    ...(state?.troubleWords.map(entryKey) ?? []),
   ]).size;
   const { all: allBooks } = useLibrary();
   const activeBook = allBooks.find((b) => b.id === (state?.activeBook ?? "core")) ?? allBooks[0]!;

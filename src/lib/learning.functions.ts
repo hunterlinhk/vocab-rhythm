@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
+import { entryKey } from "@/lib/entry-identity";
 
 const AttemptInput = z.object({
   mode: z.enum(["word", "sentence", "memorize"]),
@@ -39,14 +40,14 @@ export const recordAttempt = createServerFn({ method: "POST" })
 /** marks the most recent attempt of a word as a mistouch (used by the strict-spelling review panel) */
 export const markAttemptMistouch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ word: z.string(), bookId: z.string().optional() }).parse(input))
+  .inputValidator((input: unknown) => z.object({ word: z.string(), bookId: z.string() }).parse(input))
   .handler(async ({ data, context }) => {
-    let q = context.supabase
+    const q = context.supabase
       .from("attempts")
       .select("id, typo_count")
       .eq("user_id", context.userId)
-      .eq("word", data.word);
-    if (data.bookId) q = q.eq("book_id", data.bookId);
+      .eq("word", data.word)
+      .eq("book_id", data.bookId);
     const { data: row } = await q
       .order("created_at", { ascending: false })
       .limit(1)
@@ -136,7 +137,6 @@ export type LearningState = {
   cursors: Record<string, number>;
   learnedByBook: Record<string, string[]>;
   learnedWords: string[];
-  todayWords: string[];
   todayItems: { word: string; bookId: string; translation: string | null }[];
   wrongWords: { word: string; bookId: string; translation: string | null }[];
   troubleWords: { word: string; bookId: string; translation: string | null; typos: number }[];
@@ -181,7 +181,7 @@ export const getLearningState = createServerFn({ method: "GET" })
     }
 
     // 所有记录都以 book_id + word 为键，不同词书的同一单词互不影响
-    const k = (r: { book_id: string; word: string }) => `${r.book_id}\u0000${r.word}`;
+    const k = (r: { book_id: string; word: string }) => entryKey({ bookId: r.book_id, word: r.word });
     const wrong = new Map<string, { word: string; bookId: string; translation: string | null }>();
     const trouble = new Map<string, { word: string; bookId: string; translation: string | null; typos: number }>();
     const mistouch: { word: string; bookId: string; translation: string | null; at: string }[] = [];
@@ -216,11 +216,6 @@ export const getLearningState = createServerFn({ method: "GET" })
       cursors,
       learnedByBook,
       learnedWords: [...new Set(studied.map((r) => r.word))],
-      todayWords: [
-        ...new Set(
-          studied.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today).map((r) => r.word),
-        ),
-      ],
       todayItems: [...todayMap.values()],
       wrongWords: [...wrong.values()].slice(0, 60),
       troubleWords: [...trouble.values()].sort((a, b) => b.typos - a.typos).slice(0, 60),
@@ -285,13 +280,13 @@ export const saveBookCursor = createServerFn({ method: "POST" })
 
 export type LearningStats = {
   todayCount: number;
-  todayWords: string[];
+  todayWords: { word: string; bookId: string }[];
   totalCount: number;
   uniqueWords: number;
   cleanRate: number;
   streakDays: number;
-  troubleWords: { word: string; translation: string | null; typos: number; times: number }[];
-  recent: { word: string; translation: string | null; mode: string; typos: number; mistouch: boolean; at: string }[];
+  troubleWords: { word: string; bookId: string; translation: string | null; typos: number; times: number }[];
+  recent: { word: string; bookId: string; translation: string | null; mode: string; typos: number; mistouch: boolean; at: string }[];
 };
 
 export const getStats = createServerFn({ method: "GET" })
@@ -299,7 +294,7 @@ export const getStats = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<LearningStats> => {
     const { data, error } = await context.supabase
       .from("attempts")
-      .select("word, translation, mode, typo_count, mistouch, skipped, created_at")
+      .select("word, book_id, translation, mode, typo_count, mistouch, skipped, created_at")
       .eq("user_id", context.userId)
       .order("created_at", { ascending: false })
       .limit(1000);
@@ -310,12 +305,13 @@ export const getStats = createServerFn({ method: "GET" })
     const today = new Date().toLocaleDateString("en-CA");
     const todayRows = rows.filter((r) => dayKey(r.created_at) === today);
 
-    const trouble = new Map<string, { word: string; translation: string | null; typos: number; times: number }>();
+    const trouble = new Map<string, { word: string; bookId: string; translation: string | null; typos: number; times: number }>();
     for (const r of rows) {
-      const cur = trouble.get(r.word) ?? { word: r.word, translation: r.translation, typos: 0, times: 0 };
+      const key = entryKey({ bookId: r.book_id, word: r.word });
+      const cur = trouble.get(key) ?? { word: r.word, bookId: r.book_id, translation: r.translation, typos: 0, times: 0 };
       cur.typos += r.mistouch ? 0 : r.typo_count;
       cur.times += 1;
-      trouble.set(r.word, cur);
+      trouble.set(key, cur);
     }
 
     const days = new Set(rows.map((r) => dayKey(r.created_at)));
@@ -335,7 +331,7 @@ export const getStats = createServerFn({ method: "GET" })
 
     return {
       todayCount: todayRows.length,
-      todayWords: [...new Set(todayRows.map((r) => r.word))],
+      todayWords: [...new Map(todayRows.map((r) => [entryKey({ bookId: r.book_id, word: r.word }), { word: r.word, bookId: r.book_id }])).values()],
       totalCount: rows.length,
       uniqueWords: new Set(rows.map((r) => r.word)).size,
       cleanRate: rows.length ? Math.round((clean / rows.length) * 100) : 0,
@@ -343,6 +339,7 @@ export const getStats = createServerFn({ method: "GET" })
       troubleWords: [...trouble.values()].filter((t) => t.typos > 0).sort((a, b) => b.typos - a.typos).slice(0, 8),
       recent: rows.slice(0, 20).map((r) => ({
         word: r.word,
+        bookId: r.book_id,
         translation: r.translation,
         mode: r.mode,
         typos: r.typo_count,
@@ -398,13 +395,13 @@ export const sendMessage = createServerFn({ method: "POST" })
         .limit(40),
       context.supabase
         .from("attempts")
-        .select("word, translation, typo_count, mistouch, mode, skipped, created_at")
+        .select("word, book_id, translation, typo_count, mistouch, mode, skipped, created_at")
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(200),
       context.supabase
         .from("word_mastery")
-        .select("word, translation, rounds, context_ok, recall_ok, spell_ok")
+        .select("word, book_id, translation, rounds, context_ok, recall_ok, spell_ok")
         .eq("user_id", context.userId)
         .order("updated_at", { ascending: false })
         .limit(120),
@@ -412,17 +409,15 @@ export const sendMessage = createServerFn({ method: "POST" })
 
     const allRows = rows ?? [];
     const attempts = allRows.filter((r) => !r.skipped);
-    const skippedWords = [...new Set(allRows.filter((r) => r.skipped).map((r) => r.word))].slice(0, 30);
+    const distinctEntries = (items: { book_id: string; word: string }[]) =>
+      [...new Map(items.map((r) => [entryKey({ bookId: r.book_id, word: r.word }), `${r.book_id} / ${r.word}`])).values()];
+    const skippedWords = distinctEntries(allRows.filter((r) => r.skipped)).slice(0, 30);
     const today = new Date().toLocaleDateString("en-CA");
-    const todayWords = [
-      ...new Set(attempts.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today).map((r) => r.word)),
-    ];
-    const wrongWords = [
-      ...new Set(attempts.filter((r) => r.typo_count > 0 && !r.mistouch).map((r) => r.word)),
-    ].slice(0, 20);
-    const learned = [...new Set(attempts.map((r) => r.word))].slice(0, 60);
+    const todayWords = distinctEntries(attempts.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today));
+    const wrongWords = distinctEntries(attempts.filter((r) => r.typo_count > 0 && !r.mistouch)).slice(0, 20);
+    const learned = distinctEntries(attempts).slice(0, 60);
     const masteryRows = mastery ?? [];
-    const mastered = masteryRows.filter((m) => m.rounds >= 3).map((m) => m.word);
+    const mastered = masteryRows.filter((m) => m.rounds >= 3).map((m) => `${m.book_id} / ${m.word}`);
     const inProgress = masteryRows
       .filter((m) => m.rounds > 0 && m.rounds < 3)
       .map((m) => {
@@ -431,7 +426,7 @@ export const sendMessage = createServerFn({ method: "POST" })
           m.recall_ok ? null : "词义回忆",
           m.spell_ok ? null : "拼写",
         ].filter(Boolean);
-        return `${m.word}(还差：${missing.join("、")})`;
+        return `${m.book_id} / ${m.word}(还差：${missing.join("、")})`;
       })
       .slice(0, 30);
 

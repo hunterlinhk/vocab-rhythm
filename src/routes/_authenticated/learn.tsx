@@ -6,6 +6,7 @@ import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { bareEntry, findInDemoBook, findWord, isDemoBook, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
 import { resolveEntries } from "@/lib/library.functions";
+import { entryKey, parseFavorites, type EntryIdentity } from "@/lib/entry-identity";
 import {
   getLearningState,
   markAttemptMistouch,
@@ -61,12 +62,19 @@ function loadPrefs(): Prefs {
   }
 }
 
-function loadFavorites(): Set<string> {
-  try {
-    return new Set(JSON.parse(window.localStorage.getItem(FAV_KEY) ?? "[]") as string[]);
-  } catch {
-    return new Set();
+function loadFavorites(activeBook: string): Map<string, EntryIdentity> {
+  const entries = parseFavorites(
+    window.localStorage.getItem(FAV_KEY),
+    (word) => findWord(word)?.bookId ?? activeBook,
+  );
+  if (entries.length) {
+    try {
+      window.localStorage.setItem(FAV_KEY, JSON.stringify(entries));
+    } catch {
+      /* ignore */
+    }
   }
+  return new Map(entries.map((item) => [entryKey(item), item]));
 }
 
 function SpeakerButton({ word, className }: { word: string; className?: string }) {
@@ -206,7 +214,8 @@ function LearnPage() {
   const [sessionDone, setSessionDone] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
-  const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
+  const [favorites, setFavorites] = useState<Map<string, EntryIdentity>>(new Map());
+  const activeBook = state?.activeBook;
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [finished, setFinished] = useState(false);
   const prefsRef = useRef<Prefs>(DEFAULT_PREFS);
@@ -214,6 +223,9 @@ function LearnPage() {
     prefsRef.current = prefs;
   }, [prefs]);
   useEffect(() => setPrefs(loadPrefs()), []);
+  useEffect(() => {
+    if (activeBook) setFavorites(loadFavorites(activeBook));
+  }, [activeBook]);
   const togglePref = useCallback((key: keyof Prefs) => {
     setPrefs((p) => {
       const nextPrefs = { ...p, [key]: !p[key] };
@@ -235,9 +247,9 @@ function LearnPage() {
   const reviewItems = useMemo((): ReviewItem[] => {
     if (!queueKind || !state) return [];
     if (queueKind === "favorites")
-      return [...favorites].map((w) => ({
-        word: w,
-        bookId: findWord(w)?.bookId ?? state.activeBook ?? "core",
+      return [...favorites.values()].map((item) => ({
+        word: item.word,
+        bookId: item.bookId,
         translation: null,
       }));
     if (queueKind === "today") return state.todayItems;
@@ -245,7 +257,7 @@ function LearnPage() {
     if (queueKind === "trouble") return state.troubleWords;
     const seen = new Set<string>();
     return state.mistouchWords.filter((w) => {
-      const key = `${w.bookId}|${w.word}`;
+      const key = entryKey(w);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -332,6 +344,8 @@ function LearnPage() {
   const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
   const panelResult = reviewing ? reviewing.result : done;
   const resultItem = reviewing ?? (done && entry ? { entry, result: done } : undefined);
+  const resultBookId = resultItem?.entry.bookId ?? bookId ?? "core";
+  const resultKey = resultItem ? entryKey({ bookId: resultBookId, word: resultItem.entry.word }) : "";
 
   const onComplete = useCallback(
     (r: TypingResult) => {
@@ -384,10 +398,11 @@ function LearnPage() {
   }, [entry, entryBook, save, queueKind, qc, next]);
 
   const markMistouch = useCallback(
-    (word: string, wordBook?: string) => {
-      if (mistouched.has(word)) return;
-      setMistouched((s) => new Set(s).add(word));
-      void flagMistouch({ data: wordBook ? { word, bookId: wordBook } : { word } })
+    (item: EntryIdentity) => {
+      const key = entryKey(item);
+      if (mistouched.has(key)) return;
+      setMistouched((s) => new Set(s).add(key));
+      void flagMistouch({ data: item })
         .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
         .catch(() => undefined);
     },
@@ -485,13 +500,14 @@ function LearnPage() {
     transition: dragging ? "none" : "transform 420ms cubic-bezier(0.16, 1, 0.3, 1)",
   };
 
-  const toggleFavorite = useCallback((word: string) => {
+  const toggleFavorite = useCallback((item: EntryIdentity) => {
     setFavorites((prev) => {
-      const nextSet = new Set(prev);
-      if (nextSet.has(word)) nextSet.delete(word);
-      else nextSet.add(word);
+      const nextSet = new Map(prev);
+      const key = entryKey(item);
+      if (nextSet.has(key)) nextSet.delete(key);
+      else nextSet.set(key, item);
       try {
-        window.localStorage.setItem(FAV_KEY, JSON.stringify([...nextSet]));
+        window.localStorage.setItem(FAV_KEY, JSON.stringify([...nextSet.values()]));
       } catch {
         /* ignore */
       }
@@ -501,12 +517,14 @@ function LearnPage() {
 
   const addToMistakes = useCallback(
     (item: HistoryItem) => {
-      if (savedToMistakes.has(item.entry.word)) return;
-      setSavedToMistakes((s) => new Set(s).add(item.entry.word));
+      const itemBookId = item.entry.bookId ?? bookId ?? "core";
+      const key = entryKey({ bookId: itemBookId, word: item.entry.word });
+      if (savedToMistakes.has(key)) return;
+      setSavedToMistakes((s) => new Set(s).add(key));
       void save({
         data: {
           mode: "word" as const,
-          bookId: item.entry.bookId ?? bookId ?? "core",
+          bookId: itemBookId,
           word: item.entry.word,
           translation: item.entry.cn,
           correct: false,
@@ -675,9 +693,9 @@ function LearnPage() {
               <ResultPanel
                 item={resultItem}
                 sweeping={!reviewing}
-                isFav={favorites.has(resultItem.entry.word)}
-                isSaved={savedToMistakes.has(resultItem.entry.word)}
-                onFav={() => toggleFavorite(resultItem.entry.word)}
+                isFav={favorites.has(resultKey)}
+                isSaved={savedToMistakes.has(resultKey)}
+                onFav={() => toggleFavorite({ bookId: resultBookId, word: resultItem.entry.word })}
                 onSave={() => addToMistakes(resultItem)}
                 onListen={() => speak(resultItem.entry.word)}
                 onNext={() =>
@@ -688,8 +706,8 @@ function LearnPage() {
                     : next()
                 }
                 showMistouch={strict && resultItem.result.typoCount > 0}
-                mistouched={mistouched.has(resultItem.entry.word)}
-                onMistouch={() => markMistouch(resultItem.entry.word, resultItem.entry.bookId)}
+                mistouched={mistouched.has(resultKey)}
+                onMistouch={() => markMistouch({ bookId: resultBookId, word: resultItem.entry.word })}
               />
             )
           ) : (
