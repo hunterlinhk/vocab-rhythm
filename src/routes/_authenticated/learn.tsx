@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
-import { WORD_BOOKS, entriesFor, getBook, type WordEntry } from "@/data/words";
+import { bareEntry, findInDemoBook, findWord, isDemoBook, type WordEntry } from "@/data/words";
+import { useBook, useLibrary } from "@/hooks/use-library";
+import { resolveEntries } from "@/lib/library.functions";
 import {
   getLearningState,
   markAttemptMistouch,
@@ -225,20 +227,51 @@ function LearnPage() {
   const strict = state?.strictSpelling ?? false;
 
   // review queue words (from persisted records)
-  const reviewWords = useMemo(() => {
+  type ReviewItem = { word: string; bookId: string; translation: string | null };
+  const reviewItems = useMemo((): ReviewItem[] => {
     if (!queueKind || !state) return [];
-    if (queueKind === "favorites") return [...favorites];
-    if (queueKind === "today") return state.todayWords;
-    if (queueKind === "wrong") return state.wrongWords.map((w) => w.word);
-    if (queueKind === "trouble") return state.troubleWords.map((w) => w.word);
-    return [...new Set(state.mistouchWords.map((w) => w.word))];
-    // favorites is a Set state; fine to recompute
+    if (queueKind === "favorites")
+      return [...favorites].map((w) => ({
+        word: w,
+        bookId: findWord(w)?.bookId ?? state.activeBook ?? "core",
+        translation: null,
+      }));
+    if (queueKind === "today") return state.todayItems;
+    if (queueKind === "wrong") return state.wrongWords;
+    if (queueKind === "trouble") return state.troubleWords;
+    const seen = new Set<string>();
+    return state.mistouchWords.filter((w) => {
+      const key = `${w.bookId}|${w.word}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }, [queueKind, state, favorites]);
 
+  const { all: allBooks } = useLibrary();
+  const { book: currentBook } = useBook(queueKind ? null : bookId);
+  const resolve = useServerFn(resolveEntries);
+  const dbItems = useMemo(
+    () => reviewItems.filter((i) => !isDemoBook(i.bookId)).map((i) => ({ bookId: i.bookId, word: i.word })),
+    [reviewItems],
+  );
+  const { data: resolved, isFetched: resolvedFetched } = useQuery({
+    queryKey: ["resolve-entries", dbItems],
+    queryFn: () => resolve({ data: { items: dbItems.slice(0, 500) } }),
+    enabled: !!queueKind && dbItems.length > 0,
+  });
+
   const queue: WordEntry[] = useMemo(() => {
-    if (queueKind) return entriesFor(reviewWords);
-    return getBook(bookId ?? "core").words;
-  }, [queueKind, reviewWords, bookId]);
+    if (queueKind)
+      return reviewItems.map(
+        (i) =>
+          findInDemoBook(i.bookId, i.word) ??
+          resolved?.find((e) => e.bookId === i.bookId && e.word === i.word) ??
+          bareEntry(i.word, i.bookId, i.translation),
+      );
+    return currentBook?.words ?? [];
+  }, [queueKind, reviewItems, resolved, currentBook]);
+  const queueLoading = queueKind ? dbItems.length > 0 && !resolvedFetched : !currentBook;
 
   // hydrate the persisted book + cursor once the state arrives
   useEffect(() => {
@@ -250,7 +283,7 @@ function LearnPage() {
     const book = state.activeBook || "core";
     const saved = state.cursors[book] ?? 0;
     setBookId(book);
-    setIndex(getBook(book).words.length ? saved % getBook(book).words.length : 0);
+    setIndex(saved);
     setReady(true);
   }, [state, ready, queueKind]);
 
@@ -288,7 +321,10 @@ function LearnPage() {
     });
   }, [queue.length, queueKind, bookId, persistCursor]);
 
-  const entry = queue.length ? queue[Math.min(index, queue.length - 1)]! : undefined;
+  const entry = queue.length
+    ? queue[queueKind ? Math.min(index, queue.length - 1) : index % queue.length]!
+    : undefined;
+  const entryBook = entry?.bookId ?? bookId ?? "core";
   const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
   const panelResult = reviewing ? reviewing.result : done;
   const resultItem = reviewing ?? (done && entry ? { entry, result: done } : undefined);
@@ -303,7 +339,7 @@ function LearnPage() {
       void save({
         data: {
           mode: "word" as const,
-          bookId: bookId ?? "core",
+          bookId: entryBook,
           word: entry.word,
           translation: entry.cn,
           correct: true,
@@ -319,7 +355,7 @@ function LearnPage() {
         })
         .catch(() => undefined);
     },
-    [bookId, entry, save, queueKind, qc],
+    [entryBook, entry, save, queueKind, qc],
   );
 
   const skipCurrent = useCallback(() => {
@@ -327,7 +363,7 @@ function LearnPage() {
     void save({
       data: {
         mode: "word" as const,
-        bookId: bookId ?? "core",
+        bookId: entryBook,
         word: entry.word,
         translation: entry.cn,
         correct: true,
@@ -341,13 +377,13 @@ function LearnPage() {
       .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
       .catch(() => undefined);
     next();
-  }, [entry, bookId, save, queueKind, qc, next]);
+  }, [entry, entryBook, save, queueKind, qc, next]);
 
   const markMistouch = useCallback(
-    (word: string) => {
+    (word: string, wordBook?: string) => {
       if (mistouched.has(word)) return;
       setMistouched((s) => new Set(s).add(word));
-      void flagMistouch({ data: { word } })
+      void flagMistouch({ data: wordBook ? { word, bookId: wordBook } : { word } })
         .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
         .catch(() => undefined);
     },
@@ -466,7 +502,7 @@ function LearnPage() {
       void save({
         data: {
           mode: "word" as const,
-          bookId: bookId ?? "core",
+          bookId: item.entry.bookId ?? bookId ?? "core",
           word: item.entry.word,
           translation: item.entry.cn,
           correct: false,
@@ -485,6 +521,13 @@ function LearnPage() {
   const learnedInBook = !queueKind && bookId ? (state?.learnedByBook[bookId]?.length ?? 0) : 0;
 
   if (!ready || !entry) {
+    if (ready && queueLoading) {
+      return (
+        <div className="glass-stage flex min-h-[30rem] flex-col items-center justify-center gap-4 text-center">
+          <p className="font-display text-2xl">载入中…</p>
+        </div>
+      );
+    }
     return (
       <div className="glass-stage flex min-h-[30rem] flex-col items-center justify-center gap-4 text-center">
         <p className="font-display text-2xl">{ready ? "这批复习内容是空的" : "载入中…"}</p>
@@ -532,7 +575,7 @@ function LearnPage() {
               </Link>
             </>
           ) : (
-            WORD_BOOKS.map((b) => (
+            allBooks.map((b) => (
               <button
                 key={b.id}
                 type="button"
