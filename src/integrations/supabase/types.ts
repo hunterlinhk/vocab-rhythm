@@ -152,6 +152,92 @@ export type Database = {
         }
         Relationships: []
       }
+      word_books: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          owner_user_id: string | null
+          source: string
+          updated_at: string
+          word_count: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          owner_user_id?: string | null
+          source?: string
+          updated_at?: string
+          word_count?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          owner_user_id?: string | null
+          source?: string
+          updated_at?: string
+          word_count?: number
+        }
+        Relationships: []
+      }
+      word_entries: {
+        Row: {
+          book_id: string
+          created_at: string
+          id: string
+          object: string | null
+          phonetic: string | null
+          position: number
+          sentence: string | null
+          sentence_translation: string | null
+          subject: string | null
+          translation: string | null
+          verb: string | null
+          word: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          id?: string
+          object?: string | null
+          phonetic?: string | null
+          position?: number
+          sentence?: string | null
+          sentence_translation?: string | null
+          subject?: string | null
+          translation?: string | null
+          verb?: string | null
+          word: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          id?: string
+          object?: string | null
+          phonetic?: string | null
+          position?: number
+          sentence?: string | null
+          sentence_translation?: string | null
+          subject?: string | null
+          translation?: string | null
+          verb?: string | null
+          word?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "word_entries_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "word_books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       word_mastery: {
         Row: {
           book_id: string
@@ -196,7 +282,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      can_read_book: { Args: { _book_id: string }; Returns: boolean }
+      owns_book: { Args: { _book_id: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never

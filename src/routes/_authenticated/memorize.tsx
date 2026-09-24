@@ -4,7 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, PenLine, Sparkles, Volume2 } from "lucide-react";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
-import { ALL_WORDS, getBook, type WordEntry } from "@/data/words";
+import { ALL_WORDS, hasMeaning, type WordEntry } from "@/data/words";
+import { useBook } from "@/hooks/use-library";
 import { getLearningState, recordMemorizeStage, saveSettings } from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
@@ -27,9 +28,9 @@ export const Route = createFileRoute("/_authenticated/memorize")({
 
 type Phase = "context" | "recall" | "spell" | "done";
 
-function pickOptions(entry: WordEntry): string[] {
+function pickOptions(entry: WordEntry, extra: WordEntry[]): string[] {
   const seed = [...entry.word].reduce((n, c) => n + c.charCodeAt(0), 0);
-  const pool = ALL_WORDS.filter((w) => w.cn !== entry.cn);
+  const pool = [...extra, ...ALL_WORDS].filter((w) => hasMeaning(w) && w.cn !== entry.cn);
   const a = pool[seed % pool.length]!;
   const b = pool[(seed * 7 + 11) % pool.length]!;
   const distractors = [a.cn, b.cn === a.cn ? pool[(seed * 13 + 5) % pool.length]!.cn : b.cn];
@@ -40,6 +41,9 @@ function pickOptions(entry: WordEntry): string[] {
 }
 
 function BoldSentence({ entry }: { entry: WordEntry }) {
+  if (!entry.sentence) {
+    return <p className="font-display text-4xl font-semibold text-primary">{entry.word}</p>;
+  }
   const stem = entry.word.slice(0, Math.max(3, entry.word.length - 2)).toLowerCase();
   return (
     <p className="max-w-2xl text-center text-2xl leading-relaxed sm:text-3xl">
@@ -78,16 +82,19 @@ function MemorizePage() {
     if (state) setSpellOn(state.memorizeSpelling);
   }, [state]);
 
-  const batch: WordEntry[] = useMemo(() => {
-    const book = getBook(state?.activeBook || "core");
-    const start = (state?.cursors[book.id] ?? 0) % Math.max(1, book.words.length);
-    const list = [...book.words.slice(start), ...book.words.slice(0, start)];
-    return list.slice(0, BATCH);
-  }, [state]);
-
   const bookId = state?.activeBook || "core";
+  const { book } = useBook(state ? bookId : null);
+  // 选义环节只使用有中文释义的词条
+  const meaningful = useMemo(() => (book?.words ?? []).filter(hasMeaning), [book]);
+  const batch: WordEntry[] = useMemo(() => {
+    if (!book) return [];
+    const words = book.words;
+    const start = (state?.cursors[book.id] ?? 0) % Math.max(1, words.length);
+    const list = [...words.slice(start), ...words.slice(0, start)].filter(hasMeaning);
+    return list.slice(0, BATCH);
+  }, [state, book]);
   const entry = batch[Math.min(index, batch.length - 1)];
-  const options = useMemo(() => (entry ? pickOptions(entry) : []), [entry]);
+  const options = useMemo(() => (entry ? pickOptions(entry, meaningful) : []), [entry, meaningful]);
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["stats"] });
@@ -181,7 +188,11 @@ function MemorizePage() {
   };
 
   if (!state || !entry) {
-    return <div className="glass-stage flex min-h-[30rem] items-center justify-center">载入中…</div>;
+    return (
+      <div className="glass-stage flex min-h-[30rem] items-center justify-center">
+        {book && !batch.length ? "这本词书暂无中文释义" : "载入中…"}
+      </div>
+    );
   }
 
   const total = batch.length * 2;

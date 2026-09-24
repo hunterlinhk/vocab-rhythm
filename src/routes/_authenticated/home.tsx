@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { SectionHeading } from "@/components/SectionHeading";
 import { getLearningState, getStats } from "@/lib/learning.functions";
-import { getBook } from "@/data/words";
+import { useLibrary } from "@/hooks/use-library";
 
 export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
@@ -35,7 +35,8 @@ function HomePage() {
     ...(state?.wrongWords.map((w) => w.word) ?? []),
     ...(state?.troubleWords.map((w) => w.word) ?? []),
   ]).size;
-  const activeBook = getBook(state?.activeBook ?? "core");
+  const { all: allBooks } = useLibrary();
+  const activeBook = allBooks.find((b) => b.id === (state?.activeBook ?? "core")) ?? allBooks[0]!;
   const bookLearned = state?.learnedByBook[activeBook.id]?.length ?? 0;
 
   return (
@@ -45,7 +46,7 @@ function HomePage() {
           <p className="text-sm font-medium text-primary">今天也保持一点节奏</p>
           <h1 className="mt-3 font-display text-4xl leading-tight text-foreground sm:text-5xl">继续学习</h1>
           <p className="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">
-            {activeBook.name} · 已学 {bookLearned} / {activeBook.words.length}，从上次的位置继续。
+            {activeBook.name} · 已学 {bookLearned} / {activeBook.wordCount}，从上次的位置继续。
           </p>
           <div className="mt-7 flex flex-wrap gap-3">
             <Button asChild size="lg" className="rounded-full px-6 shadow-lg shadow-primary/15">

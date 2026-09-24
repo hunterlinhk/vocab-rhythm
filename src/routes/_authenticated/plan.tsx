@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { SectionHeading } from "@/components/SectionHeading";
 import { cn } from "@/lib/utils";
 import { getLearningState, getStats, saveSettings } from "@/lib/learning.functions";
-import { WORD_BOOKS, getBook } from "@/data/words";
+import { useLibrary } from "@/hooks/use-library";
 
 export const Route = createFileRoute("/_authenticated/plan")({
   head: () => ({
@@ -68,7 +68,8 @@ function PlanPage() {
 
   const todayCount = stats?.todayCount ?? 0;
   const progress = Math.min(100, Math.round((todayCount / goal) * 100));
-  const activeBook = getBook(state?.activeBook ?? "core");
+  const { all: allBooks } = useLibrary();
+  const activeBook = { id: state?.activeBook ?? "core" };
 
   return (
     <div className="space-y-7 pb-8">
@@ -168,14 +169,14 @@ function PlanPage() {
       <section className="glass-panel p-6 sm:p-8">
         <SectionHeading eyebrow="BOOKS" title="词书进度" action={<Button asChild variant="ghost" size="sm"><Link to="/books">管理词库</Link></Button>} />
         <div className="mt-5 space-y-4">
-          {WORD_BOOKS.map((b) => {
+          {allBooks.map((b) => {
             const learned = state?.learnedByBook[b.id]?.length ?? 0;
-            const pct = Math.round((learned / b.words.length) * 100);
+            const pct = Math.round((learned / Math.max(1, b.wordCount)) * 100);
             return (
               <div key={b.id}>
                 <div className="flex items-center justify-between text-sm">
                   <span className={cn(b.id === activeBook.id && "font-semibold text-primary")}>{b.name}</span>
-                  <span className="font-mono text-xs text-muted-foreground">{learned} / {b.words.length}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{learned} / {b.wordCount}</span>
                 </div>
                 <Progress value={pct} className="mt-2 h-1.5 bg-secondary/70" />
               </div>

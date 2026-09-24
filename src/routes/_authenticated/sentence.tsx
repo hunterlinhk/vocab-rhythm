@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
-import { WORD_BOOKS, getBook, type WordEntry } from "@/data/words";
+import { hasSentence, type WordEntry } from "@/data/words";
+import { useBook, useLibrary } from "@/hooks/use-library";
 import { recordAttempt } from "@/lib/learning.functions";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
@@ -84,7 +85,10 @@ function SentencePage() {
     });
   }, []);
 
-  const queue = getBook(bookId).words;
+  const { all: allBooks } = useLibrary();
+  const { book: currentBook } = useBook(bookId);
+  // 只使用有例句的词条，缺失例句的词自动跳过
+  const queue = useMemo(() => (currentBook?.words ?? []).filter(hasSentence), [currentBook]);
   const entry = queue.length ? queue[Math.min(index, queue.length - 1)]! : undefined;
   const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
   const panelResult = reviewing ? reviewing.result : done;
@@ -246,27 +250,37 @@ function SentencePage() {
 
   const progress = queue.length ? (index / queue.length) * 100 : 0;
 
-  if (!entry) return null;
+  const bookStrip = allBooks.map((b) => (
+    <button
+      key={b.id}
+      type="button"
+      onClick={() => switchBook(b.id)}
+      className={cn(
+        "rounded-full border px-3.5 py-1.5 text-sm transition-colors",
+        b.id === bookId
+          ? "border-primary/40 bg-card text-foreground shadow-sm"
+          : "border-transparent text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {b.name}
+    </button>
+  ));
+
+  if (!entry)
+    return (
+      <div className="flex flex-col items-center overflow-x-clip pb-4">
+        <div className="focus-top flex w-full flex-wrap items-center gap-1.5">{bookStrip}</div>
+        <div className="glass-stage mt-6 flex min-h-[30rem] w-full items-center justify-center">
+          <p className="font-display text-2xl text-muted-foreground">{currentBook ? "暂无例句" : "载入中…"}</p>
+        </div>
+      </div>
+    );
 
   return (
     <div className="flex flex-col items-center overflow-x-clip pb-4">
       <div className="focus-top flex w-full flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
-          {WORD_BOOKS.map((b) => (
-            <button
-              key={b.id}
-              type="button"
-              onClick={() => switchBook(b.id)}
-              className={cn(
-                "rounded-full border px-3.5 py-1.5 text-sm transition-colors",
-                b.id === bookId
-                  ? "border-primary/40 bg-card text-foreground shadow-sm"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {b.name}
-            </button>
-          ))}
+          {bookStrip}
         </div>
         <div className="font-mono text-sm text-muted-foreground">
           {index + 1} / {queue.length} · 本次 {sessionDone}
