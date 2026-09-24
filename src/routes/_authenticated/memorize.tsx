@@ -94,7 +94,7 @@ function MemorizePage() {
     return list.slice(0, BATCH);
   }, [state, book]);
   const entry = batch[Math.min(index, batch.length - 1)];
-  const options = useMemo(() => (entry ? pickOptions(entry, meaningful) : []), [entry]);
+  const options = useMemo(() => (entry ? pickOptions(entry, meaningful) : []), [entry, meaningful]);
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["stats"] });
