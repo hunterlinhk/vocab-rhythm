@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { WORD_BOOKS, getBook, isBundledBook, type WordBook } from "@/data/words";
-import { getBookEntries, listLibrary } from "@/lib/library.functions";
+import { getBookEntries, getBundledBookEntries, listLibrary } from "@/lib/library.functions";
 
 export type BookSummary = {
   id: string;
@@ -44,6 +44,7 @@ export function useLibrary() {
 /** 取一本词书的完整词条；演示词书直接读本地，其余从数据库加载 */
 export function useBook(bookId: string | null | undefined) {
   const fetchEntries = useServerFn(getBookEntries);
+  const fetchBundledEntries = useServerFn(getBundledBookEntries);
   const { all } = useLibrary();
   const bundled = !!bookId && isBundledBook(bookId);
   const q = useQuery({
@@ -52,9 +53,15 @@ export function useBook(bookId: string | null | undefined) {
     enabled: !!bookId && !bundled,
     staleTime: 5 * 60_000,
   });
+  const bundledQuery = useQuery({
+    queryKey: ["bundled-book-entries", bookId],
+    queryFn: () => fetchBundledEntries({ data: { bookId: bookId! } }),
+    enabled: !!bookId && bundled,
+    staleTime: 5 * 60_000,
+  });
   const book: WordBook | undefined = useMemo(() => {
     if (!bookId) return undefined;
-    if (bundled) return getBook(bookId);
+    if (bundled) return { ...getBook(bookId), words: bundledQuery.data ?? getBook(bookId).words };
     const meta = all.find((b) => b.id === bookId);
     if (!q.data) return undefined;
     return {
@@ -64,6 +71,6 @@ export function useBook(bookId: string | null | undefined) {
       source: meta?.source ?? "custom",
       words: q.data,
     };
-  }, [bookId, bundled, q.data, all]);
+  }, [bookId, bundled, bundledQuery.data, q.data, all]);
   return { book, loading: !!bookId && !bundled && q.isLoading, missing: !!bookId && !bundled && q.isFetched && !q.data?.length };
 }

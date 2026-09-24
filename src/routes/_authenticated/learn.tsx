@@ -268,7 +268,7 @@ function LearnPage() {
   const { book: currentBook } = useBook(queueKind ? null : bookId);
   const resolve = useServerFn(resolveEntries);
   const dbItems = useMemo(
-    () => reviewItems.filter((i) => !isBundledBook(i.bookId)).map((i) => ({ bookId: i.bookId, word: i.word })),
+    () => reviewItems.map((i) => ({ bookId: i.bookId, word: i.word })),
     [reviewItems],
   );
   const { data: resolved, isFetched: resolvedFetched } = useQuery({
@@ -281,13 +281,15 @@ function LearnPage() {
     if (queueKind)
       return reviewItems.map(
         (i) =>
-          findInBundledBook(i.bookId, i.word) ??
           resolved?.find((e) => e.bookId === i.bookId && e.word === i.word) ??
+          findInBundledBook(i.bookId, i.word) ??
           bareEntry(i.word, i.bookId, i.translation),
       );
     return currentBook?.words ?? [];
   }, [queueKind, reviewItems, resolved, currentBook]);
-  const queueLoading = queueKind ? dbItems.length > 0 && !resolvedFetched : !currentBook;
+  const queueLoading = queueKind
+    ? dbItems.some((item) => !isBundledBook(item.bookId)) && !resolvedFetched
+    : !currentBook;
 
   // hydrate the persisted book + cursor once the state arrives
   useEffect(() => {

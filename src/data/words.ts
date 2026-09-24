@@ -13,6 +13,7 @@ export type WordEntry = {
   partOfSpeech?: string | undefined;
   phonetic?: string | undefined;
   cn?: string | undefined;
+  definitionEn?: string | undefined;
   sentence?: string | undefined;
   sentenceCn?: string | undefined;
   subject?: string | undefined;
