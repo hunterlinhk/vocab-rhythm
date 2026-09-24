@@ -1,5 +1,11 @@
+/**
+ * 统一词条结构。只有 word 必填；缺失的字段用空字符串表示，
+ * 各学习模式据此优雅跳过（无释义不进选义环节，无例句不进句子练习）。
+ */
 export type WordEntry = {
   word: string;
+  /** 词条所属词书（复习队列会混合多本词书，用于按词书记录） */
+  bookId?: string;
   phonetic: string;
   cn: string;
   sentence: string;
@@ -12,6 +18,10 @@ export type WordBook = {
   name: string;
   desc: string;
   words: WordEntry[];
+  /** official = 系统维护，custom = 用户自建 */
+  source: "official" | "custom";
+  /** 内置演示词库：仅用于开发测试，并非正式授权词库 */
+  demo?: boolean;
 };
 
 const core: WordEntry[] = [
@@ -123,13 +133,35 @@ const business: WordEntry[] = [
   { word: "decision", phonetic: "/dɪˈsɪʒn/", cn: "n. 决定", sentence: "The decision came fast.", sentenceCn: "决定来得很快。", svo: { s: "The decision", v: "came" } },
 ];
 
+const tag = (id: string, list: WordEntry[]) => list.map((w) => ({ ...w, bookId: id }));
+
+/** 内置演示词库（开发测试用，非正式授权内容） */
 export const WORD_BOOKS: WordBook[] = [
-  { id: "core", name: "核心词汇", desc: "常见学术与通用高频词", words: core },
-  { id: "daily", name: "日常生活", desc: "生活场景里最常用的词", words: daily },
-  { id: "business", name: "职场商务", desc: "工作与商务沟通词汇", words: business },
+  { id: "core", name: "核心词汇", desc: "常见学术与通用高频词", words: tag("core", core), source: "official", demo: true },
+  { id: "daily", name: "日常生活", desc: "生活场景里最常用的词", words: tag("daily", daily), source: "official", demo: true },
+  { id: "business", name: "职场商务", desc: "工作与商务沟通词汇", words: tag("business", business), source: "official", demo: true },
 ];
 
+export const isDemoBook = (id: string) => WORD_BOOKS.some((b) => b.id === id);
+
 export const getBook = (id: string): WordBook => WORD_BOOKS.find((b) => b.id === id) ?? WORD_BOOKS[0]!;
+
+/** 在指定演示词书里查词（不跨书） */
+export const findInDemoBook = (bookId: string, word: string): WordEntry | undefined =>
+  WORD_BOOKS.find((b) => b.id === bookId)?.words.find((w) => w.word.toLowerCase() === word.toLowerCase());
+
+/** 仅有英文单词时构造最小词条 */
+export const bareEntry = (word: string, bookId?: string, cn?: string | null): WordEntry => ({
+  word,
+  bookId,
+  phonetic: "",
+  cn: cn ?? "",
+  sentence: "",
+  sentenceCn: "",
+});
+
+export const hasMeaning = (e: WordEntry) => e.cn.trim().length > 0;
+export const hasSentence = (e: WordEntry) => e.sentence.trim().length > 0;
 
 export const TOTAL_WORDS = WORD_BOOKS.reduce((n, b) => n + b.words.length, 0);
 
