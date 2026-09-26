@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getLearningState } from "@/lib/learning.functions";
+import { entryKey } from "@/lib/entry-identity";
 
 const tabs = ["今日复习", "错词", "易错词", "误触记录"] as const;
 type Tab = (typeof tabs)[number];
@@ -43,12 +44,14 @@ function ReviewPage() {
 
   const lists = useMemo(
     () => ({
-      今日复习: data?.todayWords.map((w) => ({ word: w, translation: null, note: "今天学过" })) ?? [],
-      错词: data?.wrongWords.map((w) => ({ word: w.word, translation: w.translation, note: "曾答错" })) ?? [],
+      今日复习: data?.todayItems.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: "今天学过" })) ?? [],
+      错词: data?.wrongWords.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: "曾答错" })) ?? [],
       易错词:
-        data?.troubleWords.map((w) => ({ word: w.word, translation: w.translation, note: `${w.typos} 次错误` })) ?? [],
-      误触记录:
-        data?.mistouchWords.map((w) => ({ word: w.word, translation: w.translation, note: "已标记误触" })) ?? [],
+        data?.troubleWords.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: `${w.typos} 次错误` })) ?? [],
+      误触记录: [...new Map(data?.mistouchWords.map((w) => [
+        entryKey(w),
+        { word: w.word, bookId: w.bookId, translation: w.translation, note: "已标记误触" },
+      ]) ?? []).values()],
     }),
     [data],
   );
@@ -109,8 +112,8 @@ function ReviewPage() {
           </Button>
         </div>
         <div className="mt-6 divide-y divide-border/60">
-          {current.map((item, i) => (
-            <div key={`${item.word}-${i}`} className="flex items-center justify-between gap-4 py-4">
+          {current.map((item) => (
+            <div key={entryKey(item)} className="flex items-center justify-between gap-4 py-4">
               <div>
                 <p className="font-mono text-sm">{item.word}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{item.translation || "暂无释义"}</p>

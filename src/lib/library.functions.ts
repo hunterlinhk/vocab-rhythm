@@ -1,10 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
-import { EntryInput, rowToEntry, type BookMeta, type EntryRow } from "./library.shared";
+import { ENTRY_COLS, EntryInput, rowToEntry, type BookMeta, type EntryRow } from "./library.shared";
 import type { WordEntry } from "@/data/words";
-
-const ENTRY_COLS = "book_id, word, translation, phonetic, sentence, sentence_translation, subject, verb, object";
+import { findInBundledBook, getBook, isBundledBook } from "@/data/words";
 
 /** 官方词库（数据库中的正式词库）+ 当前用户的自定义词库 */
 export const listLibrary = createServerFn({ method: "GET" })
@@ -38,7 +37,18 @@ export const getBookEntries = createServerFn({ method: "GET" })
       out.push(...((rows ?? []) as EntryRow[]).map(rowToEntry));
       if (!rows || rows.length < 1000) break;
     }
-    return out;
+    const { hydrateEntries } = await import("./lexicon.server");
+    return hydrateEntries(context.supabase, out);
+  });
+
+/** Built-in books share the same Lexicon lookup as database books. */
+export const getBundledBookEntries = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ bookId: z.string().min(1) }).parse(input))
+  .handler(async ({ data, context }): Promise<WordEntry[]> => {
+    if (!isBundledBook(data.bookId)) throw new Error("Unknown bundled book");
+    const { hydrateEntries } = await import("./lexicon.server");
+    return hydrateEntries(context.supabase, getBook(data.bookId).words);
   });
 
 /** 按 (book_id, word) 取回数据库词条，用于跨词书的复习队列 */
@@ -52,14 +62,20 @@ export const resolveEntries = createServerFn({ method: "POST" })
     for (const it of data.items) (byBook.get(it.bookId) ?? byBook.set(it.bookId, []).get(it.bookId)!).push(it.word);
     const out: WordEntry[] = [];
     for (const [bookId, words] of byBook) {
-      const { data: rows } = await context.supabase
+      if (isBundledBook(bookId)) {
+        out.push(...words.map((word) => findInBundledBook(bookId, word)).filter((entry): entry is WordEntry => !!entry));
+        continue;
+      }
+      const { data: rows, error } = await context.supabase
         .from("word_entries")
         .select(ENTRY_COLS)
         .eq("book_id", bookId)
         .in("word", words);
+      if (error) throw new Error(error.message);
       out.push(...((rows ?? []) as EntryRow[]).map(rowToEntry));
     }
-    return out;
+    const { hydrateEntries } = await import("./lexicon.server");
+    return hydrateEntries(context.supabase, out);
   });
 
 export const createCustomBook = createServerFn({ method: "POST" })
