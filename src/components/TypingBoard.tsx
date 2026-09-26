@@ -210,18 +210,17 @@ export function TypingBoard({
   const big = size === "word";
   const caretIndex = skipPunct(target, typed.length);
 
-  // tapping anywhere while typing (touch devices) summons the soft keyboard
+  // a deliberate tap (not a drag, not a page-open touch) summons the soft keyboard
   useEffect(() => {
     if (paused || isMobile) return;
-    const onPointerDown = (e: PointerEvent) => {
+    const onClick = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t?.closest("button, a, input, textarea")) return;
+      if (t?.closest("button, a, input, textarea, [role=dialog]")) return;
+      if (document.activeElement === inputRef.current) return;
       inputRef.current?.focus({ preventScroll: true });
-      // keep the synthetic click from stealing the focus back to <body>
-      e.preventDefault();
     };
-    window.addEventListener("pointerdown", onPointerDown);
-    return () => window.removeEventListener("pointerdown", onPointerDown);
+    window.addEventListener("click", onClick);
+    return () => window.removeEventListener("click", onClick);
   }, [paused, isMobile]);
 
   return (
@@ -237,7 +236,7 @@ export function TypingBoard({
         tabIndex={-1}
         onInput={onHiddenInput}
         onCompositionEnd={onComposition}
-        className="pointer-events-none absolute top-0 left-1/2 h-px w-px opacity-0"
+        className="pointer-events-none absolute top-0 left-1/2 h-px w-px text-base opacity-0"
       />
       <div
         className={cn(
