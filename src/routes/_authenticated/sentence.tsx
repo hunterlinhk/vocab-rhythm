@@ -360,12 +360,14 @@ function SentencePage() {
             resultItem && (
               <div
                 data-selectable
-                className={cn("flex w-full flex-col items-center gap-7 select-text", !reviewing && "sweep-in")}
+                className={cn("flex w-full flex-col items-center gap-5 select-text sm:gap-7", !reviewing && "sweep-in")}
               >
-                <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
-                  <div className="w-[45%] min-w-0">
+                <div className="mx-auto flex w-full max-w-3xl flex-col items-stretch gap-5 px-2 text-left sm:w-[86%] sm:flex-row sm:items-start sm:justify-center sm:gap-14 sm:px-0">
+                  <div className="w-full min-w-0 sm:w-[45%]">
                     <div className="flex items-start gap-1.5">
-                      <p className="font-display text-2xl leading-snug">{resultItem.entry.sentence}</p>
+                      <p className="whitespace-nowrap font-display text-xl leading-snug sm:whitespace-normal sm:text-2xl">
+                        {resultItem.entry.sentence}
+                      </p>
                       <SpeakerButton text={resultItem.entry.sentence} />
                     </div>
                     {resultItem.entry.svo && (
@@ -376,19 +378,21 @@ function SentencePage() {
                       </div>
                     )}
                   </div>
-                  <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
-                    <p className="text-lg text-foreground">{resultItem.entry.sentenceCn}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      <span className="font-mono text-foreground">{resultItem.entry.word}</span>{" "}
-                      <span className="font-mono">{resultItem.entry.phonetic}</span> · {resultItem.entry.cn}
-                    </p>
+                  <div className="w-full min-w-0 border-t border-border/40 pt-4 text-left sm:w-[45%] sm:self-center sm:border-t-0 sm:border-l sm:border-border/50 sm:pt-0 sm:pl-10">
+                    <div className="rounded-2xl bg-secondary/45 px-4 py-4 sm:rounded-none sm:bg-transparent sm:p-0">
+                      <p className="whitespace-nowrap text-base text-foreground sm:text-lg">{resultItem.entry.sentenceCn}</p>
+                      <p className="mt-1 whitespace-nowrap text-sm text-muted-foreground">
+                        <span className="font-mono text-foreground">{resultItem.entry.word}</span>{" "}
+                        <span className="font-mono">{resultItem.entry.phonetic}</span> · {resultItem.entry.cn}
+                      </p>
+                    </div>
                   </div>
                 </div>
-                <div className="flex flex-wrap justify-center gap-2 pt-1">
+                <div className="grid w-full grid-cols-2 gap-2 pt-1 sm:flex sm:w-auto sm:flex-wrap sm:justify-center">
                   <button
                     type="button"
                     onClick={() => speak(resultItem.entry.sentence)}
-                    className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
+                    className="whitespace-nowrap rounded-full border border-border bg-card px-4 py-2 text-sm hover:border-primary/40 sm:py-1.5"
                   >
                     再听一次
                   </button>
@@ -401,7 +405,7 @@ function SentencePage() {
                           : setReviewIndex(null)
                         : next()
                     }
-                    className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
+                    className="whitespace-nowrap rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground hover:opacity-90 sm:py-1.5"
                   >
                     下一个 →
                   </button>

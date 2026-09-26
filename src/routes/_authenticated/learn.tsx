@@ -113,31 +113,40 @@ function ResultPanel({
   return (
     <div
       data-selectable
-      className={cn("flex w-full flex-col items-center gap-7 select-text", sweeping && "sweep-in")}
+      className={cn("flex w-full flex-col items-center gap-5 select-text sm:gap-7", sweeping && "sweep-in")}
     >
-      <div className="mx-auto flex w-[86%] max-w-3xl items-start justify-center gap-8 text-left sm:gap-14">
-        <div className="w-[45%] min-w-0">
-          <p className="font-display text-5xl [overflow-wrap:anywhere]">{item.entry.word}</p>
+      <div className="mx-auto flex w-full max-w-3xl flex-col items-stretch gap-5 px-2 text-left sm:w-[86%] sm:flex-row sm:items-start sm:justify-center sm:gap-14 sm:px-0">
+        <div className="w-full min-w-0 sm:w-[45%]">
+          <p className="whitespace-nowrap font-display text-5xl">{item.entry.word}</p>
           {item.entry.phonetic && (
-            <p className="mt-2 font-mono text-sm text-muted-foreground">{item.entry.phonetic}</p>
+            <div className="mt-2 flex items-center gap-1.5">
+              <p className="whitespace-nowrap font-mono text-base text-muted-foreground sm:text-sm">
+                {item.entry.phonetic}
+              </p>
+              <SpeakerButton word={item.entry.word} />
+            </div>
           )}
           <div className="mt-3 flex items-center gap-1.5">
             {item.entry.cn && <p className="text-lg text-foreground">{item.entry.cn}</p>}
-            <SpeakerButton word={item.entry.word} />
+            {!item.entry.phonetic && <SpeakerButton word={item.entry.word} />}
           </div>
         </div>
         {item.entry.sentence && (
-          <div className="w-[45%] min-w-0 self-center border-l border-border/50 pl-6 text-left sm:pl-10">
-            <p className="text-base text-foreground/90">{item.entry.sentence}</p>
-            {item.entry.sentenceCn && <p className="mt-2 text-sm text-muted-foreground">{item.entry.sentenceCn}</p>}
+          <div className="w-full min-w-0 border-t border-border/40 pt-4 text-left sm:w-[45%] sm:self-center sm:border-t-0 sm:border-l sm:border-border/50 sm:pt-0 sm:pl-10">
+            <div className="rounded-2xl bg-secondary/45 px-4 py-4 sm:rounded-none sm:bg-transparent sm:p-0">
+              <p className="whitespace-nowrap text-base text-foreground/90">{item.entry.sentence}</p>
+              {item.entry.sentenceCn && (
+                <p className="mt-2 whitespace-nowrap text-sm text-muted-foreground">{item.entry.sentenceCn}</p>
+              )}
+            </div>
           </div>
         )}
       </div>
-      <div className="flex flex-wrap justify-center gap-2 pt-1">
+      <div className="grid w-full grid-cols-6 gap-2 pt-1 sm:flex sm:w-auto sm:flex-wrap sm:justify-center">
         <button
           type="button"
           onClick={onListen}
-          className="rounded-full border border-border bg-card px-4 py-1.5 text-sm hover:border-primary/40"
+          className="col-span-2 whitespace-nowrap rounded-full border border-border bg-card px-2 py-2 text-sm hover:border-primary/40 sm:px-4 sm:py-1.5"
         >
           再听一次
         </button>
@@ -145,7 +154,7 @@ function ResultPanel({
           type="button"
           onClick={onFav}
           className={cn(
-            "rounded-full border px-4 py-1.5 text-sm transition-colors",
+            "col-span-2 whitespace-nowrap rounded-full border px-2 py-2 text-sm transition-colors sm:px-4 sm:py-1.5",
             isFav ? "border-primary/40 bg-primary/10 text-primary" : "border-border bg-card hover:border-primary/40",
           )}
         >
@@ -156,7 +165,7 @@ function ResultPanel({
           onClick={onSave}
           disabled={isSaved}
           className={cn(
-            "rounded-full border px-4 py-1.5 text-sm transition-colors",
+            "col-span-2 whitespace-nowrap rounded-full border px-2 py-2 text-sm transition-colors sm:px-4 sm:py-1.5",
             isSaved ? "border-border bg-card text-muted-foreground" : "border-border bg-card hover:border-primary/40",
           )}
         >
@@ -165,7 +174,10 @@ function ResultPanel({
         <button
           type="button"
           onClick={onNext}
-          className="rounded-full bg-primary px-4 py-1.5 text-sm text-primary-foreground hover:opacity-90"
+          className={cn(
+            "whitespace-nowrap rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground hover:opacity-90 sm:px-4 sm:py-1.5",
+            showMistouch ? "col-span-3" : "col-span-6 mx-auto w-[58%] sm:w-auto",
+          )}
         >
           下一个 →
         </button>
@@ -175,7 +187,7 @@ function ResultPanel({
             onClick={onMistouch}
             disabled={mistouched}
             className={cn(
-              "rounded-full border px-4 py-1.5 text-sm transition-colors",
+              "col-span-3 whitespace-nowrap rounded-full border px-3 py-2 text-sm transition-colors sm:px-4 sm:py-1.5",
               mistouched
                 ? "border-border bg-card text-muted-foreground"
                 : "border-border bg-card hover:border-primary/40",
