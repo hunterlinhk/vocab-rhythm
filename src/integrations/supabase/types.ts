@@ -107,6 +107,147 @@ export type Database = {
         }
         Relationships: []
       }
+      lexemes: {
+        Row: {
+          created_at: string
+          id: string
+          language: string
+          lemma: string
+          normalized_word: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          language?: string
+          lemma: string
+          normalized_word: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          language?: string
+          lemma?: string
+          normalized_word?: string
+        }
+        Relationships: []
+      }
+      lexicon_entries: {
+        Row: {
+          created_at: string
+          definition_en: string | null
+          id: string
+          lexeme_id: string
+          object: string | null
+          part_of_speech: string | null
+          phonetic: string | null
+          priority: number
+          sense_key: string
+          sentence: string | null
+          sentence_translation: string | null
+          source_entry_ref: string | null
+          source_id: string
+          subject: string | null
+          translation: string | null
+          verb: string | null
+        }
+        Insert: {
+          created_at?: string
+          definition_en?: string | null
+          id?: string
+          lexeme_id: string
+          object?: string | null
+          part_of_speech?: string | null
+          phonetic?: string | null
+          priority?: number
+          sense_key?: string
+          sentence?: string | null
+          sentence_translation?: string | null
+          source_entry_ref?: string | null
+          source_id: string
+          subject?: string | null
+          translation?: string | null
+          verb?: string | null
+        }
+        Update: {
+          created_at?: string
+          definition_en?: string | null
+          id?: string
+          lexeme_id?: string
+          object?: string | null
+          part_of_speech?: string | null
+          phonetic?: string | null
+          priority?: number
+          sense_key?: string
+          sentence?: string | null
+          sentence_translation?: string | null
+          source_entry_ref?: string | null
+          source_id?: string
+          subject?: string | null
+          translation?: string | null
+          verb?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lexicon_entries_lexeme_id_fkey"
+            columns: ["lexeme_id"]
+            isOneToOne: false
+            referencedRelation: "lexemes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lexicon_entries_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "lexicon_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lexicon_sources: {
+        Row: {
+          access_tier: string
+          attribution: string
+          id: string
+          imported_at: string
+          license_id: string
+          license_notice: string | null
+          license_url: string
+          source_sha256: string | null
+          source_url: string
+          title: string
+          transformation: string | null
+          version: string | null
+        }
+        Insert: {
+          access_tier?: string
+          attribution: string
+          id: string
+          imported_at?: string
+          license_id: string
+          license_notice?: string | null
+          license_url: string
+          source_sha256?: string | null
+          source_url: string
+          title: string
+          transformation?: string | null
+          version?: string | null
+        }
+        Update: {
+          access_tier?: string
+          attribution?: string
+          id?: string
+          imported_at?: string
+          license_id?: string
+          license_notice?: string | null
+          license_url?: string
+          source_sha256?: string | null
+          source_url?: string
+          title?: string
+          transformation?: string | null
+          version?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -190,11 +331,16 @@ export type Database = {
           book_id: string
           created_at: string
           id: string
+          lexeme_id: string | null
           object: string | null
+          part_of_speech: string | null
           phonetic: string | null
           position: number
           sentence: string | null
           sentence_translation: string | null
+          source_frequency_per_million: number | null
+          source_rank: number | null
+          source_sfi: number | null
           subject: string | null
           translation: string | null
           verb: string | null
@@ -204,11 +350,16 @@ export type Database = {
           book_id: string
           created_at?: string
           id?: string
+          lexeme_id?: string | null
           object?: string | null
+          part_of_speech?: string | null
           phonetic?: string | null
           position?: number
           sentence?: string | null
           sentence_translation?: string | null
+          source_frequency_per_million?: number | null
+          source_rank?: number | null
+          source_sfi?: number | null
           subject?: string | null
           translation?: string | null
           verb?: string | null
@@ -218,11 +369,16 @@ export type Database = {
           book_id?: string
           created_at?: string
           id?: string
+          lexeme_id?: string | null
           object?: string | null
+          part_of_speech?: string | null
           phonetic?: string | null
           position?: number
           sentence?: string | null
           sentence_translation?: string | null
+          source_frequency_per_million?: number | null
+          source_rank?: number | null
+          source_sfi?: number | null
           subject?: string | null
           translation?: string | null
           verb?: string | null
@@ -234,6 +390,13 @@ export type Database = {
             columns: ["book_id"]
             isOneToOne: false
             referencedRelation: "word_books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "word_entries_lexeme_id_fkey"
+            columns: ["lexeme_id"]
+            isOneToOne: false
+            referencedRelation: "lexemes"
             referencedColumns: ["id"]
           },
         ]
