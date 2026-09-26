@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs",
     "format": "prettier --write ."
   },
   "overrides": {
