@@ -236,7 +236,7 @@ export function TypingBoard({
         tabIndex={-1}
         onInput={onHiddenInput}
         onCompositionEnd={onComposition}
-        className="pointer-events-none absolute top-0 left-1/2 h-px w-px opacity-0"
+        className="pointer-events-none absolute top-0 left-1/2 h-px w-px text-base opacity-0"
       />
       <div
         className={cn(
