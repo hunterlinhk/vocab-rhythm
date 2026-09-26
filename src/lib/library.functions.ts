@@ -34,7 +34,7 @@ export const getBookEntries = createServerFn({ method: "GET" })
         .order("position", { ascending: true })
         .range(from, from + 999);
       if (error) throw new Error(error.message);
-      out.push(...((rows ?? []) as EntryRow[]).map(rowToEntry));
+      out.push(...((rows ?? []) as unknown as EntryRow[]).map(rowToEntry));
       if (!rows || rows.length < 1000) break;
     }
     const { hydrateEntries } = await import("./lexicon.server");
@@ -72,7 +72,7 @@ export const resolveEntries = createServerFn({ method: "POST" })
         .eq("book_id", bookId)
         .in("word", words);
       if (error) throw new Error(error.message);
-      out.push(...((rows ?? []) as EntryRow[]).map(rowToEntry));
+      out.push(...((rows ?? []) as unknown as EntryRow[]).map(rowToEntry));
     }
     const { hydrateEntries } = await import("./lexicon.server");
     return hydrateEntries(context.supabase, out);
