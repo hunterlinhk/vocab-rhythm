@@ -35,6 +35,9 @@ export async function hydrateEntries(client: Client, entries: WordEntry[]): Prom
           "lexeme_id, source_id, source_entry_ref, sense_key, priority, translation, part_of_speech, phonetic, definition_en, sentence, sentence_translation, subject, verb, object",
         )
         .in("lexeme_id", ids.slice(i, i + BATCH))
+        // Full OEWN senses stay available in Lexicon, while the WordEntry adapter
+        // only needs manually reviewed OEWN primaries and other shared sources.
+        .or("source_id.neq.oewn-2025,priority.gte.100")
         .order("id", { ascending: true })
         .range(from, from + 999);
       if (error) throw new Error(error.message);

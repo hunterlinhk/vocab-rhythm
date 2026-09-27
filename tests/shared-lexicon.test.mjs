@@ -92,6 +92,43 @@ test("each selected source remains traceable and examples are not mixed", () => 
   assert.equal(result.origins.sentence?.sourceId, "open-dictionary-v1");
 });
 
+test("unreviewed OEWN senses remain stored without choosing a WordEntry learning sense", () => {
+  const oewn = {
+    ...shared,
+    source_id: "oewn-2025",
+    source_entry_ref: "bank%1:14:00::",
+    sense_key: "bank%1:14:00::",
+    priority: 0,
+    translation: null,
+    definition_en: "a financial institution",
+    part_of_speech: "noun",
+    phonetic: "/bæŋk/",
+    sentence: "The bank is open.",
+  };
+  const other = {
+    ...oewn,
+    source_entry_ref: "bank%1:17:00::",
+    sense_key: "bank%1:17:00::",
+    definition_en: "land beside a river",
+  };
+  const entry = { word: "bank", bookId: "ngsl-1.2", rank: 100 };
+  const unresolved = assembleWordEntry(entry, [oewn, other]);
+  assert.equal(unresolved.entry.definitionEn, undefined);
+  assert.equal(unresolved.entry.partOfSpeech, undefined);
+  assert.equal(unresolved.entry.phonetic, undefined);
+  assert.equal(unresolved.entry.sentence, undefined);
+  assert.deepEqual(unresolved.origins, {});
+
+  const reviewed = assembleWordEntry(entry, [{ ...oewn, priority: 100 }, other]);
+  assert.equal(reviewed.entry.definitionEn, "a financial institution");
+  assert.deepEqual(reviewed.origins.definitionEn, {
+    sourceId: "oewn-2025",
+    sourceEntryRef: "bank%1:14:00::",
+  });
+  const local = assembleWordEntry({ ...entry, definitionEn: "My own meaning" }, [oewn, other]);
+  assert.equal(local.entry.definitionEn, "My own meaning");
+});
+
 test("batched lookup links bundled and custom words through the same lexeme", async () => {
   const calls = [];
   const client = {
@@ -106,6 +143,10 @@ test("batched lookup links bundled and custom words through the same lexeme", as
         in(column, values) {
           calls.push({ table, column, values });
           this.values = values;
+          return this;
+        },
+        or(filter) {
+          calls.push({ table, filter });
           return this;
         },
         order() {
@@ -137,7 +178,8 @@ test("batched lookup links bundled and custom words through the same lexeme", as
     }),
   ]);
   assert.equal(calls.filter((call) => call.table === "lexemes").length, 1);
-  assert.equal(calls.filter((call) => call.table === "lexicon_entries").length, 1);
+  assert.equal(calls.filter((call) => call.table === "lexicon_entries" && call.column).length, 1);
+  assert.ok(calls.some((call) => call.filter === "source_id.neq.oewn-2025,priority.gte.100"));
   assert.equal(entries[0].cn, "这；那");
   assert.equal(entries[1].cn, "私有解释");
   assert.equal(entries[1].partOfSpeech, "determiner");
