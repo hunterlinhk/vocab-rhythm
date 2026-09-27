@@ -121,8 +121,15 @@ function LoginPrompt() {
 function HomeContent() {
   const fetchStats = useServerFn(getStats);
   const fetchState = useServerFn(getLearningState);
-  const { data, isLoading } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats() });
-  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+  const [authed, setAuthed] = useState(false);
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data }) => setAuthed(!!data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => setAuthed(!!session));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+  const { data, isLoading: statsLoading } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats(), enabled: authed });
+  const isLoading = authed && statsLoading;
+  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState(), enabled: authed });
   const todayCount = data?.todayCount ?? 0;
   const dailyGoal = state?.dailyGoal ?? 20;
   const progress = Math.min(100, Math.round((todayCount / dailyGoal) * 100));
