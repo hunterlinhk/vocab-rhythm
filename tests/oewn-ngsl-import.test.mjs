@@ -6,6 +6,8 @@ import {
   assertPilotPreserved,
   parseNgsl,
   renderFullSql,
+  renderProductionImportSql,
+  renderProductionRollbackSql,
   renderReviewedSql,
   selectReviewed,
 } from "../scripts/prepare-oewn-2025-ngsl.mjs";
@@ -160,6 +162,34 @@ test("full import batches large sense sets into bounded insert statements", () =
   }));
   const sql = renderFullSql(rows, [], "WordNet license notice");
   assert.equal(sql.match(/INSERT INTO public\.lexicon_entries/g)?.length, 2);
+});
+
+test("production SQL is guarded by provenance and before/after count checks in one transaction", () => {
+  const { candidates } = analyzeNgsl(["bank", "learn", "it"], fixture());
+  const reviewed = selectReviewed(candidates, "bank\tbank%1:14:00::\nlearn\tlearn%2:31:00::");
+  const sql = renderProductionImportSql(candidates, reviewed, "WordNet license notice");
+  assert.match(sql, /^-- Production OEWN/);
+  assert.match(sql, /BEGIN;[\s\S]*CREATE TEMP TABLE oewn_import_baseline[\s\S]*COMMIT;/);
+  assert.match(sql, /Expected 2 reviewed pilot senses at priority 100/);
+  assert.match(sql, /source_sha256/);
+  assert.match(sql, /OEWN postflight count mismatch/);
+  assert.match(sql, /verified_oewn_provenance_rows/);
+  assert.match(sql, /GREATEST\(public\.lexicon_entries\.priority, EXCLUDED\.priority\)/);
+  assert.doesNotMatch(
+    sql,
+    /(?:INSERT|UPDATE|DELETE) (?:INTO |FROM )?public\.(word_entries|attempts|word_mastery)/,
+  );
+});
+
+test("production rollback is limited to the exact imported shape and preserves reviewed pilots", () => {
+  const sql = renderProductionRollbackSql(5, 1, 3, ["learn%2:31:00::"]);
+  assert.match(
+    sql,
+    /BEGIN;[\s\S]*DELETE FROM public\.lexicon_entries WHERE source_id='oewn-2025' AND priority=0;[\s\S]*COMMIT;/,
+  );
+  assert.match(sql, /IS DISTINCT FROM \(5, 1, 4, 3\)/);
+  assert.match(sql, /source_sha256/);
+  assert.doesNotMatch(sql, /DELETE FROM public\.lexemes/);
 });
 
 test("pilot senses must retain their original content and reviewed primary priority", () => {

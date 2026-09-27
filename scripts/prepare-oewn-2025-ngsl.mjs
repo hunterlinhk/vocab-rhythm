@@ -331,6 +331,155 @@ export function renderFullSql(candidates, reviewed, licenseNotice) {
   return renderImportSql(rows, licenseNotice, "all exact-headword senses");
 }
 
+const pilotAttribution =
+  "Open English Wordnet 2025 © The Open English WordNet Team, CC BY 4.0; derived from Princeton WordNet 3.1 © 2011 Princeton University under the WordNet License. This is a selected and transformed NGSL pilot subset; no endorsement is implied.";
+const pilotTransformation =
+  "Selected NGSL headwords and reviewed OEWN sense IDs from oewn-2025-pilot-senses.tsv; retained the first English definition and example, with US IPA preferred over GB; omitted unlicensed translations.";
+
+export function renderProductionImportSql(candidates, reviewed, licenseNotice) {
+  const importSql = renderFullSql(candidates, reviewed, licenseNotice);
+  const begin = importSql.indexOf("\nBEGIN;\n");
+  const commit = importSql.lastIndexOf("\nCOMMIT;");
+  if (begin < 0 || commit < begin) throw new Error("Could not isolate the import transaction");
+  const insertStatements = importSql.slice(begin + "\nBEGIN;\n".length, commit);
+  const expectedLexemes = new Set(candidates.map((row) => row.normalized_word)).size;
+  const expectedSenses = candidates.length;
+  const pilotSenseKeys = reviewed.filter((row) => row.priority === 100).map((row) => row.sense_key);
+  const expectedReviewed = pilotSenseKeys.length;
+  const expectedUnreviewed = expectedSenses - expectedReviewed;
+  const pilotSenseList = pilotSenseKeys.map(sqlValue).join(", ");
+  if (!expectedReviewed) throw new Error("Production import requires reviewed pilot senses");
+  return `-- Production OEWN 2025 NGSL data import. Run with psql -v ON_ERROR_STOP=1 -f.
+-- Requires the existing 0006-0008 schema. One transaction; errors roll back all changes.
+-- Do not use psql --single-transaction. No schema migrations or user learning tables are changed.
+BEGIN;
+SET LOCAL statement_timeout = '10min';
+SET LOCAL lock_timeout = '10s';
+DROP TABLE IF EXISTS pg_temp.oewn_import_baseline;
+CREATE TEMP TABLE oewn_import_baseline ON COMMIT PRESERVE ROWS AS
+SELECT
+  (SELECT count(*) FROM public.lexemes) AS lexemes_total,
+  (SELECT count(*) FROM public.lexicon_entries) AS senses_total,
+  (SELECT count(*) FROM public.lexicon_sources) AS sources_total,
+  (SELECT count(*) FROM public.lexicon_entries WHERE source_id = 'oewn-2025') AS oewn_senses,
+  (SELECT count(DISTINCT lexeme_id) FROM public.lexicon_entries WHERE source_id = 'oewn-2025') AS oewn_lexemes;
+
+DO $$
+DECLARE
+  _pilot_count bigint;
+  _existing_senses bigint;
+  _source_hash text;
+  _source_license text;
+  _source_version text;
+  _pilot_key_count bigint;
+BEGIN
+  IF to_regclass('public.lexemes') IS NULL OR to_regclass('public.lexicon_entries') IS NULL OR to_regclass('public.lexicon_sources') IS NULL THEN
+    RAISE EXCEPTION 'Shared Lexicon schema is missing; apply migrations 0006-0008 first';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='lexicon_sources' AND column_name='source_sha256')
+     OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='lexicon_sources' AND column_name='license_notice')
+     OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='lexicon_sources' AND column_name='transformation') THEN
+    RAISE EXCEPTION 'Lexicon provenance columns are missing; apply migration 0007 first';
+  END IF;
+  SELECT count(*) INTO _existing_senses FROM public.lexicon_entries WHERE source_id='oewn-2025';
+  IF _existing_senses > ${expectedSenses} THEN
+    RAISE EXCEPTION 'Found % OEWN senses, more than this bundle expects (${expectedSenses})', _existing_senses;
+  END IF;
+  SELECT count(*) INTO _pilot_count FROM public.lexicon_entries WHERE source_id='oewn-2025' AND priority=100;
+  IF _pilot_count <> ${expectedReviewed} THEN
+    RAISE EXCEPTION 'Expected ${expectedReviewed} reviewed pilot senses at priority 100, found %', _pilot_count;
+  END IF;
+  SELECT count(*) INTO _pilot_key_count FROM public.lexicon_entries
+    WHERE source_id='oewn-2025' AND priority=100 AND sense_key IN (${pilotSenseList});
+  IF _pilot_key_count <> ${expectedReviewed} THEN
+    RAISE EXCEPTION 'Existing reviewed pilot sense IDs do not match this import';
+  END IF;
+  SELECT source_sha256, license_id, version INTO _source_hash, _source_license, _source_version
+    FROM public.lexicon_sources WHERE id='oewn-2025';
+  IF FOUND AND ((_source_hash IS NOT NULL AND _source_hash <> '${ARCHIVE_SHA256}') OR (_source_license IS NOT NULL AND _source_license <> 'CC-BY-4.0') OR (_source_version IS NOT NULL AND _source_version <> '2025-12-31')) THEN
+    RAISE EXCEPTION 'Existing OEWN source provenance does not match this archive/license';
+  END IF;
+END $$;
+
+${insertStatements}
+
+DO $$
+DECLARE
+  _sense_count bigint;
+  _lexeme_count bigint;
+  _reviewed_count bigint;
+  _pilot_key_count bigint;
+  _unreviewed_count bigint;
+  _provenance_count bigint;
+BEGIN
+  SELECT count(*), count(DISTINCT lexeme_id), count(*) FILTER (WHERE priority=100), count(*) FILTER (WHERE priority=0)
+    INTO _sense_count, _lexeme_count, _reviewed_count, _unreviewed_count
+    FROM public.lexicon_entries WHERE source_id='oewn-2025';
+  IF (_sense_count, _lexeme_count, _reviewed_count, _unreviewed_count) IS DISTINCT FROM (${expectedSenses}, ${expectedLexemes}, ${expectedReviewed}, ${expectedUnreviewed}) THEN
+    RAISE EXCEPTION 'OEWN postflight count mismatch: senses %, lexemes %, reviewed %, unreviewed %', _sense_count, _lexeme_count, _reviewed_count, _unreviewed_count;
+  END IF;
+  SELECT count(*) INTO _pilot_key_count FROM public.lexicon_entries
+    WHERE source_id='oewn-2025' AND priority=100 AND sense_key IN (${pilotSenseList});
+  IF _pilot_key_count <> ${expectedReviewed} THEN RAISE EXCEPTION 'Reviewed pilot sense postflight check failed'; END IF;
+  SELECT count(*) INTO _provenance_count FROM public.lexicon_sources
+    WHERE id='oewn-2025' AND version='2025-12-31' AND license_id='CC-BY-4.0' AND source_sha256='${ARCHIVE_SHA256}'
+      AND source_url='${SOURCE.source_url}' AND license_url='${SOURCE.license_url}' AND length(license_notice)>0;
+  IF _provenance_count <> 1 THEN RAISE EXCEPTION 'OEWN source provenance postflight check failed'; END IF;
+END $$;
+
+COMMIT;
+
+SELECT b.lexemes_total AS lexemes_before, (SELECT count(*) FROM public.lexemes) AS lexemes_after,
+       (SELECT count(*) FROM public.lexicon_entries) AS all_senses_after,
+       b.oewn_lexemes AS oewn_lexemes_before,
+       (SELECT count(DISTINCT lexeme_id) FROM public.lexicon_entries WHERE source_id='oewn-2025') AS oewn_lexemes_after,
+       b.oewn_senses AS oewn_senses_before,
+       (SELECT count(*) FROM public.lexicon_entries WHERE source_id='oewn-2025') AS oewn_senses_after,
+       b.sources_total AS sources_before, (SELECT count(*) FROM public.lexicon_sources) AS sources_after,
+       (SELECT count(*) FROM public.lexicon_sources WHERE id='oewn-2025' AND source_sha256='${ARCHIVE_SHA256}' AND version='2025-12-31') AS verified_oewn_provenance_rows
+FROM oewn_import_baseline AS b;
+`;
+}
+
+export function renderProductionRollbackSql(
+  expectedSenses,
+  expectedReviewed,
+  expectedLexemes,
+  pilotSenseKeys,
+) {
+  const expectedUnreviewed = expectedSenses - expectedReviewed;
+  if (pilotSenseKeys.length !== expectedReviewed)
+    throw new Error("Rollback requires the complete reviewed pilot sense ID list");
+  const pilotSenseList = pilotSenseKeys.map(sqlValue).join(", ");
+  return `-- Roll back the full OEWN 2025 NGSL import before exposing its unreviewed senses.
+-- Requires the exact imported archive and counts. Keeps all 26 reviewed pilot senses and shared lexemes.
+BEGIN;
+DO $$
+DECLARE _senses bigint; _pilots bigint; _unreviewed bigint; _lexemes bigint;
+BEGIN
+  SELECT count(*), count(*) FILTER (WHERE priority=100), count(*) FILTER (WHERE priority=0), count(DISTINCT lexeme_id)
+    INTO _senses, _pilots, _unreviewed, _lexemes
+    FROM public.lexicon_entries WHERE source_id='oewn-2025';
+  IF (_senses, _pilots, _unreviewed, _lexemes) IS DISTINCT FROM (${expectedSenses}, ${expectedReviewed}, ${expectedUnreviewed}, ${expectedLexemes}) THEN
+    RAISE EXCEPTION 'Rollback stopped: OEWN rows no longer match the prepared import (senses %, pilots %, unreviewed %, lexemes %)', _senses, _pilots, _unreviewed, _lexemes;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.lexicon_sources WHERE id='oewn-2025' AND version='2025-12-31' AND source_sha256='${ARCHIVE_SHA256}') THEN
+    RAISE EXCEPTION 'Rollback stopped: OEWN source provenance changed';
+  END IF;
+  IF (SELECT count(*) FROM public.lexicon_entries WHERE source_id='oewn-2025' AND priority=100 AND sense_key IN (${pilotSenseList})) <> ${expectedReviewed} THEN
+    RAISE EXCEPTION 'Rollback stopped: reviewed pilot sense IDs changed';
+  END IF;
+END $$;
+
+DELETE FROM public.lexicon_entries WHERE source_id='oewn-2025' AND priority=0;
+UPDATE public.lexicon_sources SET
+  attribution=${sqlValue(pilotAttribution)},
+  transformation=${sqlValue(pilotTransformation)}
+WHERE id='oewn-2025' AND version='2025-12-31' AND source_sha256='${ARCHIVE_SHA256}';
+COMMIT;
+`;
+}
+
 export function assertPilotPreserved(candidates, reviewed, pilot) {
   const bySense = new Map(candidates.map((row) => [row.source_entry_ref, row]));
   const reviewedPriority = new Map(reviewed.map((row) => [row.source_entry_ref, row.priority]));
@@ -352,12 +501,14 @@ function main() {
   let outputDir;
   let check = false;
   let dryRun = false;
+  let productionBundle = false;
   let reviewedPath = join(root, "src/data/oewn-2025-pilot-senses.tsv");
   let reviewedSpecified = false;
   let invalidOption = false;
   for (let index = 0; index < options.length; index++) {
     if (options[index] === "--check" && !check) check = true;
     else if (options[index] === "--dry-run" && !dryRun) dryRun = true;
+    else if (options[index] === "--production-bundle" && !productionBundle) productionBundle = true;
     else if (
       options[index] === "--reviewed" &&
       !reviewedSpecified &&
@@ -373,11 +524,12 @@ function main() {
     !archivePath ||
     invalidOption ||
     (check && dryRun) ||
+    (dryRun && productionBundle) ||
     (!dryRun && !outputDir) ||
     (dryRun && outputDir)
   )
     throw new Error(
-      "Usage: node scripts/prepare-oewn-2025-ngsl.mjs <official-json.zip> [<output-directory> | --dry-run] [--reviewed <tsv>] [--check]",
+      "Usage: node scripts/prepare-oewn-2025-ngsl.mjs <official-json.zip> [<output-directory> | --dry-run] [--reviewed <tsv>] [--production-bundle] [--check]",
     );
   const actualSha256 = createHash("sha256").update(readFileSync(archivePath)).digest("hex");
   if (actualSha256 !== ARCHIVE_SHA256)
@@ -405,6 +557,36 @@ function main() {
   const licenseNotice = readFileSync(join(root, "src/data/OEWN-WNDB-LICENSE.txt"), "utf8").trim();
   const reviewedSql = renderReviewedSql(reviewed, licenseNotice);
   const fullSql = renderFullSql(audit.candidates, reviewed, licenseNotice);
+  const productionImportSql = renderProductionImportSql(audit.candidates, reviewed, licenseNotice);
+  const productionRollbackSql = renderProductionRollbackSql(
+    audit.summary.candidate_senses,
+    reviewed.filter((row) => row.priority === 100).length,
+    audit.summary.candidate_lexemes,
+    reviewed.filter((row) => row.priority === 100).map((row) => row.sense_key),
+  );
+  const productionManifest = {
+    source_id: SOURCE_ID,
+    version: SOURCE.version,
+    archive_sha256: ARCHIVE_SHA256,
+    expected: {
+      exact_ngsl_lexemes: audit.summary.candidate_lexemes,
+      senses: audit.summary.candidate_senses,
+      reviewed_pilot_senses: reviewed.filter((row) => row.priority === 100).length,
+      unreviewed_senses: audit.summary.candidate_senses - reviewed.length,
+    },
+    files: {
+      import: {
+        name: "production-import.sql",
+        sha256: createHash("sha256").update(productionImportSql).digest("hex"),
+        bytes: Buffer.byteLength(productionImportSql),
+      },
+      rollback: {
+        name: "production-rollback.sql",
+        sha256: createHash("sha256").update(productionRollbackSql).digest("hex"),
+        bytes: Buffer.byteLength(productionRollbackSql),
+      },
+    },
+  };
   importPlan.sql_sha256 = createHash("sha256").update(fullSql).digest("hex");
   importPlan.sql_bytes = Buffer.byteLength(fullSql);
   const summary = { source, ...audit.summary, import_plan: importPlan };
@@ -412,13 +594,19 @@ function main() {
     console.log(JSON.stringify(summary, null, 2));
     return;
   }
-  const outputs = [
+  const auditOutputs = [
     ["summary.json", `${JSON.stringify(summary, null, 2)}\n`],
     ["lemmas.json", `${JSON.stringify(audit.lemmas, null, 2)}\n`],
     ["candidate-senses.json", `${JSON.stringify(audit.candidates, null, 2)}\n`],
     ["reviewed-import.sql", reviewedSql],
     ["full-import.sql", fullSql],
+    ["production-import.sql", productionImportSql],
+    ["production-rollback.sql", productionRollbackSql],
+    ["production-manifest.json", `${JSON.stringify(productionManifest, null, 2)}\n`],
   ];
+  const outputs = productionBundle
+    ? auditOutputs.filter(([name]) => name.startsWith("production-"))
+    : auditOutputs;
   if (!check) mkdirSync(outputDir, { recursive: true });
   for (const [name, content] of outputs) {
     const path = join(outputDir, name);
