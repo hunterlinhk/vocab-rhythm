@@ -181,6 +181,14 @@ test("production SQL is guarded by provenance and before/after count checks in o
   );
 });
 
+test("SQL source notices normalize line endings for stable generated bundle hashes", () => {
+  const { candidates } = analyzeNgsl(["learn"], fixture());
+  const reviewed = selectReviewed(candidates, "learn\tlearn%2:31:00::");
+  const sql = renderProductionImportSql(candidates, reviewed, "Line one\r\nLine two\rLine three");
+  assert.doesNotMatch(sql, /\r/);
+  assert.match(sql, /Line one\nLine two\nLine three/);
+});
+
 test("production rollback is limited to the exact imported shape and preserves reviewed pilots", () => {
   const sql = renderProductionRollbackSql(5, 1, 3, ["learn%2:31:00::"]);
   assert.match(

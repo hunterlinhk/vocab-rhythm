@@ -243,6 +243,7 @@ const batches = (rows) =>
 
 function renderImportSql(rows, licenseNotice, label) {
   if (!rows.length) throw new Error("No OEWN senses to import");
+  const normalizedLicenseNotice = licenseNotice.replace(/\r\n?/g, "\n");
   if (new Set(rows.map((row) => `${row.normalized_word}\0${row.sense_key}`)).size !== rows.length)
     throw new Error("Duplicate OEWN sense in import batch");
   const sourceValues = [
@@ -253,7 +254,7 @@ function renderImportSql(rows, licenseNotice, label) {
     SOURCE.license_id,
     SOURCE.license_url,
     SOURCE.attribution,
-    licenseNotice,
+    normalizedLicenseNotice,
     SOURCE.archive_sha256,
     SOURCE.transformation,
   ].map(sqlValue);

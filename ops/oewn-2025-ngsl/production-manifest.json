@@ -11,8 +11,8 @@
   "files": {
     "import": {
       "name": "production-import.sql",
-      "sha256": "1221665d5d270ac1753d80002bc6fdd2cd2f364a72aa973f3b8154d3d0603432",
-      "bytes": 3209634
+      "sha256": "4aec6a2239e6b0dc1c11a6ea2303a8e49ca2f622c32eee6115661528b9549c4c",
+      "bytes": 3209605
     },
     "rollback": {
       "name": "production-rollback.sql",
