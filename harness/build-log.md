@@ -1,9 +1,10 @@
-# Current OEWN work
+# Current OEWN production import preparation
 
-- Branch: `feat/oewn-2025-ngsl-import`. Fetched and merged `origin/main` at `1a38b36` with merge commit `dbde73f`; no conflicts. Lovable's latest UI/routes were retained. Old branches and `main` were not rewritten.
-- Scope: all exact-headword OEWN 2025 senses enter a staged, batched, transactional upsert; `--dry-run` renders the same SQL in memory and reports counts/checksum without writes. The `WordEntry` adapter uses only explicitly reviewed OEWN primaries, preserving 26 pilot meanings and book-local overrides. No UI or applied migration `0000`–`0008` changes; no production database write.
-- Source: pinned official OEWN 2025 JSON archive with SHA-256 `7d749f6e2c39e6970e4997839dcf6e42fd281f3c2fae0171d2192bae8cfa4b51`, kept outside Git at `../oewn-2025/`.
-- Observed dry-run: 2,809 NGSL words; 2,742 exact headwords yield 19,028 senses; 5 case-only and 62 unmatched excluded; 26 reviewed primaries and 19,002 unreviewed senses. See `src/data/OEWN-SOURCE.md`.
-- Local database check: after migrations 0006/0007, executing generated full SQL twice in PGlite left 2,742 lexemes and 19,028 OEWN senses, with 26 priority-100 pilot entries and 19,002 priority-0 entries. Source version, license, and archive hash matched.
-- Validation: 24/24 tests passed; `npx tsc --noEmit`, scoped ESLint, and `npm run build` passed. Dry-run SQL SHA-256 `2d8aa9e016d6af27738b2473868499593b9634cecfcb195611a447a8bb1e2740` matched generated `full-import.sql`; `--check` passed.
-- Next action: commit and push this branch. Before a future online import, check live migration state, test on a database copy, prepare backup and controlled transaction, and provide visible attribution before UI exposure.
+- Branch: `feat/oewn-production-import-prep`, based on latest `main` at `3999a99`.
+- Decision: deliver a standalone controlled psql data transaction under `ops/oewn-2025-ngsl/`, not a `0009` schema migration. The Shared Lexicon schema is already in `0006–0008`; keeping 19k data rows outside Drizzle prevents schema deployment from auto-running a long import.
+- Bundle: generated from pinned OEWN 2025 archive SHA-256 `7d749f6e2c39e6970e4997839dcf6e42fd281f3c2fae0171d2192bae8cfa4b51`. Production SQL is 3.2 MB, batched in 400 rows, single transaction, lock timeout 10s and statement timeout 10m. Guarded rollback keeps 26 reviewed pilot senses and shared lexemes.
+- Expected postflight: 2,742 OEWN lexemes, 19,028 senses, 26 priority-100 pilot senses, 19,002 priority-0 senses, one provenance source row. Bundle manifest carries checksums and counts.
+- Verification: 26/26 tests pass; generator `--production-bundle --check` passes. PGlite applied 0006/0007, ran production import twice (2,742 lexemes/19,028 senses/26 pilots), then rollback (26 pilot senses remain). No production URL was used.
+- Validation: 26/26 tests; TypeScript, production build, scoped ESLint, and bundle `--check` pass. PGlite ran import twice and guarded rollback; final state retained exactly the 26 pilot senses. No production database was contacted; migrations `0000–0008` are unchanged.
+- Bundle import SQL SHA-256: `1221665d5d270ac1753d80002bc6fdd2cd2f364a72aa973f3b8154d3d0603432` (3,209,634 bytes). Rollback SQL SHA-256: `eebaebe97e2c9b98ecfdfeaec53d51e7651a3c017d02a745c01c13958e5b7ca0`.
+- Remaining: commit and push this feature branch, then verify remote HEAD.
