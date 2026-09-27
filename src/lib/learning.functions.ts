@@ -2,6 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 import { entryKey } from "@/lib/entry-identity";
+import { buildLearningState, buildLearningStats, type LearningAttemptRow, type LearningState, type LearningStats } from "@/lib/learning-state.shared";
+
+export type { LearningState, LearningStats };
 
 const AttemptInput = z.object({
   mode: z.enum(["word", "sentence", "memorize"]),
@@ -76,13 +79,14 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => StageInput.parse(input))
   .handler(async ({ data, context }) => {
-    const { data: existing } = await context.supabase
+    const { data: existing, error: existingError } = await context.supabase
       .from("word_mastery")
       .select("context_ok, recall_ok, spell_ok")
       .eq("user_id", context.userId)
       .eq("book_id", data.bookId)
       .eq("word", data.word)
       .maybeSingle();
+    if (existingError) throw new Error(existingError.message);
 
     const flags = {
       context_ok: existing?.context_ok ?? false,
@@ -96,7 +100,25 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
     }
     const rounds = Number(flags.context_ok) + Number(flags.recall_ok) + Number(flags.spell_ok);
 
-    const { error } = await context.supabase.from("word_mastery").upsert(
+    const { data: attempt, error: attemptError } = await context.supabase
+      .from("attempts")
+      .insert({
+        user_id: context.userId,
+        mode: "memorize",
+        book_id: data.bookId,
+        word: data.word,
+        translation: data.translation ?? null,
+        correct: data.correct,
+        mistouch: false,
+        typo_count: data.typoCount ?? 0,
+        duration_ms: data.durationMs ?? 0,
+        is_review: data.stage !== "context",
+      })
+      .select("id")
+      .single();
+    if (attemptError) throw new Error(attemptError.message);
+
+    const { error: masteryError } = await context.supabase.from("word_mastery").upsert(
       {
         user_id: context.userId,
         word: data.word,
@@ -109,40 +131,19 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
       },
       { onConflict: "user_id,book_id,word" },
     );
-    if (error) throw new Error(error.message);
-
-    await context.supabase.from("attempts").insert({
-      user_id: context.userId,
-      mode: "memorize",
-      book_id: data.bookId,
-      word: data.word,
-      translation: data.translation ?? null,
-      correct: data.correct,
-      mistouch: false,
-      typo_count: data.typoCount ?? 0,
-      duration_ms: data.durationMs ?? 0,
-      is_review: data.stage !== "context",
-    });
+    if (masteryError) {
+      const { error: rollbackError } = await context.supabase
+        .from("attempts")
+        .delete()
+        .eq("id", attempt.id)
+        .eq("user_id", context.userId);
+      if (rollbackError)
+        throw new Error(`${masteryError.message}; attempt rollback also failed: ${rollbackError.message}`);
+      throw new Error(masteryError.message);
+    }
 
     return { rounds };
   });
-
-export type LearningState = {
-  dailyGoal: number;
-  activeBook: string;
-  memorizeSpelling: boolean;
-  strictSpelling: boolean;
-  /** 完成三轮强化的词，按 book_id 区分 */
-  masteredByBook: Record<string, string[]>;
-  cursors: Record<string, number>;
-  learnedByBook: Record<string, string[]>;
-  learnedWords: string[];
-  todayItems: { word: string; bookId: string; translation: string | null }[];
-  wrongWords: { word: string; bookId: string; translation: string | null }[];
-  troubleWords: { word: string; bookId: string; translation: string | null; typos: number }[];
-  mistouchWords: { word: string; bookId: string; translation: string | null; at: string }[];
-  skippedWords: { word: string; bookId: string; translation: string | null; at: string }[];
-};
 
 export const getLearningState = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
@@ -167,63 +168,15 @@ export const getLearningState = createServerFn({ method: "GET" })
         .gte("rounds", 3),
     ]);
 
-    const rows = attemptsRes.data ?? [];
-    const studied = rows.filter((r) => !r.skipped);
-    const today = new Date().toLocaleDateString("en-CA");
-
-    const cursors: Record<string, number> = {};
-    for (const p of progressRes.data ?? []) cursors[p.book_id] = p.cursor_index;
-
-    const learnedByBook: Record<string, string[]> = {};
-    for (const r of studied) {
-      const list = (learnedByBook[r.book_id] ??= []);
-      if (!list.includes(r.word)) list.push(r.word);
-    }
-
-    // 所有记录都以 book_id + word 为键，不同词书的同一单词互不影响
-    const k = (r: { book_id: string; word: string }) => entryKey({ bookId: r.book_id, word: r.word });
-    const wrong = new Map<string, { word: string; bookId: string; translation: string | null }>();
-    const trouble = new Map<string, { word: string; bookId: string; translation: string | null; typos: number }>();
-    const mistouch: { word: string; bookId: string; translation: string | null; at: string }[] = [];
-    for (const r of studied) {
-      if (r.mistouch) {
-        if (mistouch.length < 40)
-          mistouch.push({ word: r.word, bookId: r.book_id, translation: r.translation, at: r.created_at });
-        continue;
-      }
-      if (r.correct === false) wrong.set(k(r), { word: r.word, bookId: r.book_id, translation: r.translation });
-      if (r.typo_count > 0) {
-        const cur = trouble.get(k(r)) ?? { word: r.word, bookId: r.book_id, translation: r.translation, typos: 0 };
-        cur.typos += r.typo_count;
-        trouble.set(k(r), cur);
-      }
-    }
-    const masteredByBook: Record<string, string[]> = {};
-    for (const m of masteryRes.data ?? []) (masteredByBook[m.book_id] ??= []).push(m.word);
-    const todayMap = new Map<string, { word: string; bookId: string; translation: string | null }>();
-    for (const r of studied)
-      if (new Date(r.created_at).toLocaleDateString("en-CA") === today && !todayMap.has(k(r)))
-        todayMap.set(k(r), { word: r.word, bookId: r.book_id, translation: r.translation });
-
-    const skippedRows = rows.filter((r) => r.skipped);
-
-    return {
-      dailyGoal: settingsRes.data?.daily_goal ?? 20,
-      activeBook: settingsRes.data?.active_book ?? "core",
-      memorizeSpelling: settingsRes.data?.memorize_spelling ?? true,
-      strictSpelling: settingsRes.data?.strict_spelling ?? false,
-      masteredByBook,
-      cursors,
-      learnedByBook,
-      learnedWords: [...new Set(studied.map((r) => r.word))],
-      todayItems: [...todayMap.values()],
-      wrongWords: [...wrong.values()].slice(0, 60),
-      troubleWords: [...trouble.values()].sort((a, b) => b.typos - a.typos).slice(0, 60),
-      mistouchWords: mistouch,
-      skippedWords: skippedRows
-        .slice(0, 40)
-        .map((r) => ({ word: r.word, bookId: r.book_id, translation: r.translation, at: r.created_at })),
-    };
+    const errors = [settingsRes.error, progressRes.error, attemptsRes.error, masteryRes.error]
+      .flatMap((error) => error ? [error.message] : []);
+    if (errors.length) throw new Error(errors.join("; "));
+    return buildLearningState({
+      settings: settingsRes.data,
+      progress: progressRes.data ?? [],
+      attempts: (attemptsRes.data ?? []) as LearningAttemptRow[],
+      mastery: masteryRes.data ?? [],
+    });
   });
 
 export const saveSettings = createServerFn({ method: "POST" })
@@ -278,75 +231,17 @@ export const saveBookCursor = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export type LearningStats = {
-  todayCount: number;
-  todayWords: { word: string; bookId: string }[];
-  totalCount: number;
-  uniqueWords: number;
-  cleanRate: number;
-  streakDays: number;
-  troubleWords: { word: string; bookId: string; translation: string | null; typos: number; times: number }[];
-  recent: { word: string; bookId: string; translation: string | null; mode: string; typos: number; mistouch: boolean; at: string }[];
-};
-
 export const getStats = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<LearningStats> => {
     const { data, error } = await context.supabase
       .from("attempts")
-      .select("word, book_id, translation, mode, typo_count, mistouch, skipped, created_at")
+      .select("word, book_id, translation, mode, typo_count, mistouch, correct, skipped, created_at")
       .eq("user_id", context.userId)
       .order("created_at", { ascending: false })
       .limit(1000);
     if (error) throw new Error(error.message);
-    const rows = (data ?? []).filter((r) => !r.skipped);
-
-    const dayKey = (iso: string) => new Date(iso).toLocaleDateString("en-CA");
-    const today = new Date().toLocaleDateString("en-CA");
-    const todayRows = rows.filter((r) => dayKey(r.created_at) === today);
-
-    const trouble = new Map<string, { word: string; bookId: string; translation: string | null; typos: number; times: number }>();
-    for (const r of rows) {
-      const key = entryKey({ bookId: r.book_id, word: r.word });
-      const cur = trouble.get(key) ?? { word: r.word, bookId: r.book_id, translation: r.translation, typos: 0, times: 0 };
-      cur.typos += r.mistouch ? 0 : r.typo_count;
-      cur.times += 1;
-      trouble.set(key, cur);
-    }
-
-    const days = new Set(rows.map((r) => dayKey(r.created_at)));
-    let streak = 0;
-    const cursor = new Date();
-    for (;;) {
-      const key = cursor.toLocaleDateString("en-CA");
-      if (days.has(key)) {
-        streak += 1;
-        cursor.setDate(cursor.getDate() - 1);
-      } else if (streak === 0 && key === today) {
-        cursor.setDate(cursor.getDate() - 1);
-      } else break;
-    }
-
-    const clean = rows.filter((r) => r.typo_count === 0 || r.mistouch).length;
-
-    return {
-      todayCount: todayRows.length,
-      todayWords: [...new Map(todayRows.map((r) => [entryKey({ bookId: r.book_id, word: r.word }), { word: r.word, bookId: r.book_id }])).values()],
-      totalCount: rows.length,
-      uniqueWords: new Set(rows.map((r) => r.word)).size,
-      cleanRate: rows.length ? Math.round((clean / rows.length) * 100) : 0,
-      streakDays: streak,
-      troubleWords: [...trouble.values()].filter((t) => t.typos > 0).sort((a, b) => b.typos - a.typos).slice(0, 8),
-      recent: rows.slice(0, 20).map((r) => ({
-        word: r.word,
-        bookId: r.book_id,
-        translation: r.translation,
-        mode: r.mode,
-        typos: r.typo_count,
-        mistouch: r.mistouch,
-        at: r.created_at,
-      })),
-    };
+    return buildLearningStats((data ?? []) as LearningAttemptRow[]);
   });
 
 export const getMessages = createServerFn({ method: "GET" })

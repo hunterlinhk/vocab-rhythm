@@ -249,8 +249,16 @@ function LearnPage() {
       return nextPrefs;
     });
   }, []);
-  const [savedToMistakes, setSavedToMistakes] = useState<Set<string>>(new Set());
-  const [mistouched, setMistouched] = useState<Set<string>>(new Set());
+  const [locallySavedToMistakes, setLocallySavedToMistakes] = useState<Set<string>>(new Set());
+  const savedToMistakes = useMemo(
+    () => new Set([...(state?.wrongWords.map(entryKey) ?? []), ...locallySavedToMistakes]),
+    [state?.wrongWords, locallySavedToMistakes],
+  );
+  const [locallyMistouched, setLocallyMistouched] = useState<Set<string>>(new Set());
+  const mistouched = useMemo(
+    () => new Set([...(state?.mistouchWords.map(entryKey) ?? []), ...locallyMistouched]),
+    [state?.mistouchWords, locallyMistouched],
+  );
   const dragX = useRef<number | null>(null);
   const strict = state?.strictSpelling ?? false;
 
@@ -367,6 +375,8 @@ function LearnPage() {
       setDone(r);
       setSessionDone((n) => n + 1);
       setHistory((h) => [...h, { entry, result: r }]);
+      if (!queueKind && bookId && queue.length)
+        void persistCursor({ data: { bookId, cursorIndex: (index + 1) % queue.length } }).catch(() => undefined);
       if (prefsRef.current.speech) speak(entry.word);
       void save({
         data: {
@@ -387,7 +397,7 @@ function LearnPage() {
         })
         .catch(() => undefined);
     },
-    [entryBook, entry, save, queueKind, qc],
+    [entryBook, entry, save, queueKind, qc, bookId, queue.length, index, persistCursor],
   );
 
   const skipCurrent = useCallback(() => {
@@ -415,7 +425,7 @@ function LearnPage() {
     (item: EntryIdentity) => {
       const key = entryKey(item);
       if (mistouched.has(key)) return;
-      setMistouched((s) => new Set(s).add(key));
+      setLocallyMistouched((s) => new Set(s).add(key));
       void flagMistouch({ data: item })
         .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
         .catch(() => undefined);
@@ -534,7 +544,7 @@ function LearnPage() {
       const itemBookId = item.entry.bookId ?? bookId ?? "core";
       const key = entryKey({ bookId: itemBookId, word: item.entry.word });
       if (savedToMistakes.has(key)) return;
-      setSavedToMistakes((s) => new Set(s).add(key));
+      setLocallySavedToMistakes((s) => new Set(s).add(key));
       void save({
         data: {
           mode: "word" as const,

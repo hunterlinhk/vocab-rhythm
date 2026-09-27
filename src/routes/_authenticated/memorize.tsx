@@ -6,7 +6,8 @@ import { CheckCircle2, PenLine, Sparkles, Volume2 } from "lucide-react";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { ALL_WORDS, hasMeaning, type MeaningfulEntry, type WordEntry } from "@/data/words";
 import { useBook } from "@/hooks/use-library";
-import { getLearningState, recordMemorizeStage, saveSettings } from "@/lib/learning.functions";
+import { getLearningState, recordMemorizeStage, saveBookCursor, saveSettings } from "@/lib/learning.functions";
+import { nextLearningCursor, shouldRunSpellingRound } from "@/lib/learning-state.shared";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
@@ -68,6 +69,7 @@ function MemorizePage() {
   const qc = useQueryClient();
   const fetchState = useServerFn(getLearningState);
   const record = useServerFn(recordMemorizeStage);
+  const persistCursor = useServerFn(saveBookCursor);
   const persistSettings = useServerFn(saveSettings);
   const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
 
@@ -87,14 +89,14 @@ function MemorizePage() {
   // 选义环节只使用有中文释义的词条
   const meaningful = useMemo(() => (book?.words ?? []).filter(hasMeaning), [book]);
   const spellingOnly = !!book?.words.length && meaningful.length === 0;
+  const batchStart = book ? (state?.cursors[book.id] ?? 0) % Math.max(1, book.words.length) : 0;
   const batch = useMemo(() => {
     if (!book) return [];
     const words = book.words;
-    const start = (state?.cursors[book.id] ?? 0) % Math.max(1, words.length);
-    const ordered = [...words.slice(start), ...words.slice(0, start)];
+    const ordered = [...words.slice(batchStart), ...words.slice(0, batchStart)];
     const list = spellingOnly ? ordered : ordered.filter(hasMeaning);
     return list.slice(0, BATCH);
-  }, [state, book, spellingOnly]);
+  }, [book, batchStart, spellingOnly]);
   const entry = batch[Math.min(index, batch.length - 1)];
   const options = useMemo(() => (entry && hasMeaning(entry) ? pickOptions(entry, meaningful) : []), [entry, meaningful]);
 
@@ -111,9 +113,20 @@ function MemorizePage() {
         return;
       }
       setIndex(0);
-      setPhase(spellingOnly ? "done" : from === "context" ? "recall" : "done");
+      const batchComplete = spellingOnly || from === "recall";
+      setPhase(batchComplete ? "done" : "recall");
+      if (batchComplete && book && book.words.length) {
+        const lastEntry = batch[batch.length - 1];
+        const lastPosition = lastEntry
+          ? book.words.findIndex((word) => word.bookId === lastEntry.bookId && word.word === lastEntry.word)
+          : -1;
+        const cursorIndex = lastPosition >= 0 ? nextLearningCursor(lastPosition, 1, book.words.length) : batchStart;
+        void persistCursor({ data: { bookId: book.id, cursorIndex } })
+          .then(invalidate)
+          .catch(() => undefined);
+      }
     },
-    [index, batch.length, spellingOnly],
+    [index, batch, spellingOnly, book, batchStart, persistCursor, invalidate],
   );
 
   const choose = useCallback(
@@ -136,7 +149,7 @@ function MemorizePage() {
         .catch(() => undefined);
 
       window.setTimeout(() => {
-        if (phase === "recall" && correct && spellOn) {
+        if (shouldRunSpellingRound(phase, spellOn)) {
           setPicked(null);
           setPhase("spell");
         } else {
@@ -151,7 +164,7 @@ function MemorizePage() {
     (r: TypingResult) => {
       if (!entry) return;
       speak(entry.word);
-      setMasteredNow((n) => n + 1);
+      if (spellingOnly) setMasteredNow((n) => n + 1);
       void record({
         data: {
           word: entry.word,
@@ -163,7 +176,10 @@ function MemorizePage() {
           durationMs: r.durationMs,
         },
       })
-        .then(invalidate)
+        .then(({ rounds }) => {
+          if (!spellingOnly && rounds >= 3) setMasteredNow((n) => n + 1);
+          invalidate();
+        })
         .catch(() => undefined);
       window.setTimeout(() => {
         if (!spellingOnly) setPhase("recall");

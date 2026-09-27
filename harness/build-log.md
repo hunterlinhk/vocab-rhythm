@@ -1,3 +1,15 @@
+# Core learning flow integrity
+
+- Base: latest fetched `main` at `46d36a6596781a69561de77e4afd0c14329b3756`; branch `feat/core-learning-flow-integrity`.
+- Fixed learning aggregation to retain `book_id + word` identity, keep the newest wrong-attempt translation, and count a recall answer as clean only when correct. Skips stay out of study counts; mistouches are excluded from typo totals.
+- Sentence spelling now starts from the selected book and restores a per-book browser cursor. Word completion saves the next cursor immediately; memorize batches advance the shared per-book cursor after completion.
+- Memorize always reaches the spelling round after recall (including a wrong recall answer), counts mastery only when all three flags are complete, and checks persistence errors with compensating attempt deletion if mastery upsert fails.
+- Regression suite: 29/29 tests passed; `npx tsc --noEmit` passed; `npm run build` passed. Targeted ESLint passed with the repository's pre-existing Prettier rule disabled.
+- Constraints kept: no database SQL, no edits to `ops/oewn-2025-ngsl/**`, no edits to migrations `0000–0008`, no visual/layout changes.
+- Next: final diff/status review, commit, and normal push to `origin/feat/core-learning-flow-integrity`.
+
+---
+
 # OEWN Lovable Cloud import preparation
 
 - Base: latest fetched `main` at `421eacc`; work is on `feat/oewn-lovable-staging-import`.

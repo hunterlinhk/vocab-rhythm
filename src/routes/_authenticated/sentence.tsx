@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useMemo, useEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { hasSentence, type SentenceEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
-import { recordAttempt } from "@/lib/learning.functions";
+import { getLearningState, recordAttempt, saveSettings } from "@/lib/learning.functions";
+import { loadSentenceCursor, nextSentenceCursor, saveSentenceCursor } from "@/lib/sentence-progress";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 import { Volume2, BookOpen, PenLine, Languages } from "lucide-react";
@@ -57,9 +58,13 @@ function SpeakerButton({ text, className }: { text: string; className?: string }
 
 function SentencePage() {
   const save = useServerFn(recordAttempt);
+  const fetchState = useServerFn(getLearningState);
+  const persistSettings = useServerFn(saveSettings);
   const qc = useQueryClient();
-  const [bookId, setBookId] = useState("core");
+  const { data: learningState } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+  const [bookId, setBookId] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
+  const [ready, setReady] = useState(false);
   const [done, setDone] = useState<TypingResult | null>(null);
   const [sessionDone, setSessionDone] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
@@ -73,6 +78,13 @@ function SentencePage() {
     prefsRef.current = prefs;
   }, [prefs]);
   useEffect(() => setPrefs(loadPrefs()), []);
+  useEffect(() => {
+    if (!learningState || ready) return;
+    const initialBook = learningState.activeBook || "core";
+    setBookId(initialBook);
+    setIndex(loadSentenceCursor(window.localStorage, initialBook));
+    setReady(true);
+  }, [learningState, ready]);
   const togglePref = useCallback((key: keyof Prefs) => {
     setPrefs((p) => {
       const nextPrefs = { ...p, [key]: !p[key] };
@@ -98,28 +110,44 @@ function SentencePage() {
     setNavDir(1);
     setDone(null);
     setReviewIndex(null);
-    setIndex((i) => (queue.length ? (i + 1) % queue.length : 0));
-  }, [queue.length]);
+    setIndex((i) => {
+      const nextIndex = nextSentenceCursor(i, queue.length);
+      if (bookId) saveSentenceCursor(window.localStorage, bookId, nextIndex);
+      return nextIndex;
+    });
+  }, [bookId, queue.length]);
 
   const switchBook = useCallback((id: string) => {
+    setReady(true);
     setBookId(id);
-    setIndex(0);
+    setIndex(loadSentenceCursor(window.localStorage, id));
     setDone(null);
     setHistory([]);
     setReviewIndex(null);
-  }, []);
+    void persistSettings({ data: { activeBook: id } }).catch(() => undefined);
+  }, [persistSettings]);
+
+  useEffect(() => {
+    if (!bookId || !queue.length || index < queue.length) return;
+    const normalized = index % queue.length;
+    setIndex(normalized);
+    saveSentenceCursor(window.localStorage, bookId, normalized);
+  }, [bookId, index, queue.length]);
 
   const onComplete = useCallback(
     (r: TypingResult) => {
       if (!entry) return;
+      const entryBookId = entry.bookId ?? bookId;
+      if (!entryBookId) return;
       setDone(r);
       setSessionDone((n) => n + 1);
       setHistory((h) => [...h, { entry, result: r }]);
+      saveSentenceCursor(window.localStorage, entryBookId, nextSentenceCursor(index, queue.length));
       if (prefsRef.current.speech) speak(entry.sentence);
       void save({
         data: {
           mode: "sentence" as const,
-          bookId,
+          bookId: entryBookId,
           word: entry.word,
           translation: entry.cn,
           correct: true,
@@ -134,15 +162,17 @@ function SentencePage() {
         })
         .catch(() => undefined);
     },
-    [bookId, entry, save, qc],
+    [bookId, entry, save, qc, index, queue.length],
   );
 
   const skipCurrent = useCallback(() => {
     if (!entry) return;
+    const entryBookId = entry.bookId ?? bookId;
+    if (!entryBookId) return;
     void save({
       data: {
         mode: "sentence" as const,
-        bookId,
+        bookId: entryBookId,
         word: entry.word,
         translation: entry.cn,
         correct: true,
@@ -183,11 +213,11 @@ function SentencePage() {
   const spokenRef = useRef<string | null>(null);
   useEffect(() => {
     if (!sentence || done || reviewIndex !== null) return;
-    const key = `${index}:${sentence}`;
+    const key = `${bookId}:${index}:${sentence}`;
     if (spokenRef.current === key) return;
     spokenRef.current = key;
     if (prefsRef.current.speech) speak(sentence);
-  }, [sentence, index, done, reviewIndex]);
+  }, [bookId, sentence, index, done, reviewIndex]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -436,7 +466,7 @@ function SentencePage() {
               )}
 
               <TypingBoard
-                key={`${entry.word}-${index}`}
+                key={`${bookId}-${entry.word}-${index}`}
                 target={entry.sentence}
                 size="sentence"
                 masked={prefs.dictation}
