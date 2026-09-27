@@ -1,6 +1,6 @@
 # Server-side learning checkpoints
 
-- Base: branch `feat/core-learning-flow-integrity` at `46901d3720d620a479b59c3e9cfd063aeff12913`; continue this branch and do not merge `main`.
+- Branch: `feat/core-learning-flow-integrity`; implementation commit `5d70038` has been pushed to origin. No merge to `main` has occurred.
 - Current design reuses `book_progress`, keyed by `(user_id, book_id, mode)`. Migration `0009` adds `mode` (legacy rows default to `word`), JSONB `session_state`, and optimistic `revision`; RLS remains per user.
 - Sentence checkpoints store the queue cursor, active word, queue length, and server-generated attempt UUID. Completion/skip insert that fixed attempt ID before advancing the checkpoint, so a retry after a lost response cannot duplicate stats. The browser cursor is only a bootstrap/fallback cache.
 - Memorize checkpoints store the selected batch, absolute positions, phase, item, spelling mode, counters, and a server-generated UUID for each word/stage. A revision compare-and-swap advances the phase after an idempotent attempt insert; mastery remains keyed by `(user_id, book_id, word)` and uses upserted flags.
@@ -8,7 +8,7 @@
 - Final validation: `npm test` 32/32 passed; `npx tsc --noEmit` passed; `npm run build` passed; targeted ESLint on changed learning code passed; `git diff --check` passed. Build reports existing TanStack `inputValidator()` deprecation notices.
 - Repository-wide `npm run lint` was attempted and emits thousands of Prettier CRLF errors across untouched files on this Windows checkout. Changed learning modules lint clean; generated Supabase types and the two minimally changed legacy cursor call sites are excluded from targeted Prettier validation because their checked-out CRLF baseline triggers the same rule.
 - Constraints: no production connection/SQL, no edits to `ops/oewn-2025-ngsl/**`, no edits to migrations `0000–0008`, preserve current UI/layout, then commit and push this branch.
-- Next action: inspect final diff, commit, and push this branch. The latest build-generated `src/routeTree.gen.ts` output was restored; no generated route changes are intended.
+- Deployment prerequisite: apply migration `0009_book_progress_modes_and_sessions.sql` before deploying code that reads/writes the new `(user_id, book_id, mode)` key. It has not been applied to any production database. The latest build-generated `src/routeTree.gen.ts` output was restored; no generated route changes are intended.
 
 ---
 
