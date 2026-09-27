@@ -6,7 +6,7 @@
 - Memorize always reaches the spelling round after recall (including a wrong recall answer), counts mastery only when all three flags are complete, and checks persistence errors with compensating attempt deletion if mastery upsert fails.
 - Regression suite: 29/29 tests passed; `npx tsc --noEmit` passed; `npm run build` passed. Targeted ESLint passed with the repository's pre-existing Prettier rule disabled.
 - Constraints kept: no database SQL, no edits to `ops/oewn-2025-ngsl/**`, no edits to migrations `0000–0008`, no visual/layout changes.
-- Next: final diff/status review, commit, and normal push to `origin/feat/core-learning-flow-integrity`.
+- Completed and pushed implementation commit `a8a93d8044d9707cfb7fe499230068dde168d27a` to `origin/feat/core-learning-flow-integrity`; worktree was clean after push. Do not merge into `main` unless requested.
 
 ---
 
