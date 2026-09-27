@@ -2,12 +2,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import {
+  ARCHIVE_SHA256,
   analyzeNgsl,
   assertPilotPreserved,
   parseNgsl,
-  renderFullSql,
-  renderProductionImportSql,
-  renderProductionRollbackSql,
+  renderLovableCloudBundle,
   renderReviewedSql,
   selectReviewed,
 } from "../scripts/prepare-oewn-2025-ngsl.mjs";
@@ -138,66 +137,57 @@ test("staged SQL preserves provenance and uses idempotent upserts without user-d
   );
 });
 
-test("full SQL retains every exact sense and only reviewed primaries get display priority", () => {
+test("Lovable bundle stages data outside public and keeps each data statement idempotent", () => {
   const { candidates } = analyzeNgsl(["bank", "learn", "it"], fixture());
   const reviewed = selectReviewed(candidates, "bank\tbank%1:14:00::\nlearn\tlearn%2:31:00::");
-  const sql = renderFullSql(candidates, reviewed, "WordNet license notice");
-  for (const row of candidates) assert.ok(sql.includes(row.source_entry_ref));
-  assert.doesNotMatch(sql, /IT%1:14:00::/);
-  assert.match(sql, /bank%1:14:00::', 'bank%1:14:00::', 100,/);
-  assert.match(sql, /bank%1:17:00::', 'bank%1:17:00::', 0,/);
-  assert.match(sql, /GREATEST\(public\.lexicon_entries\.priority, EXCLUDED\.priority\)/);
-  assert.doesNotMatch(
-    sql,
-    /(?:INSERT|UPDATE|DELETE) (?:INTO |FROM )?public\.(word_entries|attempts|word_mastery)/,
-  );
+  const bundle = renderLovableCloudBundle(candidates, reviewed, "WordNet license notice");
+  const setup = bundle.find(([name]) => name === "00-stage-setup.sql")[1];
+  const batch = bundle.find(([name]) => name === "01-stage-batches.sql")[1];
+  assert.match(setup, /CREATE SCHEMA IF NOT EXISTS oewn_stage_2025/);
+  assert.match(setup, /REVOKE ALL ON SCHEMA oewn_stage_2025 FROM PUBLIC/);
+  assert.doesNotMatch(setup, /CREATE TABLE public\./);
+  assert.match(batch, /INSERT INTO oewn_stage_2025\.senses/);
+  assert.match(batch, /ON CONFLICT \(sense_key\) DO UPDATE/);
+  assert.doesNotMatch(batch, /(?:INSERT|UPDATE|DELETE) (?:INTO |FROM )?public\./);
 });
 
-test("full import batches large sense sets into bounded insert statements", () => {
-  const { candidates } = analyzeNgsl(["learn"], fixture());
-  const rows = Array.from({ length: 401 }, (_, index) => ({
-    ...candidates[0],
-    source_entry_ref: `learn%2:31:${index}::`,
-    sense_key: `learn%2:31:${index}::`,
-  }));
-  const sql = renderFullSql(rows, [], "WordNet license notice");
-  assert.equal(sql.match(/INSERT INTO public\.lexicon_entries/g)?.length, 2);
-});
-
-test("production SQL is guarded by provenance and before/after count checks in one transaction", () => {
-  const { candidates } = analyzeNgsl(["bank", "learn", "it"], fixture());
-  const reviewed = selectReviewed(candidates, "bank\tbank%1:14:00::\nlearn\tlearn%2:31:00::");
-  const sql = renderProductionImportSql(candidates, reviewed, "WordNet license notice");
-  assert.match(sql, /^-- Production OEWN/);
-  assert.match(sql, /BEGIN;[\s\S]*CREATE TEMP TABLE oewn_import_baseline[\s\S]*COMMIT;/);
-  assert.match(sql, /Expected 2 reviewed pilot senses at priority 100/);
-  assert.match(sql, /source_sha256/);
-  assert.match(sql, /OEWN postflight count mismatch/);
-  assert.match(sql, /verified_oewn_provenance_rows/);
-  assert.match(sql, /GREATEST\(public\.lexicon_entries\.priority, EXCLUDED\.priority\)/);
-  assert.doesNotMatch(
-    sql,
-    /(?:INSERT|UPDATE|DELETE) (?:INTO |FROM )?public\.(word_entries|attempts|word_mastery)/,
-  );
-});
-
-test("SQL source notices normalize line endings for stable generated bundle hashes", () => {
+test("staging validation checks counts and provenance while final apply is one atomic DO statement", () => {
   const { candidates } = analyzeNgsl(["learn"], fixture());
   const reviewed = selectReviewed(candidates, "learn\tlearn%2:31:00::");
-  const sql = renderProductionImportSql(candidates, reviewed, "Line one\r\nLine two\rLine three");
-  assert.doesNotMatch(sql, /\r/);
-  assert.match(sql, /Line one\nLine two\nLine three/);
+  const bundle = renderLovableCloudBundle(candidates, reviewed, "WordNet license notice");
+  const validation = bundle.find(([name]) => name === "11-stage-validation.sql")[1];
+  const apply = bundle.find(([name]) => name === "12-final-apply.sql")[1];
+  const verify = bundle.find(([name]) => name === "13-verification.sql")[1];
+  const cleanup = bundle.find(([name]) => name === "14-cleanup.sql")[1];
+  assert.match(validation, /IS DISTINCT FROM \(1, 1, 1, 0, 1\)/);
+  assert.match(validation, new RegExp(ARCHIVE_SHA256));
+  assert.match(validation, /reviewed pilot sense IDs do not match the approved set/);
+  assert.match(apply, /^-- Single-statement final apply[\s\S]*DO \$oewn_apply\$/);
+  assert.doesNotMatch(apply, /\n(?:BEGIN|COMMIT);/);
+  assert.match(apply, /INSERT INTO public\.lexicon_sources/);
+  assert.match(apply, /INSERT INTO public\.lexemes/);
+  assert.match(apply, /INSERT INTO public\.lexicon_entries/);
+  assert.match(apply, /GREATEST\(public\.lexicon_entries\.priority, EXCLUDED\.priority\)/);
+  assert.match(apply, /Existing reviewed pilot content\/identity/);
+  assert.match(verify, /overall_match/);
+  assert.match(verify, new RegExp(ARCHIVE_SHA256));
+  assert.match(cleanup, /OEWN cleanup refused/);
+  assert.match(cleanup, /DROP SCHEMA IF EXISTS oewn_stage_2025 CASCADE/);
 });
 
-test("production rollback is limited to the exact imported shape and preserves reviewed pilots", () => {
-  const sql = renderProductionRollbackSql(5, 1, 3, ["learn%2:31:00::"]);
-  assert.match(
-    sql,
-    /BEGIN;[\s\S]*DELETE FROM public\.lexicon_entries WHERE source_id='oewn-2025' AND priority=0;[\s\S]*COMMIT;/,
-  );
-  assert.match(sql, /IS DISTINCT FROM \(5, 1, 4, 3\)/);
-  assert.match(sql, /source_sha256/);
-  assert.doesNotMatch(sql, /DELETE FROM public\.lexemes/);
+test("staging batches are independently retryable and bundle manifest carries SQL hashes", () => {
+  const { candidates } = analyzeNgsl(["bank", "learn", "it"], fixture());
+  const reviewed = selectReviewed(candidates, "bank\tbank%1:14:00::\nlearn\tlearn%2:31:00::");
+  const bundle = renderLovableCloudBundle(candidates, reviewed, "Line one\r\nLine two\rLine three");
+  const batches = bundle.filter(([name]) => name.endsWith("stage-batches.sql"));
+  const manifest = JSON.parse(bundle.find(([name]) => name === "manifest.json")[1]);
+  assert.equal(batches.length, 1);
+  assert.equal(manifest.staging.insert_statements, 1);
+  assert.equal(manifest.expected.senses, candidates.length);
+  assert.ok(manifest.files.every((file) => file.sha256.length === 64 && file.bytes > 0));
+  assert.doesNotMatch(bundle.map(([, sql]) => sql).join("\n"), /\r/);
+  assert.match(batches[0][1], /ON CONFLICT \(sense_key\) DO UPDATE/);
+  assert.doesNotMatch(batches[0][1], /public\./);
 });
 
 test("pilot senses must retain their original content and reviewed primary priority", () => {

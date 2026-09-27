@@ -323,162 +323,517 @@ export function renderReviewedSql(reviewed, licenseNotice) {
   return renderImportSql(reviewed, licenseNotice, "reviewed");
 }
 
-export function renderFullSql(candidates, reviewed, licenseNotice) {
+const STAGING_SCHEMA = "oewn_stage_2025";
+const STAGING_ROWS_PER_STATEMENT = 1000;
+const STAGING_STATEMENTS_PER_FILE = 2;
+
+const chunked = (rows, size) =>
+  Array.from({ length: Math.ceil(rows.length / size) }, (_, index) =>
+    rows.slice(index * size, (index + 1) * size),
+  );
+
+function fullImportRows(candidates, reviewed) {
   const priorities = new Map(reviewed.map((row) => [row.source_entry_ref, row.priority]));
-  const rows = candidates.map((row) => ({
+  return candidates.map((row) => ({
     ...row,
     priority: priorities.get(row.source_entry_ref) ?? 0,
   }));
-  return renderImportSql(rows, licenseNotice, "all exact-headword senses");
 }
 
-const pilotAttribution =
-  "Open English Wordnet 2025 © The Open English WordNet Team, CC BY 4.0; derived from Princeton WordNet 3.1 © 2011 Princeton University under the WordNet License. This is a selected and transformed NGSL pilot subset; no endorsement is implied.";
-const pilotTransformation =
-  "Selected NGSL headwords and reviewed OEWN sense IDs from oewn-2025-pilot-senses.tsv; retained the first English definition and example, with US IPA preferred over GB; omitted unlicensed translations.";
+function renderStageSetupSql(expected, batchCount, rowsPerBatch, licenseNotice) {
+  const values = [
+    SOURCE.id,
+    SOURCE.version,
+    SOURCE.archive_sha256,
+    SOURCE.source_url,
+    SOURCE.license_id,
+    SOURCE.license_url,
+    SOURCE.attribution,
+    licenseNotice.replace(/\r\n?/g, "\n"),
+    SOURCE.transformation,
+    expected.lexemes,
+    expected.senses,
+    expected.reviewed,
+    expected.unreviewed,
+    batchCount,
+    rowsPerBatch,
+  ].map(sqlValue);
+  return `-- OEWN staging setup only. This file creates objects outside public and seeds provenance metadata.
+CREATE SCHEMA IF NOT EXISTS ${STAGING_SCHEMA};
+REVOKE ALL ON SCHEMA ${STAGING_SCHEMA} FROM PUBLIC;
 
-export function renderProductionImportSql(candidates, reviewed, licenseNotice) {
-  const importSql = renderFullSql(candidates, reviewed, licenseNotice);
-  const begin = importSql.indexOf("\nBEGIN;\n");
-  const commit = importSql.lastIndexOf("\nCOMMIT;");
-  if (begin < 0 || commit < begin) throw new Error("Could not isolate the import transaction");
-  const insertStatements = importSql.slice(begin + "\nBEGIN;\n".length, commit);
-  const expectedLexemes = new Set(candidates.map((row) => row.normalized_word)).size;
-  const expectedSenses = candidates.length;
-  const pilotSenseKeys = reviewed.filter((row) => row.priority === 100).map((row) => row.sense_key);
-  const expectedReviewed = pilotSenseKeys.length;
-  const expectedUnreviewed = expectedSenses - expectedReviewed;
-  const pilotSenseList = pilotSenseKeys.map(sqlValue).join(", ");
-  if (!expectedReviewed) throw new Error("Production import requires reviewed pilot senses");
-  return `-- Production OEWN 2025 NGSL data import. Run with psql -v ON_ERROR_STOP=1 -f.
--- Requires the existing 0006-0008 schema. One transaction; errors roll back all changes.
--- Do not use psql --single-transaction. No schema migrations or user learning tables are changed.
-BEGIN;
-SET LOCAL statement_timeout = '10min';
-SET LOCAL lock_timeout = '10s';
-DROP TABLE IF EXISTS pg_temp.oewn_import_baseline;
-CREATE TEMP TABLE oewn_import_baseline ON COMMIT PRESERVE ROWS AS
-SELECT
-  (SELECT count(*) FROM public.lexemes) AS lexemes_total,
-  (SELECT count(*) FROM public.lexicon_entries) AS senses_total,
-  (SELECT count(*) FROM public.lexicon_sources) AS sources_total,
-  (SELECT count(*) FROM public.lexicon_entries WHERE source_id = 'oewn-2025') AS oewn_senses,
-  (SELECT count(DISTINCT lexeme_id) FROM public.lexicon_entries WHERE source_id = 'oewn-2025') AS oewn_lexemes;
+CREATE TABLE IF NOT EXISTS ${STAGING_SCHEMA}.import_meta (
+  id text PRIMARY KEY CHECK (id = 'oewn-2025'),
+  version text NOT NULL,
+  archive_sha256 text NOT NULL,
+  source_url text NOT NULL,
+  license_id text NOT NULL,
+  license_url text NOT NULL,
+  attribution text NOT NULL,
+  license_notice text NOT NULL,
+  transformation text NOT NULL,
+  expected_lexemes integer NOT NULL,
+  expected_senses integer NOT NULL,
+  expected_reviewed integer NOT NULL,
+  expected_unreviewed integer NOT NULL,
+  expected_batches integer NOT NULL,
+  rows_per_batch integer NOT NULL
+);
 
-DO $$
+CREATE TABLE IF NOT EXISTS ${STAGING_SCHEMA}.senses (
+  batch_no integer NOT NULL CHECK (batch_no > 0),
+  normalized_word text NOT NULL,
+  lemma text NOT NULL,
+  source_entry_ref text NOT NULL,
+  sense_key text PRIMARY KEY,
+  priority integer NOT NULL CHECK (priority IN (0, 100)),
+  part_of_speech text NOT NULL,
+  phonetic text,
+  definition_en text NOT NULL,
+  sentence text,
+  CHECK (source_entry_ref = sense_key)
+);
+CREATE INDEX IF NOT EXISTS oewn_stage_senses_word_idx
+  ON ${STAGING_SCHEMA}.senses (normalized_word);
+CREATE INDEX IF NOT EXISTS oewn_stage_senses_batch_idx
+  ON ${STAGING_SCHEMA}.senses (batch_no);
+REVOKE ALL ON ALL TABLES IN SCHEMA ${STAGING_SCHEMA} FROM PUBLIC;
+
+INSERT INTO ${STAGING_SCHEMA}.import_meta
+  (id, version, archive_sha256, source_url, license_id, license_url, attribution,
+   license_notice, transformation, expected_lexemes, expected_senses, expected_reviewed,
+   expected_unreviewed, expected_batches, rows_per_batch)
+VALUES (${values.join(", ")})
+ON CONFLICT (id) DO NOTHING;
+`;
+}
+
+function renderStageBatchSql(rows, batchNo) {
+  const values = rows.map((row) =>
+    [
+      batchNo,
+      row.normalized_word,
+      row.word,
+      row.source_entry_ref,
+      row.sense_key,
+      row.priority,
+      row.part_of_speech,
+      row.phonetic,
+      row.definition_en,
+      row.sentence,
+    ]
+      .map((value, index) => (index === 0 || index === 5 ? String(value) : sqlValue(value)))
+      .join(", "),
+  );
+  return `-- Staging batch ${String(batchNo).padStart(2, "0")}; changes only ${STAGING_SCHEMA}.senses.
+INSERT INTO ${STAGING_SCHEMA}.senses
+  (batch_no, normalized_word, lemma, source_entry_ref, sense_key, priority,
+   part_of_speech, phonetic, definition_en, sentence)
+VALUES
+${values.map((value) => `  (${value})`).join(",\n")}
+ON CONFLICT (sense_key) DO UPDATE SET
+  batch_no = EXCLUDED.batch_no,
+  normalized_word = EXCLUDED.normalized_word,
+  lemma = EXCLUDED.lemma,
+  source_entry_ref = EXCLUDED.source_entry_ref,
+  priority = EXCLUDED.priority,
+  part_of_speech = EXCLUDED.part_of_speech,
+  phonetic = EXCLUDED.phonetic,
+  definition_en = EXCLUDED.definition_en,
+  sentence = EXCLUDED.sentence;
+`;
+}
+
+function stageAssertionStatements(batchCount, rowsPerBatch, expected, licenseNotice, reviewed) {
+  const pilotSenseKeys = reviewed
+    .filter((row) => row.priority === 100)
+    .map((row) => sqlValue(row.sense_key))
+    .join(", ");
+  return `SELECT * INTO _meta FROM ${STAGING_SCHEMA}.import_meta WHERE id = '${SOURCE.id}';
+IF NOT FOUND THEN RAISE EXCEPTION 'OEWN staging metadata is missing; run 00-stage-setup.sql'; END IF;
+IF (_meta.version, _meta.archive_sha256, _meta.source_url, _meta.license_id, _meta.license_url,
+    _meta.attribution, _meta.license_notice, _meta.transformation, _meta.expected_lexemes,
+    _meta.expected_senses, _meta.expected_reviewed, _meta.expected_unreviewed,
+    _meta.expected_batches, _meta.rows_per_batch)
+   IS DISTINCT FROM (${[
+     SOURCE.version,
+     SOURCE.archive_sha256,
+     SOURCE.source_url,
+     SOURCE.license_id,
+     SOURCE.license_url,
+     SOURCE.attribution,
+     licenseNotice.replace(/\r\n?/g, "\n"),
+     SOURCE.transformation,
+     expected.lexemes,
+     expected.senses,
+     expected.reviewed,
+     expected.unreviewed,
+     batchCount,
+     rowsPerBatch,
+   ]
+     .map(sqlValue)
+     .join(", ")}) THEN
+  RAISE EXCEPTION 'OEWN staging provenance or expected counts do not match this bundle';
+END IF;
+IF _meta.license_notice IS NULL OR btrim(_meta.license_notice) = '' THEN
+  RAISE EXCEPTION 'OEWN staging license notice is empty';
+END IF;
+SELECT count(*), count(DISTINCT normalized_word), count(*) FILTER (WHERE priority = 100),
+       count(*) FILTER (WHERE priority = 0), count(DISTINCT batch_no)
+  INTO _sense_count, _lexeme_count, _reviewed_count, _unreviewed_count, _batch_count
+  FROM ${STAGING_SCHEMA}.senses;
+IF (_sense_count, _lexeme_count, _reviewed_count, _unreviewed_count, _batch_count)
+   IS DISTINCT FROM (${expected.senses}, ${expected.lexemes}, ${expected.reviewed}, ${expected.unreviewed}, ${batchCount}) THEN
+  RAISE EXCEPTION 'OEWN staging counts mismatch: senses %, lexemes %, reviewed %, unreviewed %, batches %',
+    _sense_count, _lexeme_count, _reviewed_count, _unreviewed_count, _batch_count;
+END IF;
+SELECT count(*) INTO _pilot_key_count FROM ${STAGING_SCHEMA}.senses
+WHERE priority = 100 AND sense_key IN (${pilotSenseKeys || "NULL"});
+IF _pilot_key_count <> ${expected.reviewed} THEN
+  RAISE EXCEPTION 'OEWN staging reviewed pilot sense IDs do not match the approved set';
+END IF;
+FOR _batch_no IN 1..${batchCount} LOOP
+  _expected_batch_rows := LEAST(${rowsPerBatch}, ${expected.senses} - ((_batch_no - 1) * ${rowsPerBatch}));
+  SELECT count(*) INTO _actual_batch_rows FROM ${STAGING_SCHEMA}.senses WHERE batch_no = _batch_no;
+  IF _actual_batch_rows <> _expected_batch_rows THEN
+    RAISE EXCEPTION 'OEWN staging batch % has % rows; expected %', _batch_no, _actual_batch_rows, _expected_batch_rows;
+  END IF;
+END LOOP;`;
+}
+
+function renderStageValidationSql(batchCount, rowsPerBatch, expected, licenseNotice, reviewed) {
+  const assertions = stageAssertionStatements(
+    batchCount,
+    rowsPerBatch,
+    expected,
+    licenseNotice,
+    reviewed,
+  );
+  return `-- Read-only staging validation. Raises an exception unless all counts and provenance match.
+DO $oewn_validate$
 DECLARE
-  _pilot_count bigint;
-  _existing_senses bigint;
-  _source_hash text;
-  _source_license text;
-  _source_version text;
+  _meta record;
+  _sense_count bigint;
+  _lexeme_count bigint;
+  _reviewed_count bigint;
+  _unreviewed_count bigint;
+  _batch_count bigint;
   _pilot_key_count bigint;
+  _batch_no integer;
+  _expected_batch_rows bigint;
+  _actual_batch_rows bigint;
 BEGIN
-  IF to_regclass('public.lexemes') IS NULL OR to_regclass('public.lexicon_entries') IS NULL OR to_regclass('public.lexicon_sources') IS NULL THEN
-    RAISE EXCEPTION 'Shared Lexicon schema is missing; apply migrations 0006-0008 first';
+${assertions}
+END
+$oewn_validate$;
+
+SELECT 'STAGING VALIDATED' AS result, count(*) AS senses,
+       count(DISTINCT normalized_word) AS lexemes,
+       count(*) FILTER (WHERE priority = 100) AS reviewed_pilot_senses,
+       count(*) FILTER (WHERE priority = 0) AS unreviewed_senses,
+       count(DISTINCT batch_no) AS complete_batches,
+       max(m.id) AS source_id, max(m.version) AS source_version,
+       max(m.source_url) AS source_url, max(m.license_id) AS license_id,
+       max(m.license_url) AS license_url, max(m.attribution) AS attribution,
+       max(m.archive_sha256) AS source_archive_sha256,
+       bool_and(m.version = '${SOURCE.version}' AND m.source_url = '${SOURCE.source_url}'
+         AND m.license_id = '${SOURCE.license_id}' AND m.license_url = '${SOURCE.license_url}'
+         AND m.attribution = ${sqlValue(SOURCE.attribution)}
+         AND m.archive_sha256 = '${SOURCE.archive_sha256}'
+         AND m.license_notice = ${sqlValue(licenseNotice.replace(/\r\n?/g, "\n"))}
+         AND m.transformation = ${sqlValue(SOURCE.transformation)}) AS provenance_match
+FROM ${STAGING_SCHEMA}.senses CROSS JOIN ${STAGING_SCHEMA}.import_meta m
+WHERE m.id = '${SOURCE.id}';
+`;
+}
+
+function renderLovableFinalApplySql(batchCount, rowsPerBatch, expected, reviewed, licenseNotice) {
+  const assertions = stageAssertionStatements(
+    batchCount,
+    rowsPerBatch,
+    expected,
+    licenseNotice,
+    reviewed,
+  );
+  return `-- Single-statement final apply. Execute only after 11-stage-validation.sql succeeds.
+-- Any raised exception aborts this DO statement and rolls back its public-table changes.
+DO $oewn_apply$
+DECLARE
+  _meta record;
+  _sense_count bigint;
+  _lexeme_count bigint;
+  _reviewed_count bigint;
+  _unreviewed_count bigint;
+  _batch_count bigint;
+  _pilot_key_count bigint;
+  _batch_no integer;
+  _expected_batch_rows bigint;
+  _actual_batch_rows bigint;
+  _existing_senses bigint;
+  _existing_pilots bigint;
+  _pilot_match_count bigint;
+  _extra_senses bigint;
+  _existing_mismatches bigint;
+  _source_hash text;
+  _source_version text;
+  _source_license text;
+  _post_source_count bigint;
+BEGIN
+  IF to_regclass('public.lexemes') IS NULL OR to_regclass('public.lexicon_sources') IS NULL
+     OR to_regclass('public.lexicon_entries') IS NULL THEN
+    RAISE EXCEPTION 'Shared Lexicon tables are missing; ensure migrations 0006-0008 are applied';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='lexicon_sources' AND column_name='source_sha256')
      OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='lexicon_sources' AND column_name='license_notice')
      OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='lexicon_sources' AND column_name='transformation') THEN
-    RAISE EXCEPTION 'Lexicon provenance columns are missing; apply migration 0007 first';
+    RAISE EXCEPTION 'Lexicon provenance schema is incomplete; ensure migration 0007 is applied';
   END IF;
-  SELECT count(*) INTO _existing_senses FROM public.lexicon_entries WHERE source_id='oewn-2025';
-  IF _existing_senses > ${expectedSenses} THEN
-    RAISE EXCEPTION 'Found % OEWN senses, more than this bundle expects (${expectedSenses})', _existing_senses;
-  END IF;
-  SELECT count(*) INTO _pilot_count FROM public.lexicon_entries WHERE source_id='oewn-2025' AND priority=100;
-  IF _pilot_count <> ${expectedReviewed} THEN
-    RAISE EXCEPTION 'Expected ${expectedReviewed} reviewed pilot senses at priority 100, found %', _pilot_count;
-  END IF;
-  SELECT count(*) INTO _pilot_key_count FROM public.lexicon_entries
-    WHERE source_id='oewn-2025' AND priority=100 AND sense_key IN (${pilotSenseList});
-  IF _pilot_key_count <> ${expectedReviewed} THEN
-    RAISE EXCEPTION 'Existing reviewed pilot sense IDs do not match this import';
-  END IF;
-  SELECT source_sha256, license_id, version INTO _source_hash, _source_license, _source_version
-    FROM public.lexicon_sources WHERE id='oewn-2025';
-  IF FOUND AND ((_source_hash IS NOT NULL AND _source_hash <> '${ARCHIVE_SHA256}') OR (_source_license IS NOT NULL AND _source_license <> 'CC-BY-4.0') OR (_source_version IS NOT NULL AND _source_version <> '2025-12-31')) THEN
-    RAISE EXCEPTION 'Existing OEWN source provenance does not match this archive/license';
-  END IF;
-END $$;
 
-${insertStatements}
+${assertions}
 
-DO $$
-DECLARE
-  _sense_count bigint;
-  _lexeme_count bigint;
-  _reviewed_count bigint;
-  _pilot_key_count bigint;
-  _unreviewed_count bigint;
-  _provenance_count bigint;
-BEGIN
-  SELECT count(*), count(DISTINCT lexeme_id), count(*) FILTER (WHERE priority=100), count(*) FILTER (WHERE priority=0)
+  SELECT count(*), count(*) FILTER (WHERE priority = 100)
+    INTO _existing_senses, _existing_pilots
+    FROM public.lexicon_entries WHERE source_id = '${SOURCE.id}';
+  IF _existing_senses NOT IN (${expected.reviewed}, ${expected.senses}) OR _existing_pilots <> ${expected.reviewed} THEN
+    RAISE EXCEPTION 'Existing OEWN state must be the 26-sense pilot or a completed import; got % senses and % pilots', _existing_senses, _existing_pilots;
+  END IF;
+  SELECT count(*) INTO _pilot_match_count
+  FROM ${STAGING_SCHEMA}.senses s
+  JOIN public.lexemes l ON l.language = 'en' AND l.normalized_word = s.normalized_word
+  LEFT JOIN public.lexicon_entries e ON e.lexeme_id = l.id AND e.source_id = '${SOURCE.id}' AND e.sense_key = s.sense_key
+  WHERE s.priority = 100 AND e.id IS NOT NULL AND e.priority = 100
+    AND e.source_entry_ref IS NOT DISTINCT FROM s.source_entry_ref
+    AND e.part_of_speech IS NOT DISTINCT FROM s.part_of_speech
+    AND e.phonetic IS NOT DISTINCT FROM s.phonetic
+    AND e.definition_en IS NOT DISTINCT FROM s.definition_en
+    AND e.sentence IS NOT DISTINCT FROM s.sentence;
+  IF _pilot_match_count <> ${expected.reviewed} THEN
+    RAISE EXCEPTION 'Existing reviewed pilot content/identity does not exactly match staging';
+  END IF;
+  SELECT count(*) INTO _extra_senses FROM public.lexicon_entries e
+  WHERE e.source_id = '${SOURCE.id}' AND NOT EXISTS (
+    SELECT 1 FROM ${STAGING_SCHEMA}.senses s
+    JOIN public.lexemes l ON l.language = 'en' AND l.normalized_word = s.normalized_word
+    WHERE l.id = e.lexeme_id AND s.sense_key = e.sense_key
+  );
+  IF _extra_senses <> 0 THEN RAISE EXCEPTION 'Existing OEWN rows include senses outside the staged source'; END IF;
+  SELECT count(*) INTO _existing_mismatches FROM public.lexicon_entries e
+  JOIN public.lexemes l ON l.id = e.lexeme_id
+  JOIN ${STAGING_SCHEMA}.senses s ON s.normalized_word = l.normalized_word AND s.sense_key = e.sense_key
+  WHERE e.source_id = '${SOURCE.id}' AND (
+    e.source_entry_ref IS DISTINCT FROM s.source_entry_ref OR e.priority IS DISTINCT FROM s.priority OR
+    e.part_of_speech IS DISTINCT FROM s.part_of_speech OR e.phonetic IS DISTINCT FROM s.phonetic OR
+    e.definition_en IS DISTINCT FROM s.definition_en OR e.sentence IS DISTINCT FROM s.sentence
+  );
+  IF _existing_mismatches <> 0 THEN RAISE EXCEPTION 'Existing OEWN rows conflict with staged source content'; END IF;
+  SELECT source_sha256, version, license_id INTO _source_hash, _source_version, _source_license
+    FROM public.lexicon_sources WHERE id = '${SOURCE.id}';
+  IF FOUND AND ((_source_hash IS NOT NULL AND _source_hash <> '${SOURCE.archive_sha256}') OR
+                (_source_version IS NOT NULL AND _source_version <> '${SOURCE.version}') OR
+                (_source_license IS NOT NULL AND _source_license <> '${SOURCE.license_id}')) THEN
+    RAISE EXCEPTION 'Existing OEWN source identity/provenance conflicts with staging';
+  END IF;
+
+  INSERT INTO public.lexicon_sources
+    (id, title, version, source_url, license_id, license_url, attribution, license_notice, source_sha256, transformation)
+  VALUES
+    (_meta.id, 'Open English WordNet 2025', _meta.version, _meta.source_url, _meta.license_id,
+     _meta.license_url, _meta.attribution, _meta.license_notice, _meta.archive_sha256, _meta.transformation)
+  ON CONFLICT (id) DO UPDATE SET
+    title = EXCLUDED.title, version = EXCLUDED.version, source_url = EXCLUDED.source_url,
+    license_id = EXCLUDED.license_id, license_url = EXCLUDED.license_url,
+    attribution = EXCLUDED.attribution, license_notice = EXCLUDED.license_notice,
+    source_sha256 = EXCLUDED.source_sha256, transformation = EXCLUDED.transformation;
+
+  INSERT INTO public.lexemes (language, normalized_word, lemma)
+  SELECT 'en', normalized_word, min(lemma)
+  FROM ${STAGING_SCHEMA}.senses GROUP BY normalized_word
+  ON CONFLICT (language, normalized_word) DO NOTHING;
+
+  INSERT INTO public.lexicon_entries
+    (lexeme_id, source_id, source_entry_ref, sense_key, priority, part_of_speech, phonetic, definition_en, sentence)
+  SELECT l.id, _meta.id, s.source_entry_ref, s.sense_key, s.priority,
+         s.part_of_speech, s.phonetic, s.definition_en, s.sentence
+  FROM ${STAGING_SCHEMA}.senses s
+  JOIN public.lexemes l ON l.language = 'en' AND l.normalized_word = s.normalized_word
+  ON CONFLICT (lexeme_id, source_id, sense_key) DO UPDATE SET
+    source_entry_ref = EXCLUDED.source_entry_ref,
+    priority = GREATEST(public.lexicon_entries.priority, EXCLUDED.priority),
+    part_of_speech = EXCLUDED.part_of_speech, phonetic = EXCLUDED.phonetic,
+    definition_en = EXCLUDED.definition_en, sentence = EXCLUDED.sentence;
+
+  SELECT count(*), count(DISTINCT lexeme_id), count(*) FILTER (WHERE priority = 100),
+         count(*) FILTER (WHERE priority = 0)
     INTO _sense_count, _lexeme_count, _reviewed_count, _unreviewed_count
-    FROM public.lexicon_entries WHERE source_id='oewn-2025';
-  IF (_sense_count, _lexeme_count, _reviewed_count, _unreviewed_count) IS DISTINCT FROM (${expectedSenses}, ${expectedLexemes}, ${expectedReviewed}, ${expectedUnreviewed}) THEN
-    RAISE EXCEPTION 'OEWN postflight count mismatch: senses %, lexemes %, reviewed %, unreviewed %', _sense_count, _lexeme_count, _reviewed_count, _unreviewed_count;
+    FROM public.lexicon_entries WHERE source_id = '${SOURCE.id}';
+  IF (_sense_count, _lexeme_count, _reviewed_count, _unreviewed_count)
+     IS DISTINCT FROM (${expected.senses}, ${expected.lexemes}, ${expected.reviewed}, ${expected.unreviewed}) THEN
+    RAISE EXCEPTION 'OEWN final count mismatch: senses %, lexemes %, priority-100 %, priority-0 %',
+      _sense_count, _lexeme_count, _reviewed_count, _unreviewed_count;
   END IF;
-  SELECT count(*) INTO _pilot_key_count FROM public.lexicon_entries
-    WHERE source_id='oewn-2025' AND priority=100 AND sense_key IN (${pilotSenseList});
-  IF _pilot_key_count <> ${expectedReviewed} THEN RAISE EXCEPTION 'Reviewed pilot sense postflight check failed'; END IF;
-  SELECT count(*) INTO _provenance_count FROM public.lexicon_sources
-    WHERE id='oewn-2025' AND version='2025-12-31' AND license_id='CC-BY-4.0' AND source_sha256='${ARCHIVE_SHA256}'
-      AND source_url='${SOURCE.source_url}' AND license_url='${SOURCE.license_url}' AND length(license_notice)>0;
-  IF _provenance_count <> 1 THEN RAISE EXCEPTION 'OEWN source provenance postflight check failed'; END IF;
-END $$;
-
-COMMIT;
-
-SELECT b.lexemes_total AS lexemes_before, (SELECT count(*) FROM public.lexemes) AS lexemes_after,
-       (SELECT count(*) FROM public.lexicon_entries) AS all_senses_after,
-       b.oewn_lexemes AS oewn_lexemes_before,
-       (SELECT count(DISTINCT lexeme_id) FROM public.lexicon_entries WHERE source_id='oewn-2025') AS oewn_lexemes_after,
-       b.oewn_senses AS oewn_senses_before,
-       (SELECT count(*) FROM public.lexicon_entries WHERE source_id='oewn-2025') AS oewn_senses_after,
-       b.sources_total AS sources_before, (SELECT count(*) FROM public.lexicon_sources) AS sources_after,
-       (SELECT count(*) FROM public.lexicon_sources WHERE id='oewn-2025' AND source_sha256='${ARCHIVE_SHA256}' AND version='2025-12-31') AS verified_oewn_provenance_rows
-FROM oewn_import_baseline AS b;
+  SELECT count(*) INTO _post_source_count FROM public.lexicon_sources
+  WHERE id = _meta.id AND version = _meta.version AND source_url = _meta.source_url
+    AND license_id = _meta.license_id AND license_url = _meta.license_url
+    AND attribution = _meta.attribution AND license_notice = _meta.license_notice
+    AND source_sha256 = _meta.archive_sha256 AND transformation = _meta.transformation;
+  IF _post_source_count <> 1 THEN RAISE EXCEPTION 'OEWN source provenance post-apply check failed'; END IF;
+END
+$oewn_apply$;
 `;
 }
 
-export function renderProductionRollbackSql(
-  expectedSenses,
-  expectedReviewed,
-  expectedLexemes,
-  pilotSenseKeys,
-) {
-  const expectedUnreviewed = expectedSenses - expectedReviewed;
-  if (pilotSenseKeys.length !== expectedReviewed)
-    throw new Error("Rollback requires the complete reviewed pilot sense ID list");
-  const pilotSenseList = pilotSenseKeys.map(sqlValue).join(", ");
-  return `-- Roll back the full OEWN 2025 NGSL import before exposing its unreviewed senses.
--- Requires the exact imported archive and counts. Keeps all 26 reviewed pilot senses and shared lexemes.
-BEGIN;
-DO $$
-DECLARE _senses bigint; _pilots bigint; _unreviewed bigint; _lexemes bigint;
-BEGIN
-  SELECT count(*), count(*) FILTER (WHERE priority=100), count(*) FILTER (WHERE priority=0), count(DISTINCT lexeme_id)
-    INTO _senses, _pilots, _unreviewed, _lexemes
-    FROM public.lexicon_entries WHERE source_id='oewn-2025';
-  IF (_senses, _pilots, _unreviewed, _lexemes) IS DISTINCT FROM (${expectedSenses}, ${expectedReviewed}, ${expectedUnreviewed}, ${expectedLexemes}) THEN
-    RAISE EXCEPTION 'Rollback stopped: OEWN rows no longer match the prepared import (senses %, pilots %, unreviewed %, lexemes %)', _senses, _pilots, _unreviewed, _lexemes;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.lexicon_sources WHERE id='oewn-2025' AND version='2025-12-31' AND source_sha256='${ARCHIVE_SHA256}') THEN
-    RAISE EXCEPTION 'Rollback stopped: OEWN source provenance changed';
-  END IF;
-  IF (SELECT count(*) FROM public.lexicon_entries WHERE source_id='oewn-2025' AND priority=100 AND sense_key IN (${pilotSenseList})) <> ${expectedReviewed} THEN
-    RAISE EXCEPTION 'Rollback stopped: reviewed pilot sense IDs changed';
-  END IF;
-END $$;
-
-DELETE FROM public.lexicon_entries WHERE source_id='oewn-2025' AND priority=0;
-UPDATE public.lexicon_sources SET
-  attribution=${sqlValue(pilotAttribution)},
-  transformation=${sqlValue(pilotTransformation)}
-WHERE id='oewn-2025' AND version='2025-12-31' AND source_sha256='${ARCHIVE_SHA256}';
-COMMIT;
+function renderLovableVerificationSql(expected, licenseNotice) {
+  return `-- Read-only post-apply verification. All *_match fields must be true.
+WITH counts AS (
+  SELECT count(*) AS senses, count(DISTINCT lexeme_id) AS lexemes,
+         count(*) FILTER (WHERE priority = 100) AS priority_100,
+         count(*) FILTER (WHERE priority = 0) AS priority_0
+  FROM public.lexicon_entries WHERE source_id = '${SOURCE.id}'
+), source AS (
+  SELECT count(*) AS source_rows, max(id) AS source_id, max(version) AS source_version,
+         max(source_url) AS source_url, max(license_id) AS license_id,
+         max(license_url) AS license_url, max(attribution) AS attribution,
+         max(source_sha256) AS archive_sha256,
+         bool_and(version = '${SOURCE.version}' AND source_url = '${SOURCE.source_url}'
+           AND license_id = '${SOURCE.license_id}' AND license_url = '${SOURCE.license_url}'
+           AND attribution = ${sqlValue(SOURCE.attribution)}
+           AND source_sha256 = '${SOURCE.archive_sha256}'
+           AND license_notice = ${sqlValue(licenseNotice.replace(/\r\n?/g, "\n").trim())}
+           AND transformation = ${sqlValue(SOURCE.transformation)}) AS provenance_match
+  FROM public.lexicon_sources WHERE id = '${SOURCE.id}'
+)
+SELECT c.senses, c.lexemes, c.priority_100, c.priority_0, s.source_rows,
+       s.source_id, s.source_version, s.source_url, s.license_id, s.license_url,
+       s.attribution, s.archive_sha256, s.provenance_match,
+       (c.senses = ${expected.senses} AND c.lexemes = ${expected.lexemes}
+        AND c.priority_100 = ${expected.reviewed} AND c.priority_0 = ${expected.unreviewed}) AS counts_match,
+       (s.source_rows = 1 AND coalesce(s.provenance_match, false)) AS provenance_match_all,
+       (c.senses = ${expected.senses} AND c.lexemes = ${expected.lexemes}
+        AND c.priority_100 = ${expected.reviewed} AND c.priority_0 = ${expected.unreviewed}
+        AND s.source_rows = 1 AND coalesce(s.provenance_match, false)) AS overall_match
+FROM counts c CROSS JOIN source s;
 `;
+}
+
+function renderLovableCleanupSql(expected, licenseNotice) {
+  return `-- Guarded cleanup. Drops staging only while the verified public import and provenance still match.
+DO $oewn_cleanup$
+DECLARE
+  _matches boolean;
+BEGIN
+  WITH counts AS (
+    SELECT count(*) AS senses, count(DISTINCT lexeme_id) AS lexemes,
+           count(*) FILTER (WHERE priority = 100) AS priority_100,
+           count(*) FILTER (WHERE priority = 0) AS priority_0
+    FROM public.lexicon_entries WHERE source_id = '${SOURCE.id}'
+  ), source AS (
+    SELECT count(*) AS source_rows,
+           bool_and(version = '${SOURCE.version}' AND source_url = '${SOURCE.source_url}'
+             AND license_id = '${SOURCE.license_id}' AND license_url = '${SOURCE.license_url}'
+             AND attribution = ${sqlValue(SOURCE.attribution)}
+             AND source_sha256 = '${SOURCE.archive_sha256}'
+             AND license_notice = ${sqlValue(licenseNotice.replace(/\r\n?/g, "\n").trim())}
+             AND transformation = ${sqlValue(SOURCE.transformation)}) AS provenance_match
+    FROM public.lexicon_sources WHERE id = '${SOURCE.id}'
+  )
+  SELECT (c.senses = ${expected.senses} AND c.lexemes = ${expected.lexemes}
+          AND c.priority_100 = ${expected.reviewed} AND c.priority_0 = ${expected.unreviewed}
+          AND s.source_rows = 1 AND coalesce(s.provenance_match, false))
+    INTO _matches
+    FROM counts c CROSS JOIN source s;
+  IF _matches IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'OEWN cleanup refused: post-import counts or provenance do not match';
+  END IF;
+  EXECUTE 'DROP SCHEMA IF EXISTS ${STAGING_SCHEMA} CASCADE';
+END
+$oewn_cleanup$;
+`;
+}
+
+export function renderLovableCloudBundle(candidates, reviewed, licenseNotice) {
+  const rows = fullImportRows(candidates, reviewed);
+  const statementBatches = chunked(rows, STAGING_ROWS_PER_STATEMENT);
+  const fileBatches = chunked(
+    statementBatches.map((batch, index) => ({ batch, batchNo: index + 1 })),
+    STAGING_STATEMENTS_PER_FILE,
+  );
+  const expected = {
+    lexemes: new Set(rows.map((row) => row.normalized_word)).size,
+    senses: rows.length,
+    reviewed: reviewed.filter((row) => row.priority === 100).length,
+  };
+  expected.unreviewed = expected.senses - expected.reviewed;
+
+  const batchFiles = fileBatches.map((fileBatches, fileIndex) => {
+    const fileNumber = String(fileIndex + 1).padStart(2, "0");
+    const name = `${fileNumber}-stage-batches.sql`;
+    const sql = fileBatches
+      .map(({ batch, batchNo }) => renderStageBatchSql(batch, batchNo))
+      .join("\n");
+    return {
+      name,
+      content: sql,
+      batches: fileBatches.map(({ batch, batchNo }) => ({ batch_no: batchNo, rows: batch.length })),
+    };
+  });
+  const sqlFiles = [
+    {
+      name: "00-stage-setup.sql",
+      content: renderStageSetupSql(
+        expected,
+        statementBatches.length,
+        STAGING_ROWS_PER_STATEMENT,
+        licenseNotice,
+      ),
+    },
+    ...batchFiles,
+    {
+      name: "11-stage-validation.sql",
+      content: renderStageValidationSql(
+        statementBatches.length,
+        STAGING_ROWS_PER_STATEMENT,
+        expected,
+        licenseNotice,
+        reviewed,
+      ),
+    },
+    {
+      name: "12-final-apply.sql",
+      content: renderLovableFinalApplySql(
+        statementBatches.length,
+        STAGING_ROWS_PER_STATEMENT,
+        expected,
+        reviewed,
+        licenseNotice,
+      ),
+    },
+    { name: "13-verification.sql", content: renderLovableVerificationSql(expected, licenseNotice) },
+    { name: "14-cleanup.sql", content: renderLovableCleanupSql(expected, licenseNotice) },
+  ];
+  const manifest = {
+    format_version: 1,
+    source_id: SOURCE.id,
+    source_version: SOURCE.version,
+    archive_sha256: SOURCE.archive_sha256,
+    expected,
+    staging: {
+      schema: STAGING_SCHEMA,
+      rows_per_statement: STAGING_ROWS_PER_STATEMENT,
+      insert_statements: statementBatches.length,
+      batch_files: batchFiles.length,
+      statements_per_file: STAGING_STATEMENTS_PER_FILE,
+    },
+    files: sqlFiles.map(({ name, content, batches }) => ({
+      name,
+      bytes: Buffer.byteLength(content),
+      sha256: createHash("sha256").update(content).digest("hex"),
+      ...(batches ? { batches } : {}),
+    })),
+  };
+  return [
+    ...sqlFiles.map(({ name, content }) => [name, content]),
+    ["manifest.json", `${JSON.stringify(manifest, null, 2)}\n`],
+  ];
 }
 
 export function assertPilotPreserved(candidates, reviewed, pilot) {
@@ -502,14 +857,15 @@ function main() {
   let outputDir;
   let check = false;
   let dryRun = false;
-  let productionBundle = false;
+  let lovableCloudBundle = false;
   let reviewedPath = join(root, "src/data/oewn-2025-pilot-senses.tsv");
   let reviewedSpecified = false;
   let invalidOption = false;
   for (let index = 0; index < options.length; index++) {
     if (options[index] === "--check" && !check) check = true;
     else if (options[index] === "--dry-run" && !dryRun) dryRun = true;
-    else if (options[index] === "--production-bundle" && !productionBundle) productionBundle = true;
+    else if (options[index] === "--lovable-cloud-bundle" && !lovableCloudBundle)
+      lovableCloudBundle = true;
     else if (
       options[index] === "--reviewed" &&
       !reviewedSpecified &&
@@ -525,12 +881,12 @@ function main() {
     !archivePath ||
     invalidOption ||
     (check && dryRun) ||
-    (dryRun && productionBundle) ||
+    (dryRun && lovableCloudBundle) ||
     (!dryRun && !outputDir) ||
     (dryRun && outputDir)
   )
     throw new Error(
-      "Usage: node scripts/prepare-oewn-2025-ngsl.mjs <official-json.zip> [<output-directory> | --dry-run] [--reviewed <tsv>] [--production-bundle] [--check]",
+      "Usage: node scripts/prepare-oewn-2025-ngsl.mjs <official-json.zip> [<output-directory> | --dry-run] [--reviewed <tsv>] [--lovable-cloud-bundle] [--check]",
     );
   const actualSha256 = createHash("sha256").update(readFileSync(archivePath)).digest("hex");
   if (actualSha256 !== ARCHIVE_SHA256)
@@ -555,41 +911,11 @@ function main() {
     case_only_headwords_excluded: audit.summary.case_only_headwords,
     unmatched_headwords_excluded: audit.summary.no_oewn_headword,
   };
-  const licenseNotice = readFileSync(join(root, "src/data/OEWN-WNDB-LICENSE.txt"), "utf8").trim();
+  const licenseNotice = readFileSync(join(root, "src/data/OEWN-WNDB-LICENSE.txt"), "utf8")
+    .replace(/\r\n?/g, "\n")
+    .trim();
   const reviewedSql = renderReviewedSql(reviewed, licenseNotice);
-  const fullSql = renderFullSql(audit.candidates, reviewed, licenseNotice);
-  const productionImportSql = renderProductionImportSql(audit.candidates, reviewed, licenseNotice);
-  const productionRollbackSql = renderProductionRollbackSql(
-    audit.summary.candidate_senses,
-    reviewed.filter((row) => row.priority === 100).length,
-    audit.summary.candidate_lexemes,
-    reviewed.filter((row) => row.priority === 100).map((row) => row.sense_key),
-  );
-  const productionManifest = {
-    source_id: SOURCE_ID,
-    version: SOURCE.version,
-    archive_sha256: ARCHIVE_SHA256,
-    expected: {
-      exact_ngsl_lexemes: audit.summary.candidate_lexemes,
-      senses: audit.summary.candidate_senses,
-      reviewed_pilot_senses: reviewed.filter((row) => row.priority === 100).length,
-      unreviewed_senses: audit.summary.candidate_senses - reviewed.length,
-    },
-    files: {
-      import: {
-        name: "production-import.sql",
-        sha256: createHash("sha256").update(productionImportSql).digest("hex"),
-        bytes: Buffer.byteLength(productionImportSql),
-      },
-      rollback: {
-        name: "production-rollback.sql",
-        sha256: createHash("sha256").update(productionRollbackSql).digest("hex"),
-        bytes: Buffer.byteLength(productionRollbackSql),
-      },
-    },
-  };
-  importPlan.sql_sha256 = createHash("sha256").update(fullSql).digest("hex");
-  importPlan.sql_bytes = Buffer.byteLength(fullSql);
+  const lovableSqlBundle = renderLovableCloudBundle(audit.candidates, reviewed, licenseNotice);
   const summary = { source, ...audit.summary, import_plan: importPlan };
   if (dryRun) {
     console.log(JSON.stringify(summary, null, 2));
@@ -600,14 +926,8 @@ function main() {
     ["lemmas.json", `${JSON.stringify(audit.lemmas, null, 2)}\n`],
     ["candidate-senses.json", `${JSON.stringify(audit.candidates, null, 2)}\n`],
     ["reviewed-import.sql", reviewedSql],
-    ["full-import.sql", fullSql],
-    ["production-import.sql", productionImportSql],
-    ["production-rollback.sql", productionRollbackSql],
-    ["production-manifest.json", `${JSON.stringify(productionManifest, null, 2)}\n`],
   ];
-  const outputs = productionBundle
-    ? auditOutputs.filter(([name]) => name.startsWith("production-"))
-    : auditOutputs;
+  const outputs = lovableCloudBundle ? lovableSqlBundle : auditOutputs;
   if (!check) mkdirSync(outputDir, { recursive: true });
   for (const [name, content] of outputs) {
     const path = join(outputDir, name);
@@ -617,7 +937,9 @@ function main() {
     } else writeFileSync(path, content);
   }
   console.log(
-    `${check ? "Verified" : "Prepared"} ${importPlan.lexemes} lexemes and ${importPlan.senses} senses for staged import; ${importPlan.reviewed_primary_senses} reviewed primary senses.`,
+    lovableCloudBundle
+      ? `${check ? "Verified" : "Prepared"} Lovable Cloud bundle: ${lovableSqlBundle.length - 1} SQL files, ${importPlan.lexemes} lexemes, ${importPlan.senses} senses.`
+      : `${check ? "Verified" : "Prepared"} ${importPlan.lexemes} lexemes and ${importPlan.senses} senses for audit; ${importPlan.reviewed_primary_senses} reviewed primary senses.`,
   );
 }
 
