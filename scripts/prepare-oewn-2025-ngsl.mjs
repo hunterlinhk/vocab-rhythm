@@ -15,10 +15,10 @@ const SOURCE = {
   license_id: "CC-BY-4.0",
   license_url: "https://github.com/globalwordnet/english-wordnet/blob/2025-edition/LICENSE.md",
   attribution:
-    "Open English Wordnet 2025 © The Open English WordNet Team, CC BY 4.0; derived from Princeton WordNet 3.1 © 2011 Princeton University under the WordNet License. Selected and transformed reviewed NGSL senses; no endorsement is implied.",
+    "Open English Wordnet 2025 © The Open English WordNet Team, CC BY 4.0; derived from Princeton WordNet 3.1 © 2011 Princeton University under the WordNet License. Selected and transformed NGSL senses; no endorsement is implied.",
   archive_sha256: ARCHIVE_SHA256,
   transformation:
-    "Reviewed NGSL headwords and OEWN sense IDs; first source definition and synset example; US IPA preferred over GB. No inferred content or translations.",
+    "Exact-spelling NGSL headwords and explicitly reviewed sense IDs; first source definition and synset example; US IPA preferred over GB. No inferred content, translations, or automatic default sense.",
 };
 const POS_NAMES = { n: "noun", v: "verb", a: "adjective", s: "adjective", r: "adverb" };
 
@@ -235,9 +235,16 @@ export function selectReviewed(candidates, tsv) {
 }
 
 const sqlValue = (value) => (value == null ? "NULL" : `'${String(value).replaceAll("'", "''")}'`);
+const SQL_BATCH = 400;
+const batches = (rows) =>
+  Array.from({ length: Math.ceil(rows.length / SQL_BATCH) }, (_, index) =>
+    rows.slice(index * SQL_BATCH, (index + 1) * SQL_BATCH),
+  );
 
-export function renderReviewedSql(reviewed, licenseNotice) {
-  if (!reviewed.length) throw new Error("No reviewed senses to import");
+function renderImportSql(rows, licenseNotice, label) {
+  if (!rows.length) throw new Error("No OEWN senses to import");
+  if (new Set(rows.map((row) => `${row.normalized_word}\0${row.sense_key}`)).size !== rows.length)
+    throw new Error("Duplicate OEWN sense in import batch");
   const sourceValues = [
     SOURCE.id,
     SOURCE.title,
@@ -250,24 +257,50 @@ export function renderReviewedSql(reviewed, licenseNotice) {
     SOURCE.archive_sha256,
     SOURCE.transformation,
   ].map(sqlValue);
-  const lexemes = [...new Map(reviewed.map((row) => [row.normalized_word, row.word])).entries()];
-  const entryValues = reviewed.map(
-    (row) =>
-      `  (${[
-        row.normalized_word,
-        row.source_entry_ref,
-        row.sense_key,
-        row.priority,
-        row.part_of_speech,
-        row.phonetic,
-        row.definition_en,
-        row.sentence,
-      ]
-        .map((value, index) => (index === 3 ? String(value) : sqlValue(value)))
-        .join(", ")})`,
-  );
-  return `-- Staged OEWN 2025 NGSL import. Apply only after reviewing selections and database state.
+  const lexemes = [...new Map(rows.map((row) => [row.normalized_word, row.word])).entries()];
+  const lexemeSql = batches(lexemes)
+    .map(
+      (batch) => `INSERT INTO public.lexemes (language, normalized_word, lemma)
+VALUES
+${batch.map(([normalized, word]) => `  ('en', ${sqlValue(normalized)}, ${sqlValue(word)})`).join(",\n")}
+ON CONFLICT (language, normalized_word) DO NOTHING;`,
+    )
+    .join("\n\n");
+  const entrySql = batches(rows)
+    .map((batch) => {
+      const values = batch.map(
+        (row) =>
+          `  (${[
+            row.normalized_word,
+            row.source_entry_ref,
+            row.sense_key,
+            row.priority,
+            row.part_of_speech,
+            row.phonetic,
+            row.definition_en,
+            row.sentence,
+          ]
+            .map((value, index) => (index === 3 ? String(value) : sqlValue(value)))
+            .join(", ")})`,
+      );
+      return `INSERT INTO public.lexicon_entries
+  (lexeme_id, source_id, source_entry_ref, sense_key, priority, part_of_speech, phonetic, definition_en, sentence)
+SELECT l.id, ${sqlValue(SOURCE_ID)}, v.source_entry_ref, v.sense_key, v.priority,
+       v.part_of_speech, v.phonetic, v.definition_en, v.sentence
+FROM (VALUES
+${values.join(",\n")}
+) AS v(normalized_word, source_entry_ref, sense_key, priority, part_of_speech, phonetic, definition_en, sentence)
+JOIN public.lexemes AS l ON l.language = 'en' AND l.normalized_word = v.normalized_word
+ON CONFLICT (lexeme_id, source_id, sense_key) DO UPDATE SET
+  source_entry_ref = EXCLUDED.source_entry_ref,
+  priority = GREATEST(public.lexicon_entries.priority, EXCLUDED.priority),
+  part_of_speech = EXCLUDED.part_of_speech, phonetic = EXCLUDED.phonetic,
+  definition_en = EXCLUDED.definition_en, sentence = EXCLUDED.sentence;`;
+    })
+    .join("\n\n");
+  return `-- Staged OEWN 2025 NGSL ${label} import. Inspect before applying to any database.
 -- Requires migrations 0006-0008. No user learning records or book entries are changed.
+-- OEWN senses without an explicit reviewed primary have priority 0 and are not used by WordEntry hydration.
 BEGIN;
 INSERT INTO public.lexicon_sources
   (id, title, version, source_url, license_id, license_url, attribution, license_notice, source_sha256, transformation)
@@ -278,35 +311,53 @@ ON CONFLICT (id) DO UPDATE SET
   attribution = EXCLUDED.attribution, license_notice = EXCLUDED.license_notice,
   source_sha256 = EXCLUDED.source_sha256, transformation = EXCLUDED.transformation;
 
-INSERT INTO public.lexemes (language, normalized_word, lemma)
-VALUES
-${lexemes.map(([normalized, word]) => `  ('en', ${sqlValue(normalized)}, ${sqlValue(word)})`).join(",\n")}
-ON CONFLICT (language, normalized_word) DO NOTHING;
+${lexemeSql}
 
-INSERT INTO public.lexicon_entries
-  (lexeme_id, source_id, source_entry_ref, sense_key, priority, part_of_speech, phonetic, definition_en, sentence)
-SELECT l.id, ${sqlValue(SOURCE_ID)}, v.source_entry_ref, v.sense_key, v.priority,
-       v.part_of_speech, v.phonetic, v.definition_en, v.sentence
-FROM (VALUES
-${entryValues.join(",\n")}
-) AS v(normalized_word, source_entry_ref, sense_key, priority, part_of_speech, phonetic, definition_en, sentence)
-JOIN public.lexemes AS l ON l.language = 'en' AND l.normalized_word = v.normalized_word
-ON CONFLICT (lexeme_id, source_id, sense_key) DO UPDATE SET
-  source_entry_ref = EXCLUDED.source_entry_ref, priority = EXCLUDED.priority,
-  part_of_speech = EXCLUDED.part_of_speech, phonetic = EXCLUDED.phonetic,
-  definition_en = EXCLUDED.definition_en, sentence = EXCLUDED.sentence;
+${entrySql}
 COMMIT;
 `;
 }
 
+export function renderReviewedSql(reviewed, licenseNotice) {
+  return renderImportSql(reviewed, licenseNotice, "reviewed");
+}
+
+export function renderFullSql(candidates, reviewed, licenseNotice) {
+  const priorities = new Map(reviewed.map((row) => [row.source_entry_ref, row.priority]));
+  const rows = candidates.map((row) => ({
+    ...row,
+    priority: priorities.get(row.source_entry_ref) ?? 0,
+  }));
+  return renderImportSql(rows, licenseNotice, "all exact-headword senses");
+}
+
+export function assertPilotPreserved(candidates, reviewed, pilot) {
+  const bySense = new Map(candidates.map((row) => [row.source_entry_ref, row]));
+  const reviewedPriority = new Map(reviewed.map((row) => [row.source_entry_ref, row.priority]));
+  for (const old of pilot) {
+    const current = bySense.get(old.source_entry_ref);
+    if (
+      !current ||
+      reviewedPriority.get(old.source_entry_ref) !== 100 ||
+      ["word", "normalized_word", "part_of_speech", "phonetic", "definition_en", "sentence"].some(
+        (field) => current[field] !== old[field],
+      )
+    )
+      throw new Error(`Existing pilot sense changed or lost review: ${old.source_entry_ref}`);
+  }
+}
+
 function main() {
-  const [archivePath, outputDir, ...options] = process.argv.slice(2);
+  const [archivePath, ...options] = process.argv.slice(2);
+  let outputDir;
   let check = false;
+  let dryRun = false;
   let reviewedPath = join(root, "src/data/oewn-2025-pilot-senses.tsv");
   let reviewedSpecified = false;
   let invalidOption = false;
   for (let index = 0; index < options.length; index++) {
     if (options[index] === "--check" && !check) check = true;
+    else if (options[index] === "--dry-run" && !dryRun) dryRun = true;
     else if (
       options[index] === "--reviewed" &&
       !reviewedSpecified &&
@@ -315,11 +366,18 @@ function main() {
     ) {
       reviewedPath = options[++index];
       reviewedSpecified = true;
-    } else invalidOption = true;
+    } else if (!options[index].startsWith("--") && !outputDir) outputDir = options[index];
+    else invalidOption = true;
   }
-  if (!archivePath || !outputDir || invalidOption)
+  if (
+    !archivePath ||
+    invalidOption ||
+    (check && dryRun) ||
+    (!dryRun && !outputDir) ||
+    (dryRun && outputDir)
+  )
     throw new Error(
-      "Usage: node scripts/prepare-oewn-2025-ngsl.mjs <official-json.zip> <output-directory> [--reviewed <tsv>] [--check]",
+      "Usage: node scripts/prepare-oewn-2025-ngsl.mjs <official-json.zip> [<output-directory> | --dry-run] [--reviewed <tsv>] [--check]",
     );
   const actualSha256 = createHash("sha256").update(readFileSync(archivePath)).digest("hex");
   if (actualSha256 !== ARCHIVE_SHA256)
@@ -327,24 +385,39 @@ function main() {
   const words = parseNgsl(readFileSync(join(root, "src/data/ngsl-1.2-stats.csv"), "utf8"));
   const audit = analyzeNgsl(words, loadOewn(archivePath));
   const reviewed = selectReviewed(audit.candidates, readFileSync(reviewedPath, "utf8"));
+  const pilot = JSON.parse(readFileSync(join(root, "src/data/oewn-2025-pilot.json"), "utf8"));
+  assertPilotPreserved(audit.candidates, reviewed, pilot);
   const source = {
     ...SOURCE,
     reviewed_senses: reviewed.length,
     reviewed_lexemes: new Set(reviewed.map((row) => row.normalized_word)).size,
     review_policy:
-      "Only explicit word + OEWN sense ID pairs are import-ready; spelling matches remain candidates.",
+      "All exact-headword senses may be imported; only explicit reviewed primary senses hydrate WordEntry learning fields. Case-only and unmatched words are excluded.",
   };
+  const importPlan = {
+    lexemes: audit.summary.candidate_lexemes,
+    senses: audit.summary.candidate_senses,
+    reviewed_primary_senses: reviewed.filter((row) => row.priority === 100).length,
+    unreviewed_senses: audit.summary.candidate_senses - reviewed.length,
+    case_only_headwords_excluded: audit.summary.case_only_headwords,
+    unmatched_headwords_excluded: audit.summary.no_oewn_headword,
+  };
+  const licenseNotice = readFileSync(join(root, "src/data/OEWN-WNDB-LICENSE.txt"), "utf8").trim();
+  const reviewedSql = renderReviewedSql(reviewed, licenseNotice);
+  const fullSql = renderFullSql(audit.candidates, reviewed, licenseNotice);
+  importPlan.sql_sha256 = createHash("sha256").update(fullSql).digest("hex");
+  importPlan.sql_bytes = Buffer.byteLength(fullSql);
+  const summary = { source, ...audit.summary, import_plan: importPlan };
+  if (dryRun) {
+    console.log(JSON.stringify(summary, null, 2));
+    return;
+  }
   const outputs = [
-    ["summary.json", `${JSON.stringify({ source, ...audit.summary }, null, 2)}\n`],
+    ["summary.json", `${JSON.stringify(summary, null, 2)}\n`],
     ["lemmas.json", `${JSON.stringify(audit.lemmas, null, 2)}\n`],
     ["candidate-senses.json", `${JSON.stringify(audit.candidates, null, 2)}\n`],
-    [
-      "reviewed-import.sql",
-      renderReviewedSql(
-        reviewed,
-        readFileSync(join(root, "src/data/OEWN-WNDB-LICENSE.txt"), "utf8").trim(),
-      ),
-    ],
+    ["reviewed-import.sql", reviewedSql],
+    ["full-import.sql", fullSql],
   ];
   if (!check) mkdirSync(outputDir, { recursive: true });
   for (const [name, content] of outputs) {
@@ -355,7 +428,7 @@ function main() {
     } else writeFileSync(path, content);
   }
   console.log(
-    `${check ? "Verified" : "Prepared"} ${audit.summary.candidate_lexemes} candidate lemmas, ${audit.summary.candidate_senses} candidate senses, ${reviewed.length} reviewed senses.`,
+    `${check ? "Verified" : "Prepared"} ${importPlan.lexemes} lexemes and ${importPlan.senses} senses for staged import; ${importPlan.reviewed_primary_senses} reviewed primary senses.`,
   );
 }
 

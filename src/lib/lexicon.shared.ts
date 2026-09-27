@@ -30,7 +30,10 @@ export const lexemeKey = (word: string) => word.trim().toLowerCase();
 
 /** Book-local content wins. Shared content fills missing fields without changing book identity or statistics. */
 export function assembleWordEntry(entry: WordEntry, content: LexiconContent[]): LexiconResolution {
-  const ordered = [...content].sort(
+  // The full OEWN import stores every sense at priority 0. Only explicitly reviewed
+  // OEWN primaries (including the original 26 pilot senses) may hydrate WordEntry.
+  const eligible = content.filter((row) => row.source_id !== "oewn-2025" || row.priority >= 100);
+  const ordered = [...eligible].sort(
     (a, b) =>
       b.priority - a.priority ||
       a.source_id.localeCompare(b.source_id) ||

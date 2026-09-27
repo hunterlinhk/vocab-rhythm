@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import {
   analyzeNgsl,
+  assertPilotPreserved,
   parseNgsl,
+  renderFullSql,
   renderReviewedSql,
   selectReviewed,
 } from "../scripts/prepare-oewn-2025-ngsl.mjs";
@@ -131,6 +133,44 @@ test("staged SQL preserves provenance and uses idempotent upserts without user-d
   assert.doesNotMatch(
     sql,
     /(?:INSERT|UPDATE|DELETE) (?:INTO |FROM )?public\.(word_entries|attempts|word_mastery)/,
+  );
+});
+
+test("full SQL retains every exact sense and only reviewed primaries get display priority", () => {
+  const { candidates } = analyzeNgsl(["bank", "learn", "it"], fixture());
+  const reviewed = selectReviewed(candidates, "bank\tbank%1:14:00::\nlearn\tlearn%2:31:00::");
+  const sql = renderFullSql(candidates, reviewed, "WordNet license notice");
+  for (const row of candidates) assert.ok(sql.includes(row.source_entry_ref));
+  assert.doesNotMatch(sql, /IT%1:14:00::/);
+  assert.match(sql, /bank%1:14:00::', 'bank%1:14:00::', 100,/);
+  assert.match(sql, /bank%1:17:00::', 'bank%1:17:00::', 0,/);
+  assert.match(sql, /GREATEST\(public\.lexicon_entries\.priority, EXCLUDED\.priority\)/);
+  assert.doesNotMatch(
+    sql,
+    /(?:INSERT|UPDATE|DELETE) (?:INTO |FROM )?public\.(word_entries|attempts|word_mastery)/,
+  );
+});
+
+test("full import batches large sense sets into bounded insert statements", () => {
+  const { candidates } = analyzeNgsl(["learn"], fixture());
+  const rows = Array.from({ length: 401 }, (_, index) => ({
+    ...candidates[0],
+    source_entry_ref: `learn%2:31:${index}::`,
+    sense_key: `learn%2:31:${index}::`,
+  }));
+  const sql = renderFullSql(rows, [], "WordNet license notice");
+  assert.equal(sql.match(/INSERT INTO public\.lexicon_entries/g)?.length, 2);
+});
+
+test("pilot senses must retain their original content and reviewed primary priority", () => {
+  const { candidates } = analyzeNgsl(["learn"], fixture());
+  const reviewed = selectReviewed(candidates, "learn\tlearn%2:31:00::");
+  const pilot = [{ ...candidates[0] }];
+  assert.doesNotThrow(() => assertPilotPreserved(candidates, reviewed, pilot));
+  assert.throws(() => assertPilotPreserved(candidates, [], pilot), /lost review/);
+  assert.throws(
+    () => assertPilotPreserved(candidates, reviewed, [{ ...pilot[0], definition_en: "changed" }]),
+    /changed/,
   );
 });
 
