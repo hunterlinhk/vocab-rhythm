@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { supabase } from "@/integrations/supabase/client";
 import { WORD_BOOKS, getBook, isBundledBook, type WordBook } from "@/data/words";
 import { getBookEntries, getBundledBookEntries, listLibrary } from "@/lib/library.functions";
 
@@ -16,7 +17,11 @@ export type BookSummary = {
 /** Bundled official books and demos, database official books, and custom books. */
 export function useLibrary() {
   const fetchLib = useServerFn(listLibrary);
-  const q = useQuery({ queryKey: ["library"], queryFn: () => fetchLib() });
+  const q = useQuery({ queryKey: ["library"], queryFn: async () => {
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) return { official: [], custom: [] } as unknown as Awaited<ReturnType<typeof fetchLib>>;
+    return fetchLib();
+  } });
   const books = useMemo(() => {
     const demo: BookSummary[] = WORD_BOOKS.map((b) => ({
       id: b.id,

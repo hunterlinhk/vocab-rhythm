@@ -27,7 +27,7 @@ function AuthPage() {
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) void navigate({ to: "/home" });
+      if (data.session) void navigate({ to: "/" });
     });
   }, [navigate]);
 
@@ -48,7 +48,7 @@ function AuthPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) setMsg(error.message);
-    else void navigate({ to: "/home" });
+    else void navigate({ to: "/" });
   }
 
   async function google() {
@@ -58,7 +58,7 @@ function AuthPage() {
       return;
     }
     if (result.redirected) return;
-    void navigate({ to: "/home" });
+    void navigate({ to: "/" });
   }
 
   async function guest() {
@@ -70,7 +70,7 @@ function AuthPage() {
       setMsg(error.message);
       return;
     }
-    void navigate({ to: "/home" });
+    void navigate({ to: "/" });
   }
 
   return (
