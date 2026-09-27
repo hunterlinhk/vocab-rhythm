@@ -319,7 +319,7 @@ function LearnPage() {
       return;
     }
     const book = state.activeBook || "core";
-    const saved = state.cursors[book] ?? 0;
+    const saved = state.cursors[book]?.word ?? 0;
     setBookId(book);
     setIndex(saved);
     setReady(true);
@@ -330,7 +330,7 @@ function LearnPage() {
   const switchBook = useCallback(
     (id: string) => {
       setBookId(id);
-      setIndex(state?.cursors[id] ?? 0);
+      setIndex(state?.cursors[id]?.word ?? 0);
       setDone(null);
       setHistory([]);
       setReviewIndex(null);
@@ -354,7 +354,7 @@ function LearnPage() {
         return nextIndex;
       }
       const wrapped = queue.length ? nextIndex % queue.length : 0;
-      if (bookId) void persistCursor({ data: { bookId, cursorIndex: wrapped } }).catch(() => undefined);
+      if (bookId) void persistCursor({ data: { bookId, mode: "word", cursorIndex: wrapped } }).catch(() => undefined);
       return wrapped;
     });
   }, [queue.length, queueKind, bookId, persistCursor]);
@@ -376,7 +376,7 @@ function LearnPage() {
       setSessionDone((n) => n + 1);
       setHistory((h) => [...h, { entry, result: r }]);
       if (!queueKind && bookId && queue.length)
-        void persistCursor({ data: { bookId, cursorIndex: (index + 1) % queue.length } }).catch(() => undefined);
+        void persistCursor({ data: { bookId, mode: "word", cursorIndex: (index + 1) % queue.length } }).catch(() => undefined);
       if (prefsRef.current.speech) speak(entry.word);
       void save({
         data: {

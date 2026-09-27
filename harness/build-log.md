@@ -1,12 +1,22 @@
-# Core learning flow integrity
+# Server-side learning checkpoints
 
-- Base: latest fetched `main` at `46d36a6596781a69561de77e4afd0c14329b3756`; branch `feat/core-learning-flow-integrity`.
+- Base: branch `feat/core-learning-flow-integrity` at `46901d3720d620a479b59c3e9cfd063aeff12913`; continue this branch and do not merge `main`.
+- Current design reuses `book_progress`, keyed by `(user_id, book_id, mode)`. Migration `0009` adds `mode` (legacy rows default to `word`), JSONB `session_state`, and optimistic `revision`; RLS remains per user.
+- Sentence checkpoints store the queue cursor, active word, queue length, and server-generated attempt UUID. Completion/skip insert that fixed attempt ID before advancing the checkpoint, so a retry after a lost response cannot duplicate stats. The browser cursor is only a bootstrap/fallback cache.
+- Memorize checkpoints store the selected batch, absolute positions, phase, item, spelling mode, counters, and a server-generated UUID for each word/stage. A revision compare-and-swap advances the phase after an idempotent attempt insert; mastery remains keyed by `(user_id, book_id, word)` and uses upserted flags.
+- Implementation complete: shared parsers/transitions, sentence and memorize server functions, route wiring, Supabase types, migration journal, and regression coverage are in place. Legacy sentence localStorage is used only when no server cursor exists; legacy book cursor becomes the first memorize cursor.
+- Final validation: `npm test` 32/32 passed; `npx tsc --noEmit` passed; `npm run build` passed; targeted ESLint on changed learning code passed; `git diff --check` passed. Build reports existing TanStack `inputValidator()` deprecation notices.
+- Repository-wide `npm run lint` was attempted and emits thousands of Prettier CRLF errors across untouched files on this Windows checkout. Changed learning modules lint clean; generated Supabase types and the two minimally changed legacy cursor call sites are excluded from targeted Prettier validation because their checked-out CRLF baseline triggers the same rule.
+- Constraints: no production connection/SQL, no edits to `ops/oewn-2025-ngsl/**`, no edits to migrations `0000–0008`, preserve current UI/layout, then commit and push this branch.
+- Next action: inspect final diff, commit, and push this branch. The latest build-generated `src/routeTree.gen.ts` output was restored; no generated route changes are intended.
+
+---
+
+# Core learning flow integrity (previous checkpoint)
+
 - Fixed learning aggregation to retain `book_id + word` identity, keep the newest wrong-attempt translation, and count a recall answer as clean only when correct. Skips stay out of study counts; mistouches are excluded from typo totals.
-- Sentence spelling now starts from the selected book and restores a per-book browser cursor. Word completion saves the next cursor immediately; memorize batches advance the shared per-book cursor after completion.
-- Memorize always reaches the spelling round after recall (including a wrong recall answer), counts mastery only when all three flags are complete, and checks persistence errors with compensating attempt deletion if mastery upsert fails.
-- Regression suite: 29/29 tests passed; `npx tsc --noEmit` passed; `npm run build` passed. Targeted ESLint passed with the repository's pre-existing Prettier rule disabled.
-- Constraints kept: no database SQL, no edits to `ops/oewn-2025-ngsl/**`, no edits to migrations `0000–0008`, no visual/layout changes.
-- Completed and pushed implementation commit `a8a93d8044d9707cfb7fe499230068dde168d27a` to `origin/feat/core-learning-flow-integrity`; worktree was clean after push. Do not merge into `main` unless requested.
+- Memorize always reaches the spelling round after recall (including a wrong recall answer), and counts mastery only when all three flags are complete.
+- Implementation commit `a8a93d8044d9707cfb7fe499230068dde168d27a`; later checkpoint commit `46901d3720d620a479b59c3e9cfd063aeff12913`. Both are on `feat/core-learning-flow-integrity`.
 
 ---
 

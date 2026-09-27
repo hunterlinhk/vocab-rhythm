@@ -1,4 +1,13 @@
 import { entryKey } from "./entry-identity";
+import {
+  parseMemorizeSession,
+  parseSentenceCheckpoint,
+  type BookProgressMap,
+  type BookRevisionMap,
+  type LearningMode,
+  type MemorizeSession,
+  type SentenceCheckpoint,
+} from "./learning-session.shared";
 
 export type LearningState = {
   dailyGoal: number;
@@ -6,7 +15,10 @@ export type LearningState = {
   memorizeSpelling: boolean;
   strictSpelling: boolean;
   masteredByBook: Record<string, string[]>;
-  cursors: Record<string, number>;
+  cursors: BookProgressMap;
+  progressRevisions: BookRevisionMap;
+  memorizeSessions: Record<string, MemorizeSession | null>;
+  sentenceSessions: Record<string, SentenceCheckpoint | null>;
   learnedByBook: Record<string, string[]>;
   learnedWords: string[];
   todayItems: { word: string; bookId: string; translation: string | null }[];
@@ -71,7 +83,13 @@ export function buildLearningState(input: {
     memorize_spelling: boolean | null;
     strict_spelling: boolean | null;
   } | null;
-  progress: { book_id: string; cursor_index: number }[];
+  progress: {
+    book_id: string;
+    mode?: LearningMode | null;
+    cursor_index: number;
+    revision?: number | null;
+    session_state?: unknown;
+  }[];
   attempts: LearningAttemptRow[];
   mastery: { book_id: string; word: string }[];
   now?: Date;
@@ -79,8 +97,20 @@ export function buildLearningState(input: {
   const rows = input.attempts;
   const studied = rows.filter((row) => !row.skipped);
   const today = dayKey(input.now ?? new Date());
-  const cursors: Record<string, number> = {};
-  for (const progress of input.progress) cursors[progress.book_id] = progress.cursor_index;
+  const cursors: BookProgressMap = {};
+  const progressRevisions: BookRevisionMap = {};
+  const memorizeSessions: Record<string, MemorizeSession | null> = {};
+  const sentenceSessions: Record<string, SentenceCheckpoint | null> = {};
+  for (const progress of input.progress) {
+    const mode = progress.mode ?? "word";
+    const bookCursors = (cursors[progress.book_id] ??= {});
+    bookCursors[mode] = progress.cursor_index;
+    (progressRevisions[progress.book_id] ??= {})[mode] = progress.revision ?? 0;
+    if (mode === "memorize")
+      memorizeSessions[progress.book_id] = parseMemorizeSession(progress.session_state);
+    if (mode === "sentence")
+      sentenceSessions[progress.book_id] = parseSentenceCheckpoint(progress.session_state);
+  }
 
   const learnedByBook: Record<string, string[]> = {};
   for (const row of studied) {
@@ -146,6 +176,9 @@ export function buildLearningState(input: {
     strictSpelling: input.settings?.strict_spelling ?? false,
     masteredByBook,
     cursors,
+    progressRevisions,
+    memorizeSessions,
+    sentenceSessions,
     learnedByBook,
     learnedWords: [...new Set(studied.map((row) => row.word))],
     todayItems: [...todayItems.values()],

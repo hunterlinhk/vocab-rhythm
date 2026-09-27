@@ -119,7 +119,7 @@ function BooksPage() {
         <div className="grid gap-4 sm:grid-cols-2">
           {list.map((b) => {
             const learned = state?.learnedByBook[b.id]?.length ?? 0;
-            const cursor = state?.cursors[b.id] ?? 0;
+            const cursor = state?.cursors[b.id]?.word ?? 0;
             const pct = Math.round((learned / Math.max(1, b.wordCount)) * 100);
             const active = b.id === activeBook;
             return (

@@ -1,13 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, PenLine, Sparkles, Volume2 } from "lucide-react";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { ALL_WORDS, hasMeaning, type MeaningfulEntry, type WordEntry } from "@/data/words";
 import { useBook } from "@/hooks/use-library";
-import { getLearningState, recordMemorizeStage, saveBookCursor, saveSettings } from "@/lib/learning.functions";
-import { nextLearningCursor, shouldRunSpellingRound } from "@/lib/learning-state.shared";
+import {
+  getLearningState,
+  recordMemorizeStage,
+  saveSettings,
+  startMemorizeSession,
+} from "@/lib/learning.functions";
+import { attemptIdForStage, type MemorizeSession } from "@/lib/learning-session.shared";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
@@ -69,16 +74,18 @@ function MemorizePage() {
   const qc = useQueryClient();
   const fetchState = useServerFn(getLearningState);
   const record = useServerFn(recordMemorizeStage);
-  const persistCursor = useServerFn(saveBookCursor);
+  const start = useServerFn(startMemorizeSession);
   const persistSettings = useServerFn(saveSettings);
   const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
 
-  const [phase, setPhase] = useState<Phase>("context");
-  const [index, setIndex] = useState(0);
+  const [session, setSession] = useState<MemorizeSession | null>(null);
+  const [sessionBookId, setSessionBookId] = useState<string | null>(null);
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const [cursorIndex, setCursorIndex] = useState(0);
   const [picked, setPicked] = useState<string | null>(null);
-  const [rightCount, setRightCount] = useState(0);
-  const [masteredNow, setMasteredNow] = useState(0);
+  const [busy, setBusy] = useState(false);
   const [spellOn, setSpellOn] = useState(true);
+  const initializingRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (state) setSpellOn(state.memorizeSpelling);
@@ -89,52 +96,117 @@ function MemorizePage() {
   // 选义环节只使用有中文释义的词条
   const meaningful = useMemo(() => (book?.words ?? []).filter(hasMeaning), [book]);
   const spellingOnly = !!book?.words.length && meaningful.length === 0;
-  const batchStart = book ? (state?.cursors[book.id] ?? 0) % Math.max(1, book.words.length) : 0;
+  const activeSession = sessionBookId === bookId ? session : null;
   const batch = useMemo(() => {
-    if (!book) return [];
-    const words = book.words;
-    const ordered = [...words.slice(batchStart), ...words.slice(0, batchStart)];
-    const list = spellingOnly ? ordered : ordered.filter(hasMeaning);
-    return list.slice(0, BATCH);
-  }, [book, batchStart, spellingOnly]);
-  const entry = batch[Math.min(index, batch.length - 1)];
-  const options = useMemo(() => (entry && hasMeaning(entry) ? pickOptions(entry, meaningful) : []), [entry, meaningful]);
+    if (!book || !activeSession) return [];
+    return activeSession.batchWords
+      .map((word) => book.words.find((item) => item.word === word))
+      .filter((item): item is WordEntry => !!item);
+  }, [book, activeSession]);
+  const phase: Phase = activeSession?.phase ?? "context";
+  const index = activeSession?.itemIndex ?? 0;
+  const entry = batch[index];
+  const options = useMemo(
+    () => (entry && hasMeaning(entry) ? pickOptions(entry, meaningful) : []),
+    [entry, meaningful],
+  );
 
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["stats"] });
     void qc.invalidateQueries({ queryKey: ["learning-state"] });
   }, [qc]);
 
-  const advance = useCallback(
-    (from: "context" | "recall") => {
-      setPicked(null);
-      if (index + 1 < batch.length) {
-        setIndex(index + 1);
-        return;
+  const beginSession = useCallback(
+    async (startAt: number, expectedRevision: number) => {
+      if (!book || book.words.length === 0) return;
+      const wordCount = book.words.length;
+      const normalizedStart = ((startAt % wordCount) + wordCount) % wordCount;
+      const ordered = Array.from({ length: wordCount }, (_, offset) => {
+        const position = (normalizedStart + offset) % wordCount;
+        return { entry: book.words[position]!, position };
+      });
+      const selected = (
+        spellingOnly ? ordered : ordered.filter(({ entry: item }) => hasMeaning(item))
+      ).slice(0, BATCH);
+      if (!selected.length) return;
+      const result = await start({
+        data: {
+          bookId: book.id,
+          cursorIndex: normalizedStart,
+          expectedRevision,
+          bookWordCount: wordCount,
+          batchWords: selected.map(({ entry: item }) => item.word),
+          batchWordIndices: selected.map(({ position }) => position),
+          spellingOnly,
+          spellingEnabled: spellOn,
+        },
+      });
+      const sessionFitsBook =
+        !!result.session &&
+        result.session.bookWordCount === wordCount &&
+        result.session.spellingOnly === spellingOnly &&
+        result.session.batchWordIndices.every(
+          (position, index) => book.words[position]?.word === result.session?.batchWords[index],
+        ) &&
+        (spellingOnly ||
+          result.session.batchWordIndices.every((position) => hasMeaning(book.words[position]!)));
+      if (result.session && sessionFitsBook) {
+        setSession(result.session);
+        setSessionBookId(book.id);
+        setSessionRevision(result.revision);
+        setCursorIndex(result.cursorIndex);
+        setPicked(null);
+        void qc.invalidateQueries({ queryKey: ["learning-state"] });
+      } else {
+        setSession(null);
+        setSessionBookId(null);
+        void qc.invalidateQueries({ queryKey: ["learning-state"] });
       }
-      setIndex(0);
-      const batchComplete = spellingOnly || from === "recall";
-      setPhase(batchComplete ? "done" : "recall");
-      if (batchComplete && book && book.words.length) {
-        const lastEntry = batch[batch.length - 1];
-        const lastPosition = lastEntry
-          ? book.words.findIndex((word) => word.bookId === lastEntry.bookId && word.word === lastEntry.word)
-          : -1;
-        const cursorIndex = lastPosition >= 0 ? nextLearningCursor(lastPosition, 1, book.words.length) : batchStart;
-        void persistCursor({ data: { bookId: book.id, cursorIndex } })
-          .then(invalidate)
-          .catch(() => undefined);
-      }
+      return result;
     },
-    [index, batch, spellingOnly, book, batchStart, persistCursor, invalidate],
+    [book, spellingOnly, spellOn, start, qc],
   );
+
+  useEffect(() => {
+    if (!state || !book || !book.words.length || sessionBookId === book.id) return;
+    const savedSession = state.memorizeSessions[book.id];
+    const revision = state.progressRevisions[book.id]?.memorize ?? 0;
+    const savedCursor = state.cursors[book.id]?.memorize ?? state.cursors[book.id]?.word ?? 0;
+    const savedSessionFitsBook =
+      !!savedSession &&
+      savedSession.bookWordCount === book.words.length &&
+      savedSession.spellingOnly === spellingOnly &&
+      savedSession.batchWordIndices.every(
+        (position, index) => book.words[position]?.word === savedSession.batchWords[index],
+      ) &&
+      (savedSession.spellingOnly ||
+        savedSession.batchWordIndices.every((position) => hasMeaning(book.words[position]!)));
+    if (savedSession && savedSessionFitsBook) {
+      setSession(savedSession);
+      setSessionBookId(book.id);
+      setSessionRevision(revision);
+      setCursorIndex(savedCursor);
+      return;
+    }
+    const key = `${book.id}:${revision}:${savedCursor}`;
+    if (initializingRef.current === key) return;
+    initializingRef.current = key;
+    void beginSession(savedCursor, revision)
+      .then(() => {
+        initializingRef.current = null;
+      })
+      .catch(() => {
+        initializingRef.current = null;
+      });
+  }, [state, book, spellingOnly, sessionBookId, beginSession]);
 
   const choose = useCallback(
     (option: string) => {
-      if (!entry || !hasMeaning(entry) || picked) return;
+      if (!entry || !activeSession || !hasMeaning(entry) || picked || busy || phase === "done")
+        return;
       setPicked(option);
+      setBusy(true);
       const correct = option === entry.cn;
-      if (correct) setRightCount((n) => n + 1);
       if (correct && phase === "context") speak(entry.word);
       void record({
         data: {
@@ -142,51 +214,80 @@ function MemorizePage() {
           bookId,
           translation: entry.cn,
           stage: phase === "context" ? ("context" as const) : ("recall" as const),
+          sessionId: activeSession.sessionId,
+          attemptId: attemptIdForStage(activeSession, index, phase as "context" | "recall"),
+          revision: sessionRevision,
+          itemIndex: index,
+          spellingEnabled: spellOn,
           correct,
         },
       })
-        .then(invalidate)
-        .catch(() => undefined);
-
-      window.setTimeout(() => {
-        if (shouldRunSpellingRound(phase, spellOn)) {
+        .then((result) => {
+          window.setTimeout(
+            () => {
+              if (result.session) setSession(result.session);
+              setSessionRevision(result.revision);
+              setCursorIndex(result.cursorIndex);
+              setPicked(null);
+              setBusy(false);
+              invalidate();
+            },
+            correct ? 900 : 1600,
+          );
+        })
+        .catch(() => {
           setPicked(null);
-          setPhase("spell");
-        } else {
-          advance(phase === "context" ? "context" : "recall");
-        }
-      }, correct ? 900 : 1600);
+          setBusy(false);
+        });
     },
-    [entry, picked, phase, record, bookId, invalidate, spellOn, advance],
+    [
+      entry,
+      activeSession,
+      picked,
+      busy,
+      phase,
+      index,
+      record,
+      bookId,
+      sessionRevision,
+      spellOn,
+      invalidate,
+    ],
   );
 
   const onSpelled = useCallback(
     (r: TypingResult) => {
-      if (!entry) return;
+      if (!entry || !activeSession || busy) return;
       speak(entry.word);
-      if (spellingOnly) setMasteredNow((n) => n + 1);
+      setBusy(true);
       void record({
         data: {
           word: entry.word,
           bookId,
           translation: entry.cn,
           stage: "spell" as const,
+          sessionId: activeSession.sessionId,
+          attemptId: attemptIdForStage(activeSession, index, "spell"),
+          revision: sessionRevision,
+          itemIndex: index,
+          spellingEnabled: spellOn,
           correct: true,
           typoCount: r.typoCount,
           durationMs: r.durationMs,
         },
       })
-        .then(({ rounds }) => {
-          if (!spellingOnly && rounds >= 3) setMasteredNow((n) => n + 1);
-          invalidate();
+        .then((result) => {
+          window.setTimeout(() => {
+            if (result.session) setSession(result.session);
+            setSessionRevision(result.revision);
+            setCursorIndex(result.cursorIndex);
+            setBusy(false);
+            invalidate();
+          }, 1200);
         })
-        .catch(() => undefined);
-      window.setTimeout(() => {
-        if (!spellingOnly) setPhase("recall");
-        advance("recall");
-      }, 1200);
+        .catch(() => setBusy(false));
     },
-    [entry, record, bookId, invalidate, advance, spellingOnly],
+    [entry, activeSession, busy, record, bookId, index, sessionRevision, spellOn, invalidate],
   );
 
   const toggleSpell = () => {
@@ -198,39 +299,53 @@ function MemorizePage() {
   };
 
   const restart = () => {
-    setPhase("context");
-    setIndex(0);
-    setPicked(null);
-    setRightCount(0);
-    setMasteredNow(0);
+    setBusy(true);
+    void beginSession(cursorIndex, sessionRevision)
+      .catch(() => undefined)
+      .finally(() => setBusy(false));
   };
 
-  if (!state || !entry) {
+  if (!state || !book || sessionBookId !== bookId || !activeSession || !entry) {
     return (
       <div className="glass-stage flex min-h-[30rem] items-center justify-center">
-        {book && !batch.length ? "这本词书暂无词条" : "载入中…"}
+        {book && !book.words.length ? "这本词书暂无词条" : "载入中…"}
       </div>
     );
   }
 
-  const total = batch.length * (spellingOnly ? 1 : 2);
-  const stepDone = spellingOnly ? index : (phase === "context" ? index : batch.length + index) + (picked ? 1 : 0);
+  const currentSpellingOnly = activeSession.spellingOnly;
+  const total = batch.length * (currentSpellingOnly ? 1 : 2);
+  const stepDone = currentSpellingOnly
+    ? index
+    : (phase === "context" ? index : batch.length + index) + (picked ? 1 : 0);
   const progress = Math.min(100, (stepDone / total) * 100);
 
-  if (phase === "done") {
+  if (phase === "done" || activeSession.status === "completed") {
     return (
       <div className="glass-stage flex min-h-[30rem] flex-col items-center justify-center gap-5 text-center">
         <CheckCircle2 className="size-12 text-success" />
         <p className="font-display text-3xl">这一组背完了</p>
         <p className="text-sm text-muted-foreground">
-          {spellingOnly ? `完成拼写 ${masteredNow} / ${batch.length} 词` : `答对 ${rightCount} / ${total}`}
-          {!spellingOnly && spellOn ? ` · 完成三轮强化 ${masteredNow} 词` : ""}
+          {currentSpellingOnly
+            ? `完成拼写 ${activeSession.masteredCount} / ${batch.length} 词`
+            : `答对 ${activeSession.rightCount} / ${total}`}
+          {!currentSpellingOnly && spellOn
+            ? ` · 完成三轮强化 ${activeSession.masteredCount} 词`
+            : ""}
         </p>
         <div className="flex flex-wrap justify-center gap-2">
-          <button type="button" onClick={restart} className="rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground">
+          <button
+            type="button"
+            onClick={restart}
+            disabled={busy}
+            className="rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground"
+          >
             再来一组
           </button>
-          <Link to="/review" className="rounded-full border border-border bg-card px-5 py-2 text-sm">
+          <Link
+            to="/review"
+            className="rounded-full border border-border bg-card px-5 py-2 text-sm"
+          >
             去复习
           </Link>
         </div>
@@ -243,9 +358,15 @@ function MemorizePage() {
       <div className="focus-top flex w-full flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-primary/10 px-3.5 py-1.5 text-sm text-primary">
-            {spellingOnly ? "单词拼写" : phase === "context" ? "第一轮 · 语境选义" : phase === "recall" ? "第二轮 · 词义回忆" : "第三轮 · 拼写"}
+            {currentSpellingOnly
+              ? "单词拼写"
+              : phase === "context"
+                ? "第一轮 · 语境选义"
+                : phase === "recall"
+                  ? "第二轮 · 词义回忆"
+                  : "第三轮 · 拼写"}
           </span>
-          {!spellingOnly && (
+          {!currentSpellingOnly && (
             <button
               type="button"
               onClick={toggleSpell}
@@ -263,26 +384,40 @@ function MemorizePage() {
           )}
         </div>
         <div className="font-mono text-sm text-muted-foreground">
-          {Math.min(index + 1, batch.length)} / {batch.length} · {spellingOnly ? `完成 ${masteredNow}` : `答对 ${rightCount}`}
+          {Math.min(index + 1, batch.length)} / {batch.length} ·{" "}
+          {currentSpellingOnly
+            ? `完成 ${activeSession.masteredCount}`
+            : `答对 ${activeSession.rightCount}`}
         </div>
       </div>
 
       <div className="mt-3 h-1 w-full overflow-hidden rounded-full bg-border/60">
-        <div className="h-full rounded-full bg-primary transition-all duration-500" style={{ width: `${progress}%` }} />
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-500"
+          style={{ width: `${progress}%` }}
+        />
       </div>
 
       <div className="glass-stage relative mt-6 flex min-h-[30rem] w-full flex-col items-center justify-center gap-7 px-4 py-10 sm:mt-10 sm:min-h-[33.25rem] sm:gap-9 sm:px-6 sm:py-14">
-        {phase === "spell" || spellingOnly ? (
-          <div key={`s-${entry.word}`} className="nav-slide-left flex w-full flex-col items-center gap-7">
+        {phase === "spell" || currentSpellingOnly ? (
+          <div
+            key={`s-${entry.word}`}
+            className="nav-slide-left flex w-full flex-col items-center gap-7"
+          >
             <div className="flex flex-col items-center gap-2 text-center">
               <Sparkles className="size-5 text-primary" />
               <p className="text-lg text-foreground">{entry.cn || entry.word}</p>
-              {entry.phonetic && <p className="font-mono text-sm text-muted-foreground">{entry.phonetic}</p>}
+              {entry.phonetic && (
+                <p className="font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
+              )}
             </div>
             <TypingBoard target={entry.word} size="word" onComplete={onSpelled} />
           </div>
         ) : (
-          <div key={`${phase}-${entry.word}`} className="nav-slide-left flex w-full flex-col items-center gap-8">
+          <div
+            key={`${phase}-${entry.word}`}
+            className="nav-slide-left flex w-full flex-col items-center gap-8"
+          >
             {phase === "context" ? (
               <BoldSentence entry={entry} />
             ) : (
@@ -325,7 +460,9 @@ function MemorizePage() {
 
             {picked && phase === "context" && (
               <p className="rise-in text-sm text-muted-foreground">
-                {entry.word}{entry.phonetic ? ` ${entry.phonetic}` : ""}{entry.sentenceCn ? ` · ${entry.sentenceCn}` : ""}
+                {entry.word}
+                {entry.phonetic ? ` ${entry.phonetic}` : ""}
+                {entry.sentenceCn ? ` · ${entry.sentenceCn}` : ""}
               </p>
             )}
           </div>

@@ -90,18 +90,27 @@ export type Database = {
         Row: {
           book_id: string
           cursor_index: number
+          mode: string
+          revision: number
+          session_state: Json
           updated_at: string
           user_id: string
         }
         Insert: {
           book_id: string
           cursor_index?: number
+          mode?: string
+          revision?: number
+          session_state?: Json
           updated_at?: string
           user_id: string
         }
         Update: {
           book_id?: string
           cursor_index?: number
+          mode?: string
+          revision?: number
+          session_state?: Json
           updated_at?: string
           user_id?: string
         }

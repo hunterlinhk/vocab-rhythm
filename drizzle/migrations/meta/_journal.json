@@ -64,6 +64,13 @@
       "when": 1790445145377,
       "tag": "0008_apply_pending_marker",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790501060118,
+      "tag": "0009_book_progress_modes_and_sessions",
+      "breakpoints": true
     }
   ]
 }

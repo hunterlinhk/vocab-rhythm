@@ -2,7 +2,22 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 import { entryKey } from "@/lib/entry-identity";
-import { buildLearningState, buildLearningStats, type LearningAttemptRow, type LearningState, type LearningStats } from "@/lib/learning-state.shared";
+import {
+  buildLearningState,
+  buildLearningStats,
+  type LearningAttemptRow,
+  type LearningState,
+  type LearningStats,
+} from "@/lib/learning-state.shared";
+import {
+  advanceMemorizeSession,
+  attemptIdForStage,
+  parseMemorizeSession,
+  parseSentenceCheckpoint,
+  type LearningMode,
+  type MemorizeSession,
+  type SentenceCheckpoint,
+} from "@/lib/learning-session.shared";
 
 export type { LearningState, LearningStats };
 
@@ -43,7 +58,9 @@ export const recordAttempt = createServerFn({ method: "POST" })
 /** marks the most recent attempt of a word as a mistouch (used by the strict-spelling review panel) */
 export const markAttemptMistouch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ word: z.string(), bookId: z.string() }).parse(input))
+  .inputValidator((input: unknown) =>
+    z.object({ word: z.string(), bookId: z.string() }).parse(input),
+  )
   .handler(async ({ data, context }) => {
     const q = context.supabase
       .from("attempts")
@@ -51,10 +68,7 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
       .eq("user_id", context.userId)
       .eq("word", data.word)
       .eq("book_id", data.bookId);
-    const { data: row } = await q
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data: row } = await q.order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (!row) return { ok: false };
     const { error } = await context.supabase
       .from("attempts")
@@ -64,11 +78,183 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+const StartMemorizeInput = z
+  .object({
+    bookId: z.string().min(1),
+    cursorIndex: z.number().int().min(0),
+    expectedRevision: z.number().int().min(0),
+    bookWordCount: z.number().int().positive(),
+    batchWords: z.array(z.string().min(1)).min(1).max(8),
+    batchWordIndices: z.array(z.number().int().min(0)).min(1).max(8),
+    spellingOnly: z.boolean(),
+    spellingEnabled: z.boolean(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.batchWords.length !== value.batchWordIndices.length)
+      ctx.addIssue({ code: "custom", message: "Batch words and indices must have equal length" });
+    if (value.cursorIndex >= value.bookWordCount)
+      ctx.addIssue({ code: "custom", message: "Cursor is outside the book" });
+    if (value.batchWordIndices.some((index) => index >= value.bookWordCount))
+      ctx.addIssue({ code: "custom", message: "Batch index is outside the book" });
+  });
+
+function createMemorizeSession(data: z.infer<typeof StartMemorizeInput>): MemorizeSession {
+  return {
+    sessionId: globalThis.crypto.randomUUID(),
+    status: "active",
+    phase: data.spellingOnly ? "spell" : "context",
+    itemIndex: 0,
+    batchWords: data.batchWords,
+    batchWordIndices: data.batchWordIndices,
+    bookWordCount: data.bookWordCount,
+    spellingOnly: data.spellingOnly,
+    spellingEnabled: data.spellingEnabled,
+    rightCount: 0,
+    masteredCount: 0,
+    attemptIds: data.batchWords.map(() => ({
+      context: globalThis.crypto.randomUUID(),
+      recall: globalThis.crypto.randomUUID(),
+      spell: globalThis.crypto.randomUUID(),
+    })),
+  };
+}
+
+export const startMemorizeSession = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => StartMemorizeInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const [progressRes, wordProgressRes] = await Promise.all([
+      context.supabase
+        .from("book_progress")
+        .select("book_id, cursor_index, mode, revision, session_state")
+        .eq("user_id", context.userId)
+        .eq("book_id", data.bookId)
+        .eq("mode", "memorize")
+        .maybeSingle(),
+      context.supabase
+        .from("book_progress")
+        .select("cursor_index")
+        .eq("user_id", context.userId)
+        .eq("book_id", data.bookId)
+        .eq("mode", "word")
+        .maybeSingle(),
+    ]);
+    if (progressRes.error) throw new Error(progressRes.error.message);
+    if (wordProgressRes.error) throw new Error(wordProgressRes.error.message);
+
+    const current = progressRes.data;
+    const currentSession = parseMemorizeSession(current?.session_state);
+    const sameActiveBatch =
+      currentSession?.status === "active" &&
+      currentSession.bookWordCount === data.bookWordCount &&
+      currentSession.spellingOnly === data.spellingOnly &&
+      currentSession.batchWords.length === data.batchWords.length &&
+      currentSession.batchWords.every((word, index) => word === data.batchWords[index]) &&
+      currentSession.batchWordIndices.every(
+        (index, offset) => index === data.batchWordIndices[offset],
+      );
+    if (sameActiveBatch)
+      return {
+        session: currentSession,
+        revision: current!.revision,
+        cursorIndex: current!.cursor_index,
+        accepted: true,
+      };
+
+    const revision = current?.revision ?? 0;
+    const rawCursorIndex = current?.cursor_index ?? wordProgressRes.data?.cursor_index ?? 0;
+    const cursorIndex = rawCursorIndex % data.bookWordCount;
+    if (revision !== data.expectedRevision || cursorIndex !== data.cursorIndex) {
+      return {
+        session: currentSession,
+        revision,
+        cursorIndex,
+        accepted: false,
+      };
+    }
+
+    const session = createMemorizeSession(data);
+    const row = {
+      user_id: context.userId,
+      book_id: data.bookId,
+      mode: "memorize" as const,
+      cursor_index: cursorIndex,
+      session_state: session,
+      revision: revision + (current ? 1 : 0),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (!current) {
+      const { error } = await context.supabase.from("book_progress").insert(row);
+      if (error) {
+        if (error.code !== "23505") throw new Error(error.message);
+        const { data: winner, error: winnerError } = await context.supabase
+          .from("book_progress")
+          .select("cursor_index, revision, session_state")
+          .eq("user_id", context.userId)
+          .eq("book_id", data.bookId)
+          .eq("mode", "memorize")
+          .single();
+        if (winnerError) throw new Error(winnerError.message);
+        return {
+          session: parseMemorizeSession(winner.session_state),
+          revision: winner.revision,
+          cursorIndex: winner.cursor_index,
+          accepted: true,
+        };
+      }
+      return { session, revision: row.revision, cursorIndex, accepted: true };
+    }
+
+    const { data: updated, error } = await context.supabase
+      .from("book_progress")
+      .update({
+        cursor_index: cursorIndex,
+        session_state: session,
+        revision: row.revision,
+        updated_at: row.updated_at,
+      })
+      .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
+      .eq("mode", "memorize")
+      .eq("revision", revision)
+      .select("cursor_index, revision, session_state")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!updated) {
+      const { data: latest, error: latestError } = await context.supabase
+        .from("book_progress")
+        .select("cursor_index, revision, session_state")
+        .eq("user_id", context.userId)
+        .eq("book_id", data.bookId)
+        .eq("mode", "memorize")
+        .single();
+      if (latestError) throw new Error(latestError.message);
+      return {
+        session: parseMemorizeSession(latest.session_state),
+        revision: latest.revision,
+        cursorIndex: latest.cursor_index,
+        accepted: false,
+      };
+    }
+    return {
+      session: parseMemorizeSession(updated.session_state),
+      revision: updated.revision,
+      cursorIndex: updated.cursor_index,
+      accepted: true,
+    };
+  });
+
 const StageInput = z.object({
   word: z.string(),
   bookId: z.string(),
   translation: z.string().optional(),
   stage: z.enum(["context", "recall", "spell"]),
+  sessionId: z.string().uuid(),
+  attemptId: z.string().uuid(),
+  revision: z.number().int().min(0),
+  itemIndex: z.number().int().min(0),
+  spellingEnabled: z.boolean(),
   correct: z.boolean(),
   typoCount: z.number().int().min(0).optional(),
   durationMs: z.number().int().min(0).optional(),
@@ -79,6 +265,94 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => StageInput.parse(input))
   .handler(async ({ data, context }) => {
+    const { data: progress, error: progressError } = await context.supabase
+      .from("book_progress")
+      .select("cursor_index, revision, session_state")
+      .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
+      .eq("mode", "memorize")
+      .maybeSingle();
+    if (progressError) throw new Error(progressError.message);
+    if (!progress) throw new Error("Memorize session is missing; reload the page");
+    const session = parseMemorizeSession(progress.session_state);
+    if (!session) throw new Error("Memorize session data is invalid; reload the page");
+
+    const { data: priorAttempt, error: priorError } = await context.supabase
+      .from("attempts")
+      .select("id, book_id, word, mode, correct, typo_count, duration_ms")
+      .eq("id", data.attemptId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (priorError) throw new Error(priorError.message);
+
+    const currentSessionMatches =
+      session.sessionId === data.sessionId &&
+      progress.revision === data.revision &&
+      session.status === "active" &&
+      session.phase === data.stage &&
+      session.itemIndex === data.itemIndex &&
+      session.batchWords[data.itemIndex] === data.word &&
+      attemptIdForStage(session, data.itemIndex, data.stage) === data.attemptId;
+    if (!currentSessionMatches) {
+      if (
+        priorAttempt &&
+        priorAttempt.book_id === data.bookId &&
+        priorAttempt.word === data.word &&
+        priorAttempt.mode === "memorize"
+      ) {
+        return {
+          session,
+          revision: progress.revision,
+          cursorIndex: progress.cursor_index,
+          accepted: false,
+          rounds: 0,
+        };
+      }
+      return {
+        session,
+        revision: progress.revision,
+        cursorIndex: progress.cursor_index,
+        accepted: false,
+        rounds: 0,
+      };
+    }
+
+    if (
+      priorAttempt &&
+      (priorAttempt.book_id !== data.bookId ||
+        priorAttempt.word !== data.word ||
+        priorAttempt.mode !== "memorize")
+    )
+      throw new Error("Attempt id is already associated with a different learning entry");
+
+    let effectiveAttempt = priorAttempt;
+    if (!effectiveAttempt) {
+      const { error } = await context.supabase.from("attempts").insert({
+        id: data.attemptId,
+        user_id: context.userId,
+        mode: "memorize",
+        book_id: data.bookId,
+        word: data.word,
+        translation: data.translation ?? null,
+        correct: data.correct,
+        mistouch: false,
+        typo_count: data.typoCount ?? 0,
+        duration_ms: data.durationMs ?? 0,
+        is_review: data.stage !== "context",
+      });
+      if (error && error.code !== "23505") throw new Error(error.message);
+      const { data: stored, error: storedError } = await context.supabase
+        .from("attempts")
+        .select("id, book_id, word, mode, correct, typo_count, duration_ms")
+        .eq("id", data.attemptId)
+        .eq("user_id", context.userId)
+        .single();
+      if (storedError) throw new Error(storedError.message);
+      if (stored.book_id !== data.bookId || stored.word !== data.word || stored.mode !== "memorize")
+        throw new Error("Attempt id is already associated with a different learning entry");
+      effectiveAttempt = stored;
+    }
+
     const { data: existing, error: existingError } = await context.supabase
       .from("word_mastery")
       .select("context_ok, recall_ok, spell_ok")
@@ -93,30 +367,12 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
       recall_ok: existing?.recall_ok ?? false,
       spell_ok: existing?.spell_ok ?? false,
     };
-    if (data.correct) {
+    if (effectiveAttempt.correct) {
       if (data.stage === "context") flags.context_ok = true;
       if (data.stage === "recall") flags.recall_ok = true;
       if (data.stage === "spell") flags.spell_ok = true;
     }
     const rounds = Number(flags.context_ok) + Number(flags.recall_ok) + Number(flags.spell_ok);
-
-    const { data: attempt, error: attemptError } = await context.supabase
-      .from("attempts")
-      .insert({
-        user_id: context.userId,
-        mode: "memorize",
-        book_id: data.bookId,
-        word: data.word,
-        translation: data.translation ?? null,
-        correct: data.correct,
-        mistouch: false,
-        typo_count: data.typoCount ?? 0,
-        duration_ms: data.durationMs ?? 0,
-        is_review: data.stage !== "context",
-      })
-      .select("id")
-      .single();
-    if (attemptError) throw new Error(attemptError.message);
 
     const { error: masteryError } = await context.supabase.from("word_mastery").upsert(
       {
@@ -131,18 +387,291 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
       },
       { onConflict: "user_id,book_id,word" },
     );
-    if (masteryError) {
-      const { error: rollbackError } = await context.supabase
-        .from("attempts")
-        .delete()
-        .eq("id", attempt.id)
-        .eq("user_id", context.userId);
-      if (rollbackError)
-        throw new Error(`${masteryError.message}; attempt rollback also failed: ${rollbackError.message}`);
-      throw new Error(masteryError.message);
+    if (masteryError) throw new Error(masteryError.message);
+
+    const advanced = advanceMemorizeSession(session, {
+      correct: effectiveAttempt.correct,
+      rounds,
+      spellingEnabled: data.spellingEnabled,
+    });
+    const nextRevision = progress.revision + 1;
+    const { data: updated, error: updateError } = await context.supabase
+      .from("book_progress")
+      .update({
+        cursor_index:
+          advanced.session.status === "completed" ? advanced.cursorIndex : progress.cursor_index,
+        session_state: advanced.session,
+        revision: nextRevision,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
+      .eq("mode", "memorize")
+      .eq("revision", progress.revision)
+      .select("cursor_index, revision, session_state")
+      .maybeSingle();
+    if (updateError) throw new Error(updateError.message);
+    if (!updated) {
+      const { data: latest, error: latestError } = await context.supabase
+        .from("book_progress")
+        .select("cursor_index, revision, session_state")
+        .eq("user_id", context.userId)
+        .eq("book_id", data.bookId)
+        .eq("mode", "memorize")
+        .single();
+      if (latestError) throw new Error(latestError.message);
+      return {
+        session: parseMemorizeSession(latest.session_state),
+        revision: latest.revision,
+        cursorIndex: latest.cursor_index,
+        accepted: false,
+        rounds,
+      };
     }
 
-    return { rounds };
+    return {
+      session: parseMemorizeSession(updated.session_state),
+      revision: updated.revision,
+      cursorIndex: updated.cursor_index,
+      accepted: true,
+      rounds,
+    };
+  });
+
+const StartSentenceInput = z.object({
+  bookId: z.string().min(1),
+  cursorIndex: z.number().int().min(0),
+  expectedRevision: z.number().int().min(0),
+  queueLength: z.number().int().positive(),
+  activeWord: z.string().min(1),
+});
+
+function sentenceProgressResult(
+  row: { cursor_index: number; revision: number; session_state: unknown },
+  accepted: boolean,
+) {
+  return {
+    cursorIndex: row.cursor_index,
+    revision: row.revision,
+    checkpoint: parseSentenceCheckpoint(row.session_state),
+    accepted,
+    attempt: null,
+  };
+}
+
+export const startSentenceCheckpoint = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => StartSentenceInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: current, error } = await context.supabase
+      .from("book_progress")
+      .select("cursor_index, revision, session_state")
+      .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
+      .eq("mode", "sentence")
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+
+    const cursorIndex = current
+      ? current.cursor_index % data.queueLength
+      : data.cursorIndex % data.queueLength;
+    const revision = current?.revision ?? 0;
+    const checkpoint = parseSentenceCheckpoint(current?.session_state);
+    if (current && revision !== data.expectedRevision)
+      return sentenceProgressResult(current, false);
+    if (
+      current &&
+      checkpoint &&
+      checkpoint.queueLength === data.queueLength &&
+      checkpoint.activeWord === data.activeWord &&
+      cursorIndex === current.cursor_index
+    )
+      return sentenceProgressResult(current, true);
+
+    const nextCheckpoint: SentenceCheckpoint = {
+      version: 1,
+      kind: "sentence",
+      attemptId: globalThis.crypto.randomUUID(),
+      activeWord: data.activeWord,
+      queueLength: data.queueLength,
+    };
+    const nextRevision = revision + (current ? 1 : 0);
+    if (!current) {
+      const { error: insertError } = await context.supabase.from("book_progress").insert({
+        user_id: context.userId,
+        book_id: data.bookId,
+        mode: "sentence",
+        cursor_index: cursorIndex,
+        session_state: nextCheckpoint,
+        revision: 0,
+        updated_at: new Date().toISOString(),
+      });
+      if (insertError) {
+        if (insertError.code !== "23505") throw new Error(insertError.message);
+        const { data: winner, error: winnerError } = await context.supabase
+          .from("book_progress")
+          .select("cursor_index, revision, session_state")
+          .eq("user_id", context.userId)
+          .eq("book_id", data.bookId)
+          .eq("mode", "sentence")
+          .single();
+        if (winnerError) throw new Error(winnerError.message);
+        return sentenceProgressResult(winner, false);
+      }
+      return sentenceProgressResult(
+        { cursor_index: cursorIndex, revision: 0, session_state: nextCheckpoint },
+        true,
+      );
+    }
+
+    if (revision !== data.expectedRevision) return sentenceProgressResult(current, false);
+    const { data: updated, error: updateError } = await context.supabase
+      .from("book_progress")
+      .update({
+        cursor_index: cursorIndex,
+        session_state: nextCheckpoint,
+        revision: nextRevision,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
+      .eq("mode", "sentence")
+      .eq("revision", revision)
+      .select("cursor_index, revision, session_state")
+      .maybeSingle();
+    if (updateError) throw new Error(updateError.message);
+    if (updated) return sentenceProgressResult(updated, true);
+    const { data: latest, error: latestError } = await context.supabase
+      .from("book_progress")
+      .select("cursor_index, revision, session_state")
+      .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
+      .eq("mode", "sentence")
+      .single();
+    if (latestError) throw new Error(latestError.message);
+    return sentenceProgressResult(latest, false);
+  });
+
+const CompleteSentenceInput = z.object({
+  bookId: z.string().min(1),
+  word: z.string().min(1),
+  nextWord: z.string().min(1),
+  translation: z.string().optional(),
+  attemptId: z.string().uuid(),
+  revision: z.number().int().min(0),
+  queueLength: z.number().int().positive(),
+  correct: z.boolean(),
+  mistouch: z.boolean(),
+  typoCount: z.number().int().min(0),
+  durationMs: z.number().int().min(0),
+  skipped: z.boolean().optional(),
+});
+
+export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => CompleteSentenceInput.parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: progress, error: progressError } = await context.supabase
+      .from("book_progress")
+      .select("cursor_index, revision, session_state")
+      .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
+      .eq("mode", "sentence")
+      .maybeSingle();
+    if (progressError) throw new Error(progressError.message);
+    if (!progress) throw new Error("Sentence checkpoint is missing; reload the page");
+    const currentCheckpoint = parseSentenceCheckpoint(progress.session_state);
+    const { data: existingAttempt, error: attemptLookupError } = await context.supabase
+      .from("attempts")
+      .select("id, book_id, word, mode, correct, mistouch, typo_count, duration_ms, skipped")
+      .eq("id", data.attemptId)
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (attemptLookupError) throw new Error(attemptLookupError.message);
+
+    const isCurrent =
+      currentCheckpoint?.attemptId === data.attemptId &&
+      currentCheckpoint.activeWord === data.word &&
+      currentCheckpoint.queueLength === data.queueLength &&
+      progress.revision === data.revision;
+    if (!isCurrent) {
+      if (
+        existingAttempt &&
+        existingAttempt.book_id === data.bookId &&
+        existingAttempt.word === data.word &&
+        existingAttempt.mode === "sentence"
+      )
+        return sentenceProgressResult(progress, false);
+      return sentenceProgressResult(progress, false);
+    }
+    if (
+      existingAttempt &&
+      (existingAttempt.book_id !== data.bookId ||
+        existingAttempt.word !== data.word ||
+        existingAttempt.mode !== "sentence")
+    )
+      throw new Error("Attempt id is already associated with a different learning entry");
+
+    let storedAttempt = existingAttempt;
+    if (!storedAttempt) {
+      const { error: insertError } = await context.supabase.from("attempts").insert({
+        id: data.attemptId,
+        user_id: context.userId,
+        mode: "sentence",
+        book_id: data.bookId,
+        word: data.word,
+        translation: data.translation ?? null,
+        correct: data.correct,
+        mistouch: data.mistouch,
+        typo_count: data.typoCount,
+        duration_ms: data.durationMs,
+        is_review: false,
+        skipped: data.skipped ?? false,
+      });
+      if (insertError && insertError.code !== "23505") throw new Error(insertError.message);
+      const { data: stored, error: storedError } = await context.supabase
+        .from("attempts")
+        .select("id, book_id, word, mode, correct, mistouch, typo_count, duration_ms, skipped")
+        .eq("id", data.attemptId)
+        .eq("user_id", context.userId)
+        .single();
+      if (storedError) throw new Error(storedError.message);
+      storedAttempt = stored;
+    }
+
+    const nextCursor = (progress.cursor_index + 1) % data.queueLength;
+    const nextCheckpoint: SentenceCheckpoint = {
+      version: 1,
+      kind: "sentence",
+      attemptId: globalThis.crypto.randomUUID(),
+      activeWord: data.nextWord,
+      queueLength: data.queueLength,
+    };
+    const { data: updated, error: updateError } = await context.supabase
+      .from("book_progress")
+      .update({
+        cursor_index: nextCursor,
+        session_state: nextCheckpoint,
+        revision: progress.revision + 1,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
+      .eq("mode", "sentence")
+      .eq("revision", progress.revision)
+      .select("cursor_index, revision, session_state")
+      .maybeSingle();
+    if (updateError) throw new Error(updateError.message);
+    if (updated) return { ...sentenceProgressResult(updated, true), attempt: storedAttempt };
+    const { data: latest, error: latestError } = await context.supabase
+      .from("book_progress")
+      .select("cursor_index, revision, session_state")
+      .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
+      .eq("mode", "sentence")
+      .single();
+    if (latestError) throw new Error(latestError.message);
+    return { ...sentenceProgressResult(latest, false), attempt: storedAttempt };
   });
 
 export const getLearningState = createServerFn({ method: "GET" })
@@ -154,7 +683,10 @@ export const getLearningState = createServerFn({ method: "GET" })
         .select("daily_goal, active_book, memorize_spelling, strict_spelling")
         .eq("user_id", context.userId)
         .maybeSingle(),
-      context.supabase.from("book_progress").select("book_id, cursor_index").eq("user_id", context.userId),
+      context.supabase
+        .from("book_progress")
+        .select("book_id, mode, cursor_index, revision, session_state")
+        .eq("user_id", context.userId),
       context.supabase
         .from("attempts")
         .select("word, translation, book_id, typo_count, mistouch, correct, skipped, created_at")
@@ -168,12 +700,16 @@ export const getLearningState = createServerFn({ method: "GET" })
         .gte("rounds", 3),
     ]);
 
-    const errors = [settingsRes.error, progressRes.error, attemptsRes.error, masteryRes.error]
-      .flatMap((error) => error ? [error.message] : []);
+    const errors = [
+      settingsRes.error,
+      progressRes.error,
+      attemptsRes.error,
+      masteryRes.error,
+    ].flatMap((error) => (error ? [error.message] : []));
     if (errors.length) throw new Error(errors.join("; "));
     return buildLearningState({
       settings: settingsRes.data,
-      progress: progressRes.data ?? [],
+      progress: (progressRes.data ?? []).map((row) => ({ ...row, mode: row.mode as LearningMode })),
       attempts: (attemptsRes.data ?? []) as LearningAttemptRow[],
       mastery: masteryRes.data ?? [],
     });
@@ -207,7 +743,9 @@ export const saveSettings = createServerFn({ method: "POST" })
     if (data.activeBook !== undefined) patch.active_book = data.activeBook;
     if (data.memorizeSpelling !== undefined) patch.memorize_spelling = data.memorizeSpelling;
     if (data.strictSpelling !== undefined) patch.strict_spelling = data.strictSpelling;
-    const { error } = await context.supabase.from("user_settings").upsert(patch, { onConflict: "user_id" });
+    const { error } = await context.supabase
+      .from("user_settings")
+      .upsert(patch, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -215,17 +753,24 @@ export const saveSettings = createServerFn({ method: "POST" })
 export const saveBookCursor = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
-    z.object({ bookId: z.string(), cursorIndex: z.number().int().min(0) }).parse(input),
+    z
+      .object({
+        bookId: z.string(),
+        mode: z.enum(["word", "sentence", "memorize"]),
+        cursorIndex: z.number().int().min(0),
+      })
+      .parse(input),
   )
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase.from("book_progress").upsert(
       {
         user_id: context.userId,
         book_id: data.bookId,
+        mode: data.mode,
         cursor_index: data.cursorIndex,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "user_id,book_id" },
+      { onConflict: "user_id,book_id,mode" },
     );
     if (error) throw new Error(error.message);
     return { ok: true };
@@ -236,7 +781,9 @@ export const getStats = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<LearningStats> => {
     const { data, error } = await context.supabase
       .from("attempts")
-      .select("word, book_id, translation, mode, typo_count, mistouch, correct, skipped, created_at")
+      .select(
+        "word, book_id, translation, mode, typo_count, mistouch, correct, skipped, created_at",
+      )
       .eq("user_id", context.userId)
       .order("created_at", { ascending: false })
       .limit(1000);
@@ -260,7 +807,10 @@ export const getMessages = createServerFn({ method: "GET" })
 export const clearMessages = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { error } = await context.supabase.from("assistant_messages").delete().eq("user_id", context.userId);
+    const { error } = await context.supabase
+      .from("assistant_messages")
+      .delete()
+      .eq("user_id", context.userId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -270,7 +820,9 @@ export const AI_ASSISTANT_ENABLED = false;
 
 export const sendMessage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ content: z.string().min(1).max(2000) }).parse(input))
+  .inputValidator((input: unknown) =>
+    z.object({ content: z.string().min(1).max(2000) }).parse(input),
+  )
   .handler(async ({ data, context }) => {
     // AI 助手已暂停：不调用任何模型
     if (AI_ASSISTANT_ENABLED === false) {
@@ -304,15 +856,27 @@ export const sendMessage = createServerFn({ method: "POST" })
 
     const allRows = rows ?? [];
     const attempts = allRows.filter((r) => !r.skipped);
-    const distinctEntries = (items: { book_id: string; word: string }[]) =>
-      [...new Map(items.map((r) => [entryKey({ bookId: r.book_id, word: r.word }), `${r.book_id} / ${r.word}`])).values()];
+    const distinctEntries = (items: { book_id: string; word: string }[]) => [
+      ...new Map(
+        items.map((r) => [
+          entryKey({ bookId: r.book_id, word: r.word }),
+          `${r.book_id} / ${r.word}`,
+        ]),
+      ).values(),
+    ];
     const skippedWords = distinctEntries(allRows.filter((r) => r.skipped)).slice(0, 30);
     const today = new Date().toLocaleDateString("en-CA");
-    const todayWords = distinctEntries(attempts.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today));
-    const wrongWords = distinctEntries(attempts.filter((r) => r.typo_count > 0 && !r.mistouch)).slice(0, 20);
+    const todayWords = distinctEntries(
+      attempts.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today),
+    );
+    const wrongWords = distinctEntries(
+      attempts.filter((r) => r.typo_count > 0 && !r.mistouch),
+    ).slice(0, 20);
     const learned = distinctEntries(attempts).slice(0, 60);
     const masteryRows = mastery ?? [];
-    const mastered = masteryRows.filter((m) => m.rounds >= 3).map((m) => `${m.book_id} / ${m.word}`);
+    const mastered = masteryRows
+      .filter((m) => m.rounds >= 3)
+      .map((m) => `${m.book_id} / ${m.word}`);
     const inProgress = masteryRows
       .filter((m) => m.rounds > 0 && m.rounds < 3)
       .map((m) => {
