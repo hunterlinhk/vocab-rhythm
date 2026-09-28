@@ -52,6 +52,15 @@ export const Route = createFileRoute("/_authenticated/learn")({
 });
 
 type HistoryItem = { entry: WordEntry; result: TypingResult };
+type PendingWordCompletion = {
+  identity: string;
+  attemptId: string;
+  entry: WordEntry;
+  entryBook: string;
+  result: TypingResult;
+  isReview: boolean;
+  cursor?: { bookId: string; cursorIndex: number };
+};
 
 const FAV_KEY = "cadence:favorites";
 const PREF_KEY = "cadence:learn-prefs";
@@ -107,6 +116,7 @@ function ResultPanel({
   onSave,
   onListen,
   onNext,
+  nextDisabled = false,
   showMistouch = false,
   mistouched = false,
   onMistouch,
@@ -119,6 +129,7 @@ function ResultPanel({
   onSave: () => void;
   onListen: () => void;
   onNext: () => void;
+  nextDisabled?: boolean;
   showMistouch?: boolean;
   mistouched?: boolean;
   onMistouch?: () => void;
@@ -187,8 +198,9 @@ function ResultPanel({
         <button
           type="button"
           onClick={onNext}
+          disabled={nextDisabled}
           className={cn(
-            "whitespace-nowrap rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground hover:opacity-90 sm:px-4 sm:py-1.5",
+            "whitespace-nowrap rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:py-1.5",
             showMistouch ? "col-span-3" : "col-span-6 mx-auto w-[58%] sm:w-auto",
           )}
         >
@@ -228,8 +240,11 @@ function LearnPage() {
   const [ready, setReady] = useState(false);
   const [done, setDone] = useState<TypingResult | null>(null);
   const [savingProgress, setSavingProgress] = useState(false);
-  const [completionRetry, setCompletionRetry] = useState<TypingResult | null>(null);
+  const [completionRetries, setCompletionRetries] = useState<PendingWordCompletion[]>([]);
+  const [retryingCompletion, setRetryingCompletion] = useState<string | null>(null);
   const savingProgressRef = useRef(false);
+  const completionQueueRef = useRef<PendingWordCompletion[]>([]);
+  const completionWriteActiveRef = useRef(false);
   const [sessionDone, setSessionDone] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
@@ -370,64 +385,99 @@ function LearnPage() {
   const resultBookId = resultItem?.entry.bookId ?? bookId ?? "core";
   const resultKey = resultItem ? entryKey({ bookId: resultBookId, word: resultItem.entry.word }) : "";
 
-  const onComplete = useCallback(
-    async (r: TypingResult) => {
-      if (!entry || savingProgressRef.current) return;
-      const identity = `${queueKind ?? "learn"}:${entryBook}:${entry.word}:${index}`;
-      const attemptId = getOrCreatePendingWordAttemptId(identity);
-      savingProgressRef.current = true;
-      setSavingProgress(true);
-      setCompletionRetry(null);
-      try {
-        await queueLearningStateWrite(async () => {
-          await save({
-            data: {
-              attemptId,
-              mode: "word" as const,
-              bookId: entryBook,
-              word: entry.word,
-              translation: entry.cn,
-              correct: true,
-              mistouch: r.mistouch,
-              typoCount: r.typoCount,
-              durationMs: r.durationMs,
-              isReview: !!queueKind,
-            },
-          });
-          if (!queueKind && bookId && queue.length)
-            await persistCursor({
-              data: { bookId, mode: "word", cursorIndex: (index + 1) % queue.length },
-            });
+  const persistCompletion = useCallback(
+    (completion: PendingWordCompletion) => {
+      if (!completionQueueRef.current.some((item) => item.identity === completion.identity))
+        completionQueueRef.current.push(completion);
+      if (completionWriteActiveRef.current) return;
+      const nextCompletion = completionQueueRef.current[0];
+      if (!nextCompletion) return;
+      completionWriteActiveRef.current = true;
+      let persisted = false;
+      void queueLearningStateWrite(async () => {
+        await save({
+          data: {
+            attemptId: nextCompletion.attemptId,
+            mode: "word" as const,
+            bookId: nextCompletion.entryBook,
+            word: nextCompletion.entry.word,
+            translation: nextCompletion.entry.cn,
+            correct: true,
+            mistouch: nextCompletion.result.mistouch,
+            typoCount: nextCompletion.result.typoCount,
+            durationMs: nextCompletion.result.durationMs,
+            isReview: nextCompletion.isReview,
+          },
         });
-        clearPendingWordAttempt(identity);
-        setDone(r);
-        setSessionDone((n) => n + 1);
-        setHistory((h) => [...h, { entry, result: r }]);
-        if (prefsRef.current.speech) speak(entry.word);
-        void qc.invalidateQueries({ queryKey: ["stats"] });
-        void qc.invalidateQueries({ queryKey: ["learning-state"] });
-      } catch {
-        setCompletionRetry(r);
-      } finally {
-        savingProgressRef.current = false;
-        setSavingProgress(false);
-      }
+        if (nextCompletion.cursor)
+          await persistCursor({
+            data: { ...nextCompletion.cursor, mode: "word" },
+          });
+      })
+        .then(() => {
+          persisted = true;
+          clearPendingWordAttempt(nextCompletion.identity);
+          completionQueueRef.current = completionQueueRef.current.filter(
+            (item) => item.identity !== nextCompletion.identity,
+          );
+          setCompletionRetries((items) => items.filter((item) => item.identity !== nextCompletion.identity));
+          void qc.invalidateQueries({ queryKey: ["stats"] });
+          void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        })
+        .catch(() => {
+          setCompletionRetries((items) =>
+            items.some((item) => item.identity === nextCompletion.identity)
+              ? items
+              : [...items, nextCompletion],
+          );
+        })
+        .finally(() => {
+          completionWriteActiveRef.current = false;
+          setRetryingCompletion((identity) =>
+            identity === nextCompletion.identity ? null : identity,
+          );
+          if (persisted && completionQueueRef.current[0])
+            persistCompletion(completionQueueRef.current[0]);
+        });
     },
-    [
-      entryBook,
-      entry,
-      save,
-      queueKind,
-      qc,
-      bookId,
-      queue.length,
-      index,
-      persistCursor,
-    ],
+    [save, persistCursor, qc],
   );
 
+  const onComplete = useCallback(
+    (r: TypingResult) => {
+      if (!entry || savingProgressRef.current || completionRetries.length > 0) return;
+      const identity = `${queueKind ?? "learn"}:${entryBook}:${entry.word}:${index}`;
+      if (completionQueueRef.current.some((item) => item.identity === identity)) return;
+      const completion: PendingWordCompletion = {
+        identity,
+        attemptId: getOrCreatePendingWordAttemptId(identity),
+        entry,
+        entryBook,
+        result: r,
+        isReview: !!queueKind,
+        ...(!queueKind && bookId && queue.length
+          ? { cursor: { bookId, cursorIndex: (index + 1) % queue.length } }
+          : {}),
+      };
+
+      setDone(r);
+      setSessionDone((n) => n + 1);
+      setHistory((h) => [...h, { entry, result: r }]);
+      if (prefsRef.current.speech) speak(entry.word);
+      persistCompletion(completion);
+    },
+    [entry, entryBook, queueKind, index, completionRetries.length, bookId, queue.length, persistCompletion],
+  );
+
+  const retryCompletion = useCallback(() => {
+    const completion = completionRetries[0];
+    if (!completion || retryingCompletion) return;
+    setRetryingCompletion(completion.identity);
+    persistCompletion(completion);
+  }, [completionRetries, retryingCompletion, persistCompletion]);
+
   const skipCurrent = useCallback(async () => {
-    if (!entry || savingProgressRef.current || completionRetry) return;
+    if (!entry || savingProgressRef.current || completionRetries.length > 0) return;
     savingProgressRef.current = true;
     setSavingProgress(true);
     try {
@@ -466,7 +516,7 @@ function LearnPage() {
     queueKind,
     qc,
     next,
-    completionRetry,
+    completionRetries.length,
     bookId,
     queue.length,
     index,
@@ -726,7 +776,7 @@ function LearnPage() {
           <button
             type="button"
             onClick={skipCurrent}
-            disabled={savingProgress || !!completionRetry}
+            disabled={savingProgress || completionRetries.length > 0}
             className="absolute top-5 right-6 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
           >
             Skip
@@ -770,6 +820,7 @@ function LearnPage() {
                       : setReviewIndex(null)
                     : next()
                 }
+                nextDisabled={!reviewing && completionRetries.length > 0}
                 showMistouch={strict && resultItem.result.typoCount > 0}
                 mistouched={mistouched.has(resultKey)}
                 onMistouch={() => markMistouch({ bookId: resultBookId, word: resultItem.entry.word })}
@@ -795,30 +846,25 @@ function LearnPage() {
                 masked={prefs.dictation}
                 strict={strict}
                 hideMistouch={strict}
-                paused={savingProgress || !!completionRetry}
+                paused={savingProgress || completionRetries.length > 0}
                 onComplete={onComplete}
               />
-              {savingProgress && (
-                <p className="text-sm text-muted-foreground" role="status">
-                  正在保存学习进度…
-                </p>
-              )}
-              {completionRetry && (
-                <div className="flex flex-wrap items-center justify-center gap-3 text-sm" role="alert">
-                  <span className="text-destructive">学习进度暂未保存。</span>
-                  <button
-                    type="button"
-                    onClick={() => void onComplete(completionRetry)}
-                    disabled={savingProgress}
-                    className="rounded-full border border-border bg-card px-3 py-1.5 hover:border-primary/40 disabled:opacity-50"
-                  >
-                    重试保存
-                  </button>
-                </div>
-              )}
             </>
           )}
         </div>
+        {completionRetries[0] && (
+          <div className="flex flex-wrap items-center justify-center gap-3 text-sm" role="alert">
+            <span className="text-destructive">学习进度暂未保存。</span>
+            <button
+              type="button"
+              onClick={retryCompletion}
+              disabled={retryingCompletion === completionRetries[0].identity}
+              className="rounded-full border border-border bg-card px-3 py-1.5 hover:border-primary/40 disabled:opacity-50"
+            >
+              重试保存
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

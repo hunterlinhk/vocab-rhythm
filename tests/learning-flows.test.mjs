@@ -363,6 +363,20 @@ test("learning modes share one book picker without explanatory copy", async () =
   assert.doesNotMatch(sentence, /当前词书：/);
 });
 
+test("word completion shows the result before saving and keeps failed progress retryable", async () => {
+  const learn = await readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8");
+  const completeStart = learn.indexOf("const onComplete = useCallback(");
+  const completeEnd = learn.indexOf("const retryCompletion = useCallback(", completeStart);
+  const completionHandler = learn.slice(completeStart, completeEnd);
+
+  assert.ok(completeStart >= 0 && completeEnd > completeStart);
+  assert.ok(completionHandler.indexOf("setDone(r)") < completionHandler.indexOf("persistCompletion(completion)"));
+  assert.match(learn, /completionRetries\[0\]/);
+  assert.match(learn, /clearPendingWordAttempt\(nextCompletion\.identity\)/);
+  assert.match(learn, /if \(persisted && completionQueueRef\.current\[0\]\)/);
+  assert.doesNotMatch(learn, /正在保存学习进度/);
+});
+
 test("cursor writes queued before and after navigation cannot land out of order", async () => {
   const writes = [];
   let releaseFirst;
