@@ -12,8 +12,19 @@ ALTER TABLE public.attempts
   ADD COLUMN IF NOT EXISTS session_stage text,
   ADD COLUMN IF NOT EXISTS time_zone text,
   ADD COLUMN IF NOT EXISTS review_word_key text GENERATED ALWAYS AS (
-    lower(regexp_replace(word, '^[[:space:]]+|[[:space:]]+$', '', 'g'))
+    lower(btrim(regexp_replace(regexp_replace(word, '[[:space:]]+', ' ', 'g'), '[‘’]', chr(39), 'g')))
   ) STORED;
+
+-- Older attempts remain raw history. Do not invent review sessions: legacy rows lack reliable
+-- session boundaries and inclusion choices, so v1 scheduling starts with newly recorded sessions.
+
+ALTER TABLE public.attempts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own attempts insert" ON public.attempts;
+CREATE POLICY "own attempts insert" ON public.attempts FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own attempts update" ON public.attempts;
+CREATE POLICY "own attempts update" ON public.attempts FOR UPDATE TO authenticated
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 DO $$
 BEGIN
@@ -79,7 +90,7 @@ CREATE TABLE IF NOT EXISTS public.review_session_results (
   book_id text NOT NULL,
   word text NOT NULL,
   word_key text NOT NULL CHECK (
-    word_key <> '' AND word_key = lower(regexp_replace(word, '^[[:space:]]+|[[:space:]]+$', '', 'g'))
+    word_key <> '' AND word_key = lower(btrim(regexp_replace(regexp_replace(word, '[[:space:]]+', ' ', 'g'), '[‘’]', chr(39), 'g')))
   ),
   review_mode text NOT NULL CHECK (review_mode IN ('recognition', 'spelling')),
   session_id uuid NOT NULL,
@@ -104,7 +115,7 @@ CREATE TABLE IF NOT EXISTS public.review_session_results (
 COMMENT ON COLUMN public.review_session_results.book_id IS
   'Source book for this session; review scheduling is shared by user, word, and review mode.';
 COMMENT ON COLUMN public.review_session_results.word_key IS
-  'Trimmed and lowercased word; part of shared review identity, while word retains source spelling.';
+  'Trimmed, whitespace-collapsed, lowercase word with curly apostrophes normalized; word retains source spelling.';
 
 CREATE INDEX IF NOT EXISTS review_session_results_replay_idx
   ON public.review_session_results (user_id, word_key, review_mode, completed_at, book_id, session_id);
@@ -115,7 +126,7 @@ CREATE TABLE IF NOT EXISTS public.review_schedule_decisions (
   book_id text NOT NULL,
   word text NOT NULL,
   word_key text NOT NULL CHECK (
-    word_key <> '' AND word_key = lower(regexp_replace(word, '^[[:space:]]+|[[:space:]]+$', '', 'g'))
+    word_key <> '' AND word_key = lower(btrim(regexp_replace(regexp_replace(word, '[[:space:]]+', ' ', 'g'), '[‘’]', chr(39), 'g')))
   ),
   review_mode text NOT NULL CHECK (review_mode IN ('recognition', 'spelling')),
   session_id uuid NOT NULL,
@@ -146,7 +157,7 @@ CREATE TABLE IF NOT EXISTS public.review_schedule_decisions (
 COMMENT ON COLUMN public.review_schedule_decisions.book_id IS
   'Source book for the session that produced this scheduling decision.';
 COMMENT ON COLUMN public.review_schedule_decisions.word_key IS
-  'Trimmed and lowercased word; scopes this source session within its shared review identity.';
+  'Trimmed, whitespace-collapsed, lowercase word with curly apostrophes normalized; scopes the source session within shared review identity.';
 COMMENT ON COLUMN public.review_schedule_decisions.supersedes_decision_id IS
   'Previous immutable revision for this source session; the latest revision is current.';
 
@@ -157,7 +168,7 @@ CREATE TABLE IF NOT EXISTS public.review_states (
   user_id uuid NOT NULL,
   word text NOT NULL,
   word_key text NOT NULL CHECK (
-    word_key <> '' AND word_key = lower(regexp_replace(word, '^[[:space:]]+|[[:space:]]+$', '', 'g'))
+    word_key <> '' AND word_key = lower(btrim(regexp_replace(regexp_replace(word, '[[:space:]]+', ' ', 'g'), '[‘’]', chr(39), 'g')))
   ),
   source_book_id text REFERENCES public.word_books(id) ON DELETE SET NULL,
   review_mode text NOT NULL CHECK (review_mode IN ('recognition', 'spelling')),
@@ -187,15 +198,14 @@ CREATE TABLE IF NOT EXISTS public.review_states (
 COMMENT ON COLUMN public.review_states.source_book_id IS
   'Source book of the latest included session; deletion sets this provenance pointer to NULL.';
 COMMENT ON COLUMN public.review_states.word_key IS
-  'Trimmed and lowercased word; review state identity is user_id + word_key + review_mode across all books.';
+  'Trimmed, whitespace-collapsed, lowercase word with curly apostrophes normalized; review identity is user_id + word_key + review_mode across all books.';
 
 CREATE INDEX IF NOT EXISTS review_states_due_idx
   ON public.review_states (user_id, review_mode, next_due_at)
   WHERE next_due_at IS NOT NULL;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.review_session_results TO authenticated;
-GRANT SELECT, INSERT ON public.review_schedule_decisions TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.review_states TO authenticated;
+REVOKE ALL ON public.review_session_results, public.review_schedule_decisions, public.review_states FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.review_session_results, public.review_schedule_decisions, public.review_states TO authenticated;
 GRANT ALL ON public.review_session_results, public.review_schedule_decisions, public.review_states TO service_role;
 
 ALTER TABLE public.review_session_results ENABLE ROW LEVEL SECURITY;
@@ -205,32 +215,18 @@ ALTER TABLE public.review_states ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "own review session results select" ON public.review_session_results;
 CREATE POLICY "own review session results select" ON public.review_session_results FOR SELECT TO authenticated
   USING (auth.uid() = user_id);
-DROP POLICY IF EXISTS "own review session results insert" ON public.review_session_results;
-CREATE POLICY "own review session results insert" ON public.review_session_results FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = user_id);
-DROP POLICY IF EXISTS "own review session results update" ON public.review_session_results;
-CREATE POLICY "own review session results update" ON public.review_session_results FOR UPDATE TO authenticated
-  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "own review session results delete" ON public.review_session_results;
-CREATE POLICY "own review session results delete" ON public.review_session_results FOR DELETE TO authenticated
-  USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "own review session results insert" ON public.review_session_results;
+DROP POLICY IF EXISTS "own review session results update" ON public.review_session_results;
 
 DROP POLICY IF EXISTS "own review schedule decisions select" ON public.review_schedule_decisions;
 CREATE POLICY "own review schedule decisions select" ON public.review_schedule_decisions FOR SELECT TO authenticated
   USING (auth.uid() = user_id);
 DROP POLICY IF EXISTS "own review schedule decisions insert" ON public.review_schedule_decisions;
-CREATE POLICY "own review schedule decisions insert" ON public.review_schedule_decisions FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = user_id);
 
 DROP POLICY IF EXISTS "own review states select" ON public.review_states;
 CREATE POLICY "own review states select" ON public.review_states FOR SELECT TO authenticated
   USING (auth.uid() = user_id);
 DROP POLICY IF EXISTS "own review states insert" ON public.review_states;
-CREATE POLICY "own review states insert" ON public.review_states FOR INSERT TO authenticated
-  WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "own review states update" ON public.review_states;
-CREATE POLICY "own review states update" ON public.review_states FOR UPDATE TO authenticated
-  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "own review states delete" ON public.review_states;
-CREATE POLICY "own review states delete" ON public.review_states FOR DELETE TO authenticated
-  USING (auth.uid() = user_id);

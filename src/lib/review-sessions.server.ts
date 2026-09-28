@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
+// Use this service client only for mutations; all projection reads stay under the authenticated RLS client.
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   aggregateReviewSession,
   normalizeReviewWord,
@@ -127,7 +129,7 @@ async function persistSessionResultFromAttempts(
   const result = aggregateReviewSession(identity.reviewMode, sessionAttempts, persisted);
   if (!result) {
     if (!existing) return;
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("review_session_results")
       .delete()
       .eq("user_id", identity.userId)
@@ -141,7 +143,7 @@ async function persistSessionResultFromAttempts(
   const changed = existing?.source_fingerprint !== result.sourceFingerprint;
   if (existing && !changed) return;
 
-  const { error } = await supabase.from("review_session_results").upsert(
+  const { error } = await supabaseAdmin.from("review_session_results").upsert(
     {
       user_id: identity.userId,
       book_id: result.bookId,
@@ -280,7 +282,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
     const prior = previousDecisions.get(decisionKey);
     if (prior?.fingerprint === decision.inputFingerprint) continue;
     const revision = (prior?.revision ?? -1) + 1;
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("review_schedule_decisions")
       .insert({
         user_id: identity.userId,
@@ -336,7 +338,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
     if (prior.fingerprint === inputFingerprint) continue;
     const revision = prior.revision + 1;
     const unchangedState = projection.state as unknown as Json;
-    const { error } = await supabase.from("review_schedule_decisions").insert({
+    const { error } = await supabaseAdmin.from("review_schedule_decisions").insert({
       user_id: identity.userId,
       book_id: invalidated.bookId,
       word: invalidated.word,
@@ -367,7 +369,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
   );
   if (!hasIncludedResult) {
     if (!stateResult.data) return;
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("review_states")
       .delete()
       .eq("user_id", identity.userId)
@@ -414,13 +416,13 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
   };
 
   if (!stateResult.data) {
-    const { error } = await supabase.from("review_states").insert({ ...stateRow, revision: 0 });
+    const { error } = await supabaseAdmin.from("review_states").insert({ ...stateRow, revision: 0 });
     if (error?.code === "23505") throw new Error("Review state changed concurrently; retry projection");
     if (error) throw new Error(error.message);
     return;
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("review_states")
     .update({ ...stateRow, revision: stateResult.data.revision + 1 })
     .eq("user_id", identity.userId)

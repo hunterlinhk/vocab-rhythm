@@ -15,7 +15,7 @@ export type ScheduleReason =
 
 /** Review identity is shared across books; trim edge whitespace and preserve display spelling. */
 export function normalizeReviewWord(word: string): string {
-  return word.trim().toLowerCase();
+  return word.replace(/[\u2018\u2019]/gu, "'").trim().replace(/\s+/gu, " ").toLowerCase();
 }
 
 /** First explicit spelling inclusion choice resolves pending history permanently. */

@@ -538,8 +538,10 @@ test("fully mistouched sessions retain source provenance without an empty or fai
   );
 });
 
-test("review word identity trims whitespace and ignores case for custom entries", () => {
+test("review word identity normalizes case, spacing, and apostrophes for custom entries", () => {
   assert.equal(normalizeReviewWord("  APPle \t"), "apple");
+  assert.equal(normalizeReviewWord("  DON’T\t  WORRY  "), "don't worry");
+  assert.equal(normalizeReviewWord("don't worry"), normalizeReviewWord("don’t worry"));
   assert.equal(normalizeReviewWord(" \t\n "), "");
   const fromOfficial = aggregateReviewSession("recognition", [
     rawReviewAttempt("official-case", {
@@ -725,6 +727,40 @@ test("review state is shared across source books but remains independent by mode
   assert.equal(independentMode.decisions[0].reason, "first_learning");
 });
 
+test("changing an earlier session recalculates later decisions during full-history replay", async () => {
+  const sessions = [
+    reviewSession("early", {
+      completedAt: "2026-09-27T18:00:00.000Z",
+      learningDay: "2026-09-27",
+    }),
+    reviewSession("middle", {
+      completedAt: "2026-09-28T18:00:00.000Z",
+      learningDay: "2026-09-28",
+    }),
+    reviewSession("latest", {
+      completedAt: "2026-09-29T18:00:00.000Z",
+      learningDay: "2026-09-29",
+    }),
+  ];
+  const before = projectReviewScheduleState("recognition", sessions, null);
+  const after = projectReviewScheduleState(
+    "recognition",
+    [
+      { ...sessions[0], outcome: "failed", finalCorrect: false, hadRealError: true, realWrongCount: 1 },
+      ...sessions.slice(1),
+    ],
+    null,
+  );
+  assert.notEqual(before.decisions[1].inputFingerprint, after.decisions[1].inputFingerprint);
+  assert.notEqual(before.decisions[2].inputFingerprint, after.decisions[2].inputFingerprint);
+
+  const persistence = await readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8");
+  assert.match(persistence, /const attempts = await fetchAttempts\(supabase, identity\)/);
+  assert.match(persistence, /const projection = projectReviewScheduleState\([\s\S]*sessions\.map\(sessionFromRow\)/);
+  assert.match(persistence, /for \(const decision of projection\.decisions\)/);
+  assert.match(persistence, /if \(prior\?\.fingerprint === decision\.inputFingerprint\) continue/);
+});
+
 test("pending spelling inclusion stays replayable and review modes keep independent day limits", () => {
   const pending = reviewSession("pending", {
     reviewMode: "spelling",
@@ -810,7 +846,7 @@ test("review integration separates raw attempts, session results, and append-onl
   assert.match(functions, /data\.stage === "recall" && effectiveAttempt\.review_mode === "recognition"/);
   assert.match(functions, /review_session_id: data\.stage === "spell" \? null : data\.sessionId/);
   assert.match(functions, /\.update\(\{ mistouch: true \}\)/);
-  assert.match(functions, /await finalizeReviewSession\(context\.supabase/);
+  assert.match(functions, /await finalizeReviewSession\(context\.supabase,\s*\{/);
   assert.match(functions, /export const getDueReviewItems/);
   assert.match(persistence, /\.from\("review_session_results"\)/);
   assert.match(persistence, /\.from\("review_schedule_decisions"\)/);
@@ -824,7 +860,8 @@ test("review integration separates raw attempts, session results, and append-onl
   assert.match(migration, /counted_for_review boolean,/);
   assert.ok(
     migration.includes("review_word_key text GENERATED ALWAYS AS (") &&
-      migration.includes("lower(regexp_replace(word, '^[[:space:]]+|[[:space:]]+$', '', 'g'))"),
+      migration.includes("lower(btrim(regexp_replace(regexp_replace(word, '[[:space:]]+', ' ', 'g'), '[‘’]', chr(39), 'g')))") &&
+      migration.includes("word_key = lower(btrim(regexp_replace(regexp_replace(word, '[[:space:]]+', ' ', 'g'), '[‘’]', chr(39), 'g')))"),
   );
   assert.match(migration, /PRIMARY KEY \(user_id, book_id, word_key, review_mode, session_id\)/);
   assert.match(migration, /PRIMARY KEY \(user_id, word_key, review_mode\)/);
@@ -833,7 +870,6 @@ test("review integration separates raw attempts, session results, and append-onl
   assert.match(migration, /ON public\.attempts \(user_id, review_word_key, review_mode, review_session_id, created_at, id\)/);
   assert.match(migration, /UNIQUE \(user_id, book_id, word_key, review_mode, session_id, decision_revision\)/);
   assert.match(migration, /supersedes_decision_id uuid REFERENCES public\.review_schedule_decisions/);
-  assert.match(migration, /word_key <> '' AND word_key = lower\(regexp_replace\(word,/);
   assert.match(migration, /review_mode = 'recognition' AND mode = 'memorize'/);
   assert.match(migration, /review_mode = 'spelling' AND mode = 'word'/);
   assert.match(migration, /attempts_review_stage_owner_check/);
@@ -854,8 +890,28 @@ test("review integration separates raw attempts, session results, and append-onl
   assert.match(persistence, /book_id: decision\.session\.bookId/);
   assert.match(persistence, /source_book_id: lastIncluded\.session\.bookId/);
   assert.match(persistence, /onConflict: "user_id,book_id,word_key,review_mode,session_id"/);
+  assert.match(persistence, /import \{ supabaseAdmin \} from "@\/integrations\/supabase\/client\.server"/);
+  assert.match(persistence, /supabaseAdmin\s*\.from\("review_session_results"\)\s*\.delete/);
+  assert.match(persistence, /supabaseAdmin\s*\.from\("review_session_results"\)\s*\.upsert/);
+  assert.match(persistence, /supabaseAdmin\s*\.from\("review_schedule_decisions"\)\s*\.insert/);
+  assert.match(persistence, /supabaseAdmin\s*\.from\("review_states"\)\s*\.delete/);
+  assert.match(persistence, /supabaseAdmin\s*\.from\("review_states"\)\s*\.insert/);
+  assert.match(persistence, /supabaseAdmin\s*\.from\("review_states"\)\s*\.update/);
+  assert.match(persistence, /export async function finalizeReviewSession\(\s*supabase: Client,[\s\S]*source:/);
+  assert.match(persistence, /export async function rebuildPendingSpellingStates\(supabase: Client, userId:/);
+  assert.match(functions, /finalizeReviewSession\(context\.supabase,/);
+  assert.match(functions, /rebuildPendingSpellingStates\(context\.supabase, context\.userId\)/);
   assert.match(dueQuery, /"source_book_id, word, word_key, review_mode/);
   assert.doesNotMatch(dueQuery, /bookId|\.eq\("book_id"/);
+  assert.doesNotMatch(migration, /UPDATE public\.attempts/);
+  assert.match(migration, /review_session_id uuid,/);
+  assert.match(migration, /counted_for_review boolean,/);
+  const sessionTable = migration.split("CREATE TABLE IF NOT EXISTS public.review_session_results (")[1].split("\n);")[0];
+  const decisionTable = migration.split("CREATE TABLE IF NOT EXISTS public.review_schedule_decisions (")[1].split("\n);")[0];
+  assert.match(sessionTable, /book_id text NOT NULL,/);
+  assert.doesNotMatch(sessionTable, /book_id text NOT NULL REFERENCES/);
+  assert.match(decisionTable, /book_id text NOT NULL,/);
+  assert.doesNotMatch(decisionTable, /book_id text NOT NULL REFERENCES/);
 });
 
 test("review tables have owner-scoped RLS and immutable decision history", async () => {
@@ -869,17 +925,29 @@ test("review tables have owner-scoped RLS and immutable decision history", async
       migration,
       new RegExp(`CREATE POLICY "own [^\\n]+" ON public\\.${table} FOR SELECT TO authenticated\\n  USING \\(auth\\.uid\\(\\) = user_id\\);`),
     );
-    assert.match(
+    assert.doesNotMatch(
       migration,
-      new RegExp(`CREATE POLICY "own [^\\n]+" ON public\\.${table} FOR INSERT TO authenticated\\n  WITH CHECK \\(auth\\.uid\\(\\) = user_id\\);`),
+      new RegExp(`CREATE POLICY "own [^\\n]+" ON public\\.${table} FOR (INSERT|UPDATE|DELETE) TO authenticated`),
     );
   }
-  assert.match(migration, /own review session results update[\s\S]*FOR UPDATE TO authenticated[\s\S]*USING \(auth\.uid\(\) = user_id\) WITH CHECK \(auth\.uid\(\) = user_id\)/);
-  assert.match(migration, /own review session results delete[\s\S]*FOR DELETE TO authenticated[\s\S]*USING \(auth\.uid\(\) = user_id\)/);
-  assert.match(migration, /own review states update[\s\S]*FOR UPDATE TO authenticated[\s\S]*USING \(auth\.uid\(\) = user_id\) WITH CHECK \(auth\.uid\(\) = user_id\)/);
-  assert.match(migration, /own review states delete[\s\S]*FOR DELETE TO authenticated[\s\S]*USING \(auth\.uid\(\) = user_id\)/);
-  assert.doesNotMatch(migration, /CREATE POLICY "own review schedule decisions (update|delete)"/);
-  assert.match(migration, /GRANT SELECT, INSERT ON public\.review_schedule_decisions TO authenticated/);
+  assert.match(
+    migration,
+    /REVOKE ALL ON public\.review_session_results, public\.review_schedule_decisions, public\.review_states FROM PUBLIC, anon, authenticated/,
+  );
+  assert.match(
+    migration,
+    /GRANT SELECT ON public\.review_session_results, public\.review_schedule_decisions, public\.review_states TO authenticated/,
+  );
+  assert.match(migration, /ALTER TABLE public\.attempts ENABLE ROW LEVEL SECURITY/);
+  assert.match(
+    migration,
+    /CREATE POLICY "own attempts insert" ON public\.attempts FOR INSERT TO authenticated\n  WITH CHECK \(auth\.uid\(\) = user_id\)/,
+  );
+  assert.match(
+    migration,
+    /CREATE POLICY "own attempts update" ON public\.attempts FOR UPDATE TO authenticated\n  USING \(auth\.uid\(\) = user_id\) WITH CHECK \(auth\.uid\(\) = user_id\)/,
+  );
+  assert.match(migration, /GRANT ALL ON public\.review_session_results, public\.review_schedule_decisions, public\.review_states TO service_role/);
 });
 
 test("spelling review inclusion keeps the tri-state setting", () => {
