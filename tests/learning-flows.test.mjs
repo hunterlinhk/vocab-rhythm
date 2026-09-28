@@ -600,6 +600,8 @@ test("recognition grading evaluates each round's final valid answer", () => {
 test("learning day uses the user's local zone and a 04:00 boundary across DST", () => {
   assert.equal(learningDayAt("2026-09-28T09:30:00.000Z", "America/Los_Angeles"), "2026-09-27");
   assert.equal(learningDayAt("2026-09-28T11:00:00.000Z", "America/Los_Angeles"), "2026-09-28");
+  assert.equal(learningDayAt("2026-09-28T10:00:00.000Z", "America/Los_Angeles"), "2026-09-27");
+  assert.equal(learningDayAt("2026-09-28T10:00:00.000Z", "Asia/Tokyo"), "2026-09-28");
   assert.equal(learningDayAt("2026-03-08T10:30:00.000Z", "America/Los_Angeles"), "2026-03-07");
   assert.equal(learningDayAt("2026-03-08T11:00:00.000Z", "America/Los_Angeles"), "2026-03-08");
 });
@@ -759,6 +761,51 @@ test("changing an earlier session recalculates later decisions during full-histo
   assert.match(persistence, /const projection = projectReviewScheduleState\([\s\S]*sessions\.map\(sessionFromRow\)/);
   assert.match(persistence, /for \(const decision of projection\.decisions\)/);
   assert.match(persistence, /if \(prior\?\.fingerprint === decision\.inputFingerprint\) continue/);
+  assert.match(persistence, /supersedes_decision_id: prior\?\.decisionId/);
+  assert.match(persistence, /decision_revision: revision/);
+});
+
+test("a post-hoc mistouch replays later sessions and supersedes changed decisions", async () => {
+  const raw = [
+    rawReviewAttempt("retroactive-error", {
+      review_session_id: "early",
+      session_stage: "context",
+      correct: false,
+      created_at: "2026-09-27T17:00:00.000Z",
+    }),
+    rawReviewAttempt("early-context-final", {
+      review_session_id: "early",
+      session_stage: "context",
+      created_at: "2026-09-27T17:01:00.000Z",
+    }),
+    rawReviewAttempt("early-recall-final", {
+      review_session_id: "early",
+      session_stage: "recall",
+      created_at: "2026-09-27T17:02:00.000Z",
+    }),
+  ];
+  const beforeSession = aggregateReviewSession("recognition", raw);
+  const afterSession = aggregateReviewSession(
+    "recognition",
+    raw.map((item) => (item.id === "retroactive-error" ? { ...item, mistouch: true } : item)),
+  );
+  assert.equal(beforeSession.outcome, "strained");
+  assert.equal(afterSession.outcome, "smooth");
+
+  const historyBefore = [
+    beforeSession,
+    reviewSession("later-one", { completedAt: "2026-09-28T18:00:00.000Z", learningDay: "2026-09-28" }),
+    reviewSession("later-two", { completedAt: "2026-09-29T18:00:00.000Z", learningDay: "2026-09-29" }),
+  ];
+  const historyAfter = [afterSession, ...historyBefore.slice(1)];
+  const oldDecisions = projectReviewScheduleState("recognition", historyBefore, null).decisions;
+  const rebuiltDecisions = projectReviewScheduleState("recognition", historyAfter, null).decisions;
+  assert.notEqual(oldDecisions[1].inputFingerprint, rebuiltDecisions[1].inputFingerprint);
+  assert.notEqual(oldDecisions[2].inputFingerprint, rebuiltDecisions[2].inputFingerprint);
+
+  const persistence = await readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8");
+  assert.match(persistence, /const attempts = await fetchAttempts\(supabase, identity\)/);
+  assert.match(persistence, /supersedes_decision_id: prior\?\.decisionId/);
 });
 
 test("pending spelling inclusion stays replayable and review modes keep independent day limits", () => {
@@ -817,6 +864,38 @@ test("only the first spelling preference resolves unset history", () => {
   assert.equal(captureFirstSpellingReviewChoice(stillUnset, true), true);
 });
 
+test("first spelling choice resolves pending sessions; later changes affect only new attempts", () => {
+  const sessions = [
+    reviewSession("legacy-unset", {
+      reviewMode: "spelling",
+      countedForReview: null,
+      completedAt: "2026-09-26T18:00:00.000Z",
+      learningDay: "2026-09-26",
+    }),
+    reviewSession("after-first-include", {
+      reviewMode: "spelling",
+      countedForReview: true,
+      completedAt: "2026-09-27T18:00:00.000Z",
+      learningDay: "2026-09-27",
+    }),
+    reviewSession("after-switch-to-exclude", {
+      reviewMode: "spelling",
+      countedForReview: false,
+      completedAt: "2026-09-28T18:00:00.000Z",
+      learningDay: "2026-09-28",
+    }),
+  ];
+  const firstChoice = captureFirstSpellingReviewChoice(null, true);
+  const switchedPreference = false;
+  const projection = projectReviewScheduleState("spelling", sessions, firstChoice);
+  assert.deepEqual(
+    projection.decisions.map(({ effectiveInclusion }) => effectiveInclusion),
+    [true, true, false],
+  );
+  assert.equal(projectReviewScheduleState("spelling", [sessions[0]], firstChoice).decisions[0].reason, "first_learning");
+  assert.equal(projectReviewScheduleState("spelling", [sessions[2]], switchedPreference).decisions[0].reason, "excluded_by_choice");
+});
+
 test("review integration separates raw attempts, session results, and append-only decisions", async () => {
   const [learn, memorize, functions, persistence, migration] = await Promise.all([
     readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
@@ -843,6 +922,7 @@ test("review integration separates raw attempts, session results, and append-onl
   assert.match(memorize, /stage: "spell" as const/);
   assert.match(memorize, /timeZone: getUserTimeZone\(\)/);
   assert.match(functions, /review_mode: data\.stage === "spell" \? null : "recognition"/);
+  assert.match(functions, /counted_for_review: data\.stage === "spell" \? false : true/);
   assert.match(functions, /data\.stage === "recall" && effectiveAttempt\.review_mode === "recognition"/);
   assert.match(functions, /review_session_id: data\.stage === "spell" \? null : data\.sessionId/);
   assert.match(functions, /\.update\(\{ mistouch: true \}\)/);
@@ -948,6 +1028,15 @@ test("review tables have owner-scoped RLS and immutable decision history", async
     /CREATE POLICY "own attempts update" ON public\.attempts FOR UPDATE TO authenticated\n  USING \(auth\.uid\(\) = user_id\) WITH CHECK \(auth\.uid\(\) = user_id\)/,
   );
   assert.match(migration, /GRANT ALL ON public\.review_session_results, public\.review_schedule_decisions, public\.review_states TO service_role/);
+});
+
+test("local review RLS runner uses only an isolated disposable PostgreSQL container", async () => {
+  const runner = await readFile(new URL("../scripts/verify-review-v1-rls.ps1", import.meta.url), "utf8");
+  assert.match(runner, /--network none/);
+  assert.match(runner, /--rm --name \$containerName/);
+  assert.match(runner, /POSTGRES_DB=review_test/);
+  assert.match(runner, /Invoke-PostgresFile[\s\S]*?-SingleTransaction/);
+  assert.doesNotMatch(runner, /LOVABLE_DB_MIGRATION_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_URL/);
 });
 
 test("spelling review inclusion keeps the tri-state setting", () => {
