@@ -316,6 +316,7 @@ function MemorizePage() {
             revision: sessionRevision,
             itemIndex: index,
             spellingEnabled: spellOn,
+            includeInReview: state?.includeSpellingInReview ?? true,
             correct: true,
             typoCount: r.typoCount,
             durationMs: r.durationMs,
@@ -333,7 +334,18 @@ function MemorizePage() {
         })
         .catch(() => setBusy(false));
     },
-    [entry, activeSession, busy, record, bookId, index, sessionRevision, spellOn, invalidate],
+    [
+      entry,
+      activeSession,
+      busy,
+      record,
+      bookId,
+      index,
+      sessionRevision,
+      spellOn,
+      state?.includeSpellingInReview,
+      invalidate,
+    ],
   );
 
   const toggleSpell = () => {

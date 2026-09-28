@@ -1,3 +1,12 @@
+# Review system v1 foundation
+
+- Branch: `feat/review-system-v1-foundation`, based on fetched `origin/main` at `e01ef2edcefef861ab73f62be6bca060a3795a84`.
+- Attempts remain the immutable event history; `review_states` is a rebuildable projection keyed by `(user_id, book_id, word, review_mode)`. Recognition and spelling project independently. Sentence attempts explicitly use no review mode and cannot count toward review.
+- Migration `0011_review_system_v1_foundation.sql` adds attempt inclusion/mode/hint fields, a persisted spelling-review default, and RLS-protected schedule state reserved for due time, interval, streak, wrong count, hints, difficulty, scheduler data, and revision. It is not applied to any database.
+- Learning writes rebuild the projection from deduplicated counted attempts through `ReviewScheduler`; the default scheduler records outcomes but leaves interval/due policy unset. A due-items server query is available for later review-queue work.
+- Word spelling has a persistent include-in-review toggle; memorize recognition stages count separately from the optional spelling stage. Mistouch updates target the exact attempt and trigger a projection rebuild. Preference write failure rolls the control back to the server value.
+- Validation: `npm test` 42/42 passed; `npx tsc --noEmit` passed; `npm run build` passed with existing Vite/TanStack deprecation notices; `git diff --check` passed. No production SQL was executed and no OEWN staging files changed. Migration application is the deployment prerequisite before releasing the new reads/writes.
+
 # Learning flow recovery bugfix and UI follow-up
 
 - Branch: `bugfix/learning-flow-recovery`, based on fetched `origin/main` at `d53a819c9a76203ff9b571553da8e6a2552b824a`; no upstream movement was found during this task.

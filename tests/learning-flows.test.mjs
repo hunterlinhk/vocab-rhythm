@@ -19,6 +19,7 @@ const { advanceMemorizeSession, attemptIdForStage, parseMemorizeSession } =
   await vite.ssrLoadModule("/src/lib/learning-session.shared.ts");
 const { loadSentenceCursor, nextSentenceCursor, saveSentenceCursor, SENTENCE_PROGRESS_KEY } =
   await vite.ssrLoadModule("/src/lib/sentence-progress.ts");
+const { projectReviewScheduleState } = await vite.ssrLoadModule("/src/lib/review-scheduler.shared.ts");
 
 const now = new Date("2026-09-27T12:00:00.000Z");
 const today = now.toISOString();
@@ -375,6 +376,171 @@ test("word completion shows the result before saving and keeps failed progress r
   assert.match(learn, /clearPendingWordAttempt\(nextCompletion\.identity\)/);
   assert.match(learn, /if \(persisted && completionQueueRef\.current\[0\]\)/);
   assert.doesNotMatch(learn, /正在保存学习进度/);
+});
+
+test("review schedule projections isolate recognition and spelling and ignore excluded attempts", () => {
+  const events = [
+    {
+      id: "recognition-1",
+      review_mode: "recognition",
+      counted_for_review: true,
+      correct: true,
+      skipped: false,
+      hint_count: 1,
+      typo_count: 0,
+      mistouch: false,
+      duration_ms: 900,
+      created_at: "2026-09-20T10:00:00Z",
+    },
+    {
+      id: "spelling-1",
+      review_mode: "spelling",
+      counted_for_review: true,
+      correct: true,
+      skipped: false,
+      hint_count: 0,
+      typo_count: 2,
+      mistouch: false,
+      duration_ms: 1800,
+      created_at: "2026-09-21T10:00:00Z",
+    },
+    {
+      id: "spelling-mistouch",
+      review_mode: "spelling",
+      counted_for_review: true,
+      correct: true,
+      skipped: false,
+      hint_count: 0,
+      typo_count: 1,
+      mistouch: true,
+      duration_ms: 1200,
+      created_at: "2026-09-21T11:00:00Z",
+    },
+    {
+      id: "recognition-2",
+      review_mode: "recognition",
+      counted_for_review: true,
+      correct: false,
+      skipped: false,
+      hint_count: 2,
+      typo_count: 0,
+      mistouch: false,
+      duration_ms: 1500,
+      created_at: "2026-09-22T10:00:00Z",
+    },
+    {
+      id: "excluded-spelling",
+      review_mode: "spelling",
+      counted_for_review: false,
+      correct: true,
+      skipped: false,
+      hint_count: 0,
+      typo_count: 0,
+      mistouch: false,
+      duration_ms: 1000,
+      created_at: "2026-09-23T10:00:00Z",
+    },
+    {
+      id: "sentence",
+      review_mode: null,
+      counted_for_review: false,
+      correct: true,
+      skipped: false,
+      hint_count: 0,
+      typo_count: 0,
+      mistouch: false,
+      duration_ms: 800,
+      created_at: "2026-09-24T10:00:00Z",
+    },
+    {
+      id: "skipped",
+      review_mode: "recognition",
+      counted_for_review: true,
+      correct: true,
+      skipped: true,
+      hint_count: 0,
+      typo_count: 0,
+      mistouch: false,
+      duration_ms: 0,
+      created_at: "2026-09-25T10:00:00Z",
+    },
+    {
+      id: "recognition-2",
+      review_mode: "recognition",
+      counted_for_review: true,
+      correct: false,
+      skipped: false,
+      hint_count: 2,
+      typo_count: 0,
+      mistouch: false,
+      duration_ms: 1500,
+      created_at: "2026-09-22T10:00:00Z",
+    },
+  ];
+
+  const recognition = projectReviewScheduleState("recognition", events);
+  const spelling = projectReviewScheduleState("spelling", events);
+
+  assert.equal(recognition.lastAttemptId, "recognition-2");
+  assert.equal(recognition.consecutiveCorrect, 0);
+  assert.equal(recognition.totalWrong, 1);
+  assert.equal(recognition.hintCount, 3);
+  assert.equal(spelling.lastAttemptId, "spelling-mistouch");
+  assert.equal(spelling.consecutiveCorrect, 0);
+  assert.equal(spelling.totalWrong, 1);
+  assert.equal(spelling.nextDueAt, null);
+  assert.equal(spelling.intervalSeconds, null);
+  const replacement = projectReviewScheduleState("spelling", events, {
+    applyAttempt: (state, attempt) => ({
+      ...state,
+      nextDueAt: attempt.created_at,
+      intervalSeconds: 60,
+    }),
+  });
+  assert.equal(replacement.nextDueAt, "2026-09-21T11:00:00Z");
+  assert.equal(replacement.intervalSeconds, 60);
+});
+
+test("review foundation persists the spelling default and excludes sentence attempts", async () => {
+  const [learn, memorize, functions, migration] = await Promise.all([
+    readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/memorize.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/migrations/0011_review_system_v1_foundation.sql", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(learn, /includeSpellingInReview/);
+  assert.match(learn, /includeInReview: includeSpellingInReview/);
+  assert.match(memorize, /includeInReview: state\?\.includeSpellingInReview/);
+  assert.match(functions, /review_mode: data\.stage === "spell" \? "spelling" : "recognition"/);
+  assert.match(functions, /review_mode: null,[\s\S]*counted_for_review: false/);
+  assert.match(functions, /\.eq\("book_id", identity\.bookId\)[\s\S]*\.eq\("word", identity\.word\)[\s\S]*\.eq\("review_mode", identity\.reviewMode\)/);
+  assert.match(learn, /reviewPreferenceWriteRef\.current === writeId/);
+  assert.match(functions, /export const getDueReviewItems/);
+  assert.match(migration, /include_spelling_in_review boolean NOT NULL DEFAULT true/);
+  assert.match(migration, /PRIMARY KEY \(user_id, book_id, word, review_mode\)/);
+  assert.match(migration, /mode <> 'sentence' OR \(review_mode IS NULL AND NOT counted_for_review\)/);
+});
+
+test("spelling review inclusion defaults to enabled but follows a persisted setting", () => {
+  const base = {
+    daily_goal: null,
+    active_book: null,
+    memorize_spelling: null,
+    strict_spelling: null,
+  };
+  const state = (include) =>
+    buildLearningState({
+      settings: include === undefined ? base : { ...base, include_spelling_in_review: include },
+      progress: [],
+      attempts: [],
+      mastery: [],
+      now,
+    });
+
+  assert.equal(state(undefined).includeSpellingInReview, true);
+  assert.equal(state(false).includeSpellingInReview, false);
+  assert.equal(state(true).includeSpellingInReview, true);
 });
 
 test("cursor writes queued before and after navigation cannot land out of order", async () => {

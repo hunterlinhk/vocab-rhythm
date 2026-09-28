@@ -22,7 +22,7 @@ import {
 } from "@/lib/learning-state.runtime";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
-import { Volume2, BookOpen, PenLine, CheckCircle2 } from "lucide-react";
+import { Volume2, BookOpen, PenLine, CheckCircle2, RotateCcw } from "lucide-react";
 
 export type QueueKind = "today" | "wrong" | "trouble" | "favorites";
 
@@ -51,7 +51,7 @@ export const Route = createFileRoute("/_authenticated/learn")({
   component: LearnPage,
 });
 
-type HistoryItem = { entry: WordEntry; result: TypingResult };
+type HistoryItem = { entry: WordEntry; result: TypingResult; attemptId: string };
 type PendingWordCompletion = {
   identity: string;
   attemptId: string;
@@ -59,6 +59,8 @@ type PendingWordCompletion = {
   entryBook: string;
   result: TypingResult;
   isReview: boolean;
+  reviewMode: "spelling";
+  includeInReview: boolean;
   cursor?: { bookId: string; cursorIndex: number };
 };
 
@@ -239,6 +241,7 @@ function LearnPage() {
   const [index, setIndex] = useState(0);
   const [ready, setReady] = useState(false);
   const [done, setDone] = useState<TypingResult | null>(null);
+  const [doneAttemptId, setDoneAttemptId] = useState<string | null>(null);
   const [savingProgress, setSavingProgress] = useState(false);
   const [completionRetries, setCompletionRetries] = useState<PendingWordCompletion[]>([]);
   const [retryingCompletion, setRetryingCompletion] = useState<string | null>(null);
@@ -251,12 +254,17 @@ function LearnPage() {
   const [favorites, setFavorites] = useState<Map<string, EntryIdentity>>(new Map());
   const activeBook = state?.activeBook;
   const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+  const [includeSpellingInReview, setIncludeSpellingInReview] = useState(true);
   const [finished, setFinished] = useState(false);
   const prefsRef = useRef<Prefs>(DEFAULT_PREFS);
+  const reviewPreferenceWriteRef = useRef(0);
   useEffect(() => {
     prefsRef.current = prefs;
   }, [prefs]);
   useEffect(() => setPrefs(loadPrefs()), []);
+  useEffect(() => {
+    if (state) setIncludeSpellingInReview(state.includeSpellingInReview);
+  }, [state?.includeSpellingInReview]);
   useEffect(() => {
     if (activeBook) setFavorites(loadFavorites(activeBook));
   }, [activeBook]);
@@ -271,6 +279,21 @@ function LearnPage() {
       return nextPrefs;
     });
   }, []);
+  const toggleReviewInclusion = useCallback(() => {
+    const next = !includeSpellingInReview;
+    const writeId = reviewPreferenceWriteRef.current + 1;
+    reviewPreferenceWriteRef.current = writeId;
+    setIncludeSpellingInReview(next);
+    void queueLearningStateWrite(() =>
+      persistSettings({ data: { includeSpellingInReview: next } }),
+    )
+      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .catch(() => {
+        if (reviewPreferenceWriteRef.current === writeId)
+          setIncludeSpellingInReview(!next);
+        void qc.invalidateQueries({ queryKey: ["learning-state"] });
+      });
+  }, [includeSpellingInReview, persistSettings, qc]);
   const [locallySavedToMistakes, setLocallySavedToMistakes] = useState<Set<string>>(new Set());
   const savedToMistakes = useMemo(
     () => new Set([...(state?.wrongWords.map(entryKey) ?? []), ...locallySavedToMistakes]),
@@ -348,6 +371,7 @@ function LearnPage() {
       setBookId(id);
       setIndex(state?.cursors[id]?.word ?? 0);
       setDone(null);
+      setDoneAttemptId(null);
       setHistory([]);
       setReviewIndex(null);
       setFinished(false);
@@ -361,6 +385,7 @@ function LearnPage() {
   const next = useCallback(() => {
     setNavDir(1);
     setDone(null);
+    setDoneAttemptId(null);
     setReviewIndex(null);
     setIndex((i) => {
       const nextIndex = i + 1;
@@ -381,7 +406,9 @@ function LearnPage() {
   const entryBook = entry?.bookId ?? bookId ?? "core";
   const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
   const panelResult = reviewing ? reviewing.result : done;
-  const resultItem = reviewing ?? (done && entry ? { entry, result: done } : undefined);
+  const resultItem =
+    reviewing ??
+    (done && entry && doneAttemptId ? { entry, result: done, attemptId: doneAttemptId } : undefined);
   const resultBookId = resultItem?.entry.bookId ?? bookId ?? "core";
   const resultKey = resultItem ? entryKey({ bookId: resultBookId, word: resultItem.entry.word }) : "";
 
@@ -407,6 +434,8 @@ function LearnPage() {
             typoCount: nextCompletion.result.typoCount,
             durationMs: nextCompletion.result.durationMs,
             isReview: nextCompletion.isReview,
+            reviewMode: nextCompletion.reviewMode,
+            includeInReview: nextCompletion.includeInReview,
           },
         });
         if (nextCompletion.cursor)
@@ -455,18 +484,31 @@ function LearnPage() {
         entryBook,
         result: r,
         isReview: !!queueKind,
+        reviewMode: "spelling" as const,
+        includeInReview: includeSpellingInReview,
         ...(!queueKind && bookId && queue.length
           ? { cursor: { bookId, cursorIndex: (index + 1) % queue.length } }
           : {}),
       };
 
       setDone(r);
+      setDoneAttemptId(completion.attemptId);
       setSessionDone((n) => n + 1);
-      setHistory((h) => [...h, { entry, result: r }]);
+      setHistory((h) => [...h, { entry, result: r, attemptId: completion.attemptId }]);
       if (prefsRef.current.speech) speak(entry.word);
       persistCompletion(completion);
     },
-    [entry, entryBook, queueKind, index, completionRetries.length, bookId, queue.length, persistCompletion],
+    [
+      entry,
+      entryBook,
+      queueKind,
+      index,
+      completionRetries.length,
+      includeSpellingInReview,
+      bookId,
+      queue.length,
+      persistCompletion,
+    ],
   );
 
   const retryCompletion = useCallback(() => {
@@ -494,6 +536,8 @@ function LearnPage() {
             durationMs: 0,
             isReview: !!queueKind,
             skipped: true,
+            reviewMode: "spelling" as const,
+            includeInReview: false,
           },
         });
         if (!queueKind && bookId && queue.length)
@@ -524,11 +568,11 @@ function LearnPage() {
   ]);
 
   const markMistouch = useCallback(
-    (item: EntryIdentity) => {
+    (item: EntryIdentity, attemptId: string) => {
       const key = entryKey(item);
       if (mistouched.has(key)) return;
       setLocallyMistouched((s) => new Set(s).add(key));
-      void queueLearningStateWrite(() => flagMistouch({ data: item }))
+      void queueLearningStateWrite(() => flagMistouch({ data: { ...item, attemptId } }))
         .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
         .catch(() => undefined);
     },
@@ -771,6 +815,21 @@ function LearnPage() {
               {t.label}
             </button>
           ))}
+          <button
+            type="button"
+            aria-pressed={includeSpellingInReview}
+            title={includeSpellingInReview ? "本次计入复习" : "本次不计入复习"}
+            onClick={toggleReviewInclusion}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition-all duration-300",
+              includeSpellingInReview
+                ? "bg-card/70 text-primary shadow-[0_6px_16px_-12px_var(--ink)]"
+                : "text-muted-foreground/60 hover:bg-card/40 hover:text-muted-foreground",
+            )}
+          >
+            <RotateCcw className="size-3.5" />
+            计入复习
+          </button>
         </div>
         {!done && !reviewing && (
           <button
@@ -823,7 +882,12 @@ function LearnPage() {
                 nextDisabled={!reviewing && completionRetries.length > 0}
                 showMistouch={strict && resultItem.result.typoCount > 0}
                 mistouched={mistouched.has(resultKey)}
-                onMistouch={() => markMistouch({ bookId: resultBookId, word: resultItem.entry.word })}
+                onMistouch={() =>
+                  markMistouch(
+                    { bookId: resultBookId, word: resultItem.entry.word },
+                    resultItem.attemptId,
+                  )
+                }
               />
             )
           ) : (

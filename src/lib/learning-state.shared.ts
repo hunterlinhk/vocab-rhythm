@@ -14,6 +14,7 @@ export type LearningState = {
   activeBook: string;
   memorizeSpelling: boolean;
   strictSpelling: boolean;
+  includeSpellingInReview: boolean;
   masteredByBook: Record<string, string[]>;
   cursors: BookProgressMap;
   progressRevisions: BookRevisionMap;
@@ -124,6 +125,7 @@ export function buildLearningState(input: {
     active_book: string | null;
     memorize_spelling: boolean | null;
     strict_spelling: boolean | null;
+    include_spelling_in_review?: boolean | null;
   } | null;
   progress: {
     book_id: string;
@@ -203,6 +205,7 @@ export function buildLearningState(input: {
     activeBook: input.settings?.active_book ?? "core",
     memorizeSpelling: input.settings?.memorize_spelling ?? true,
     strictSpelling: input.settings?.strict_spelling ?? false,
+    includeSpellingInReview: input.settings?.include_spelling_in_review ?? true,
     masteredByBook,
     cursors,
     progressRevisions,

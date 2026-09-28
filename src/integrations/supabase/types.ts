@@ -48,6 +48,9 @@ export type Database = {
           is_review: boolean
           mistouch: boolean
           mode: string
+          review_mode: string | null
+          counted_for_review: boolean
+          hint_count: number
           skipped: boolean
           translation: string | null
           typo_count: number
@@ -63,6 +66,9 @@ export type Database = {
           is_review?: boolean
           mistouch?: boolean
           mode?: string
+          review_mode?: string | null
+          counted_for_review?: boolean
+          hint_count?: number
           skipped?: boolean
           translation?: string | null
           typo_count?: number
@@ -78,6 +84,9 @@ export type Database = {
           is_review?: boolean
           mistouch?: boolean
           mode?: string
+          review_mode?: string | null
+          counted_for_review?: boolean
+          hint_count?: number
           skipped?: boolean
           translation?: string | null
           typo_count?: number
@@ -281,6 +290,7 @@ export type Database = {
           daily_goal: number
           memorize_spelling: boolean
           strict_spelling: boolean
+          include_spelling_in_review: boolean
           updated_at: string
           user_id: string
         }
@@ -289,6 +299,7 @@ export type Database = {
           daily_goal?: number
           memorize_spelling?: boolean
           strict_spelling?: boolean
+          include_spelling_in_review?: boolean
           updated_at?: string
           user_id: string
         }
@@ -297,8 +308,63 @@ export type Database = {
           daily_goal?: number
           memorize_spelling?: boolean
           strict_spelling?: boolean
+          include_spelling_in_review?: boolean
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      review_states: {
+        Row: {
+          user_id: string
+          book_id: string
+          word: string
+          review_mode: string
+          last_reviewed_at: string | null
+          next_due_at: string | null
+          interval_seconds: number | null
+          consecutive_correct: number
+          total_wrong: number
+          hint_count: number
+          difficulty: number | null
+          scheduler_data: Json
+          last_attempt_id: string | null
+          revision: number
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          book_id: string
+          word: string
+          review_mode: string
+          last_reviewed_at?: string | null
+          next_due_at?: string | null
+          interval_seconds?: number | null
+          consecutive_correct?: number
+          total_wrong?: number
+          hint_count?: number
+          difficulty?: number | null
+          scheduler_data?: Json
+          last_attempt_id?: string | null
+          revision?: number
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          book_id?: string
+          word?: string
+          review_mode?: string
+          last_reviewed_at?: string | null
+          next_due_at?: string | null
+          interval_seconds?: number | null
+          consecutive_correct?: number
+          total_wrong?: number
+          hint_count?: number
+          difficulty?: number | null
+          scheduler_data?: Json
+          last_attempt_id?: string | null
+          revision?: number
+          updated_at?: string
         }
         Relationships: []
       }
