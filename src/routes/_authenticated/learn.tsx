@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { BookPicker } from "@/components/BookPicker";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { bareEntry, findInBundledBook, findWord, isBundledBook, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
@@ -674,21 +675,7 @@ function LearnPage() {
               </Link>
             </>
           ) : (
-            allBooks.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => switchBook(b.id)}
-                className={cn(
-                  "rounded-full border px-3.5 py-1.5 text-sm transition-colors",
-                  b.id === bookId
-                    ? "border-primary/40 bg-card text-foreground shadow-sm"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {b.name}
-              </button>
-            ))
+            <BookPicker books={allBooks} selectedBookId={bookId} onSelect={switchBook} />
           )}
         </div>
         <div className="font-mono text-sm text-muted-foreground">

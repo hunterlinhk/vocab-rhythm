@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
+import { BookPicker } from "@/components/BookPicker";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { hasSentence, type SentenceEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
@@ -445,21 +446,9 @@ function SentencePage() {
 
   const progress = queue.length ? (index / queue.length) * 100 : 0;
 
-  const bookStrip = allBooks.map((b) => (
-    <button
-      key={b.id}
-      type="button"
-      onClick={() => switchBook(b.id)}
-      className={cn(
-        "rounded-full border px-3.5 py-1.5 text-sm transition-colors",
-        b.id === bookId
-          ? "border-primary/40 bg-card text-foreground shadow-sm"
-          : "border-transparent text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {b.name}
-    </button>
-  ));
+  const bookPicker = (
+    <BookPicker books={allBooks} selectedBookId={bookId} onSelect={switchBook} />
+  );
 
   if (
     !entry ||
@@ -471,10 +460,7 @@ function SentencePage() {
     return (
       <div className="flex flex-col items-center overflow-x-clip pb-4">
         <div className="focus-top flex w-full flex-wrap items-center gap-1.5">
-          <span className="px-1 text-sm text-muted-foreground">
-            当前词书：{currentBook?.name ?? "载入中"}
-          </span>
-          {bookStrip}
+          {bookPicker}
         </div>
         <div className="glass-stage mt-6 flex min-h-[30rem] w-full items-center justify-center">
           <p className="font-display text-2xl text-muted-foreground">
@@ -488,8 +474,7 @@ function SentencePage() {
     <div className="flex flex-col items-center overflow-x-clip pb-4">
       <div className="focus-top flex w-full flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="px-1 text-sm text-muted-foreground">当前词书：{currentBook?.name}</span>
-          {bookStrip}
+          {bookPicker}
         </div>
         <div className="font-mono text-sm text-muted-foreground">
           {index + 1} / {queue.length} · 本次 {sessionDone}

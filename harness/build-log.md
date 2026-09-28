@@ -1,12 +1,13 @@
-# Learning flow recovery bugfix
+# Learning flow recovery bugfix and UI follow-up
 
 - Branch: `bugfix/learning-flow-recovery`, based on fetched `origin/main` at `d53a819c9a76203ff9b571553da8e6a2552b824a`; no upstream movement was found during this task.
 - Root cause: learning routes reused the shared React Query cache before a new server read completed, while one-word completion/cursor writes were detached and could race route changes or refreshes. Session-backed memorize/sentence state had the same stale-cache exposure.
 - Added one authoritative `useLearningState` query path. It waits for queued writes, always refetches on mount, and gates restoration until that fetch completes. Word completion now waits for the attempt and next cursor; a sessionStorage retry id plus idempotent attempt upsert protects interrupted retries. Sentence/memorize writes use the same ordered queue.
 - Error semantics now share one rule keyed by `bookId + word`: a real incorrect recall/selection or typo-bearing attempt adds the word to wrong; trouble requires at least two distinct non-skip, non-mistouch attempt IDs. Stats and AI context use the same inputs. Mistouch remains stored but is absent from review tabs/sidebar.
-- Memorize now shows the selected book and explains spelling-only use when that book has no Chinese meanings. Sentence practice labels its current book; both retain their existing book selectors.
-- Validation observed: `npm test` 38/38 passed; `npx tsc --noEmit` passed; production build passed; targeted ESLint rules passed with the repository's CRLF-sensitive Prettier rule disabled. Build emits existing `inputValidator()` deprecation notices. No migration or OEWN staging files changed; no production database connection or SQL was used.
-- Next action: commit and push this branch; do not merge `main`.
+- UI follow-up: `BookPicker` is shared across word spelling, memorize, and sentence spelling. The selected chip remains the current book control; redundant “当前词书” labels and the missing-meaning explanation were removed. Learning state recovery, spelling-only adaptation, and wrong/trouble rules were not changed.
+- Scroll trace: local Chromium on the Vite dev app, 1265×500 viewport, 1114px home page, seven wheel inputs. After closing the unauthenticated sign-in overlay: 41 drawn frames, 0 dropped frames, 0 `ScrollJankV4` events marked janky, no renderer `RunTask` over 50ms; cumulative script/layout/style/paint were 2.8/0.6/8.9/18.9ms. With the overlay open, one run had 5 dropped-frame events but still no janky-scroll flag or long task and raster work was similar; this does not establish that the blur caused the user's reported Preview issue. The README live URL currently returns “Project not found”. No CSS or AppShell changes were made without a reproducible bottleneck. The in-app browser cannot drag the native scrollbar outside its content viewport; wheel scrolling was exercised to the page bottom and back.
+- Validation observed: `npm test` 38/38 passed; `npx tsc --noEmit` passed; production build passed; targeted ESLint passed with the repository's existing Prettier rule disabled; changed test and shared component pass Prettier. Build emits existing `inputValidator()` deprecation notices. No migration or OEWN staging files changed; no production database connection or SQL was used.
+- Next action: push this UI follow-up on the current branch. If the stutter remains in Lovable Preview, profile it using a working Preview URL; the local trace does not justify a performance CSS change.
 
 ---
 

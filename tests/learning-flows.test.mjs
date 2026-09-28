@@ -343,15 +343,24 @@ test("mistouch data remains stored while review navigation no longer exposes its
   assert.doesNotMatch(shell, /误触记录/);
 });
 
-test("memorize and sentence pages identify the active book and explain missing meanings", async () => {
-  const [memorize, sentence] = await Promise.all([
+test("learning modes share one book picker without explanatory copy", async () => {
+  const [learn, memorize, sentence, picker] = await Promise.all([
+    readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/routes/_authenticated/memorize.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/routes/_authenticated/sentence.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/BookPicker.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(memorize, /当前词书：/);
-  assert.match(memorize, /缺少中文释义，当前只能进行单词拼写/);
-  assert.match(sentence, /当前词书：/);
+  for (const page of [learn, memorize, sentence]) {
+    assert.match(
+      page,
+      /BookPicker books=\{allBooks\} selectedBookId=\{bookId\} onSelect=\{switchBook\}/,
+    );
+  }
+  assert.match(picker, /role="group" aria-label="选择词书"/);
+  assert.match(picker, /aria-pressed=\{book\.id === selectedBookId\}/);
+  assert.doesNotMatch(memorize, /当前词书：|缺少中文释义，当前只能进行单词拼写/);
+  assert.doesNotMatch(sentence, /当前词书：/);
 });
 
 test("cursor writes queued before and after navigation cannot land out of order", async () => {
