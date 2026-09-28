@@ -80,7 +80,7 @@ function StatsPage() {
               <li key={entryKey(t)} className="flex items-center justify-between py-2.5 text-sm">
                 <span className="font-mono">{t.word}</span>
                 <span className="text-muted-foreground">
-                  {t.translation} · 错 {t.typos} 次 / 练 {t.times} 次
+                  {t.translation} · 错 {t.errorAttempts} 次 / 练 {t.times} 次
                 </span>
               </li>
             ))}
@@ -97,7 +97,13 @@ function StatsPage() {
             <li key={`${entryKey(r)}-${i}`} className="flex items-center justify-between py-2.5 text-sm">
               <span className="font-mono">{r.word}</span>
               <span className="text-muted-foreground">
-                {r.mode === "word" ? "单词" : "句子"} · {r.mistouch ? "误触" : `${r.typos} 次错误`} ·{" "}
+                {r.mode === "word" ? "单词" : "句子"} · {r.mistouch
+                  ? "误触"
+                  : r.typos > 0
+                    ? `拼写错 ${r.typos} 次`
+                    : r.correct
+                      ? "正确"
+                      : "答错"} ·{" "}
                 {new Date(r.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
               </span>
             </li>

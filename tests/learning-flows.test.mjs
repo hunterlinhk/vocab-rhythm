@@ -8,6 +8,13 @@ after(() => vite.close());
 
 const { buildLearningState, buildLearningStats, nextLearningCursor, shouldRunSpellingRound } =
   await vite.ssrLoadModule("/src/lib/learning-state.shared.ts");
+const {
+  clearPendingWordAttempt,
+  fetchAfterLearningStateWrites,
+  getOrCreatePendingWordAttemptId,
+  hasAuthoritativeLearningState,
+  queueLearningStateWrite,
+} = await vite.ssrLoadModule("/src/lib/learning-state.runtime.ts");
 const { advanceMemorizeSession, attemptIdForStage, parseMemorizeSession } =
   await vite.ssrLoadModule("/src/lib/learning-session.shared.ts");
 const { loadSentenceCursor, nextSentenceCursor, saveSentenceCursor, SENTENCE_PROGRESS_KEY } =
@@ -120,8 +127,8 @@ test("learning queues isolate the same word by book and keep skips out of study 
     { word: "apple", bookId: "book-a", translation: "苹果（新版）" },
   ]);
   assert.deepEqual(
-    state.troubleWords.map(({ bookId, typos }) => [bookId, typos]),
-    [["book-a", 5]],
+    state.troubleWords.map(({ bookId, errorAttempts }) => [bookId, errorAttempts]),
+    [["book-a", 2]],
   );
   assert.deepEqual(
     state.mistouchWords.map(({ bookId, word }) => [bookId, word]),
@@ -157,10 +164,215 @@ test("stats exclude skips, separate per-book trouble, and do not count wrong rec
       ["book-a", "orange"],
     ],
   );
+  assert.deepEqual(stats.troubleWords, []);
+});
+
+test("mistakes include typo and wrong-answer attempts; trouble requires two real attempts per book", () => {
+  const rows = [
+    attempt({ id: "typo-many", word: "typo", typo_count: 8 }),
+    attempt({ id: "answer-one", word: "answer", correct: false }),
+    attempt({
+      id: "answer-two",
+      word: "answer",
+      correct: false,
+      created_at: "2026-09-26T12:00:00Z",
+    }),
+    attempt({ id: "same-word-other-book", book_id: "book-b", word: "answer", correct: false }),
+    attempt({ id: "mistouch-one", word: "mistouch", typo_count: 9, mistouch: true }),
+    attempt({ id: "skip-one", word: "skip", correct: false, skipped: true }),
+    attempt({ id: "duplicate-attempt", word: "duplicate", typo_count: 5 }),
+    attempt({ id: "duplicate-attempt", word: "duplicate", typo_count: 5 }),
+  ];
+  const state = buildLearningState({
+    settings: null,
+    progress: [],
+    attempts: rows,
+    mastery: [],
+    now,
+  });
+  const stats = buildLearningStats(rows, now);
+  const identities = (items) => items.map(({ bookId, word }) => `${bookId}:${word}`);
+
+  assert.deepEqual(identities(state.wrongWords), [
+    "book-a:typo",
+    "book-a:answer",
+    "book-b:answer",
+    "book-a:duplicate",
+  ]);
   assert.deepEqual(
-    stats.troubleWords.map(({ bookId, word, typos }) => [bookId, word, typos]),
-    [["book-a", "orange", 1]],
+    state.troubleWords.map(({ bookId, word, errorAttempts }) => [bookId, word, errorAttempts]),
+    [["book-a", "answer", 2]],
   );
+  assert.deepEqual(
+    stats.troubleWords.map(({ bookId, word, errorAttempts, times }) => [
+      bookId,
+      word,
+      errorAttempts,
+      times,
+    ]),
+    [["book-a", "answer", 2, 2]],
+  );
+  assert.equal(
+    stats.recent.find((item) => item.word === "answer")?.correct,
+    false,
+    "wrong recall attempts retain their correctness state for the history UI",
+  );
+  assert.ok(
+    state.troubleWords.every((item) =>
+      identities(state.wrongWords).includes(`${item.bookId}:${item.word}`),
+    ),
+  );
+  assert.deepEqual(identities(state.mistouchWords), ["book-a:mistouch"]);
+  assert.ok(!identities(state.wrongWords).some((key) => key.endsWith(":skip")));
+});
+
+test("learning-state re-entry waits for pending server writes and restores each book and mode", async () => {
+  assert.equal(
+    hasAuthoritativeLearningState({ isFetchedAfterMount: false, isFetching: true, isError: false }),
+    false,
+  );
+  assert.equal(
+    hasAuthoritativeLearningState({ isFetchedAfterMount: true, isFetching: true, isError: false }),
+    false,
+  );
+  assert.equal(
+    hasAuthoritativeLearningState({ isFetchedAfterMount: true, isFetching: false, isError: false }),
+    true,
+  );
+  assert.equal(
+    hasAuthoritativeLearningState({ isFetchedAfterMount: true, isFetching: false, isError: true }),
+    false,
+  );
+
+  let cursor = 4;
+  let completedAttempt = false;
+  let releaseWrite;
+  const blocked = new Promise((resolve) => {
+    releaseWrite = resolve;
+  });
+  const write = queueLearningStateWrite(async () => {
+    await blocked;
+    completedAttempt = true;
+    cursor = 5;
+  });
+  let fetchedAfterWrite = false;
+  const recovered = fetchAfterLearningStateWrites(async () => {
+    fetchedAfterWrite = true;
+    return buildLearningState({
+      settings: null,
+      progress: [
+        { book_id: "book-a", mode: "word", cursor_index: cursor },
+        { book_id: "book-b", mode: "word", cursor_index: 9 },
+        { book_id: "book-a", mode: "sentence", cursor_index: 2 },
+        {
+          book_id: "book-a",
+          mode: "memorize",
+          cursor_index: 5,
+          revision: 8,
+          session_state: {
+            sessionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            status: "active",
+            phase: "recall",
+            itemIndex: 0,
+            batchWords: ["apple"],
+            batchWordIndices: [5],
+            bookWordCount: 10,
+            spellingOnly: false,
+            spellingEnabled: true,
+            rightCount: 1,
+            masteredCount: 0,
+            attemptIds: [
+              {
+                context: "a1111111-1111-4111-8111-111111111111",
+                recall: "a2222222-2222-4222-8222-222222222222",
+                spell: "a3333333-3333-4333-8333-333333333333",
+              },
+            ],
+          },
+        },
+      ],
+      attempts: [],
+      mastery: [],
+      now,
+    });
+  });
+
+  await Promise.resolve();
+  assert.equal(fetchedAfterWrite, false);
+  assert.equal(completedAttempt, false);
+  releaseWrite();
+  await write;
+  const state = await recovered;
+  assert.equal(completedAttempt, true);
+  assert.deepEqual(state.cursors, {
+    "book-a": { word: 5, sentence: 2, memorize: 5 },
+    "book-b": { word: 9 },
+  });
+  assert.equal(state.memorizeSessions["book-a"].phase, "recall");
+});
+
+test("an interrupted word completion reuses its id across refresh retries", () => {
+  const values = new Map();
+  const storage = {
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    setItem(key, value) {
+      values.set(key, value);
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+  };
+  const identity = "learn:book-a:apple:4";
+  const attemptId = getOrCreatePendingWordAttemptId(identity, storage);
+
+  assert.equal(getOrCreatePendingWordAttemptId(identity, storage), attemptId);
+  assert.notEqual(getOrCreatePendingWordAttemptId("learn:book-b:apple:4", storage), attemptId);
+  clearPendingWordAttempt(identity, storage);
+  assert.notEqual(getOrCreatePendingWordAttemptId(identity, storage), attemptId);
+});
+
+test("mistouch data remains stored while review navigation no longer exposes its queue", async () => {
+  const [review, shell] = await Promise.all([
+    readFile(new URL("../src/routes/_authenticated/review.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/AppShell.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(review, /误触记录/);
+  assert.doesNotMatch(shell, /误触记录/);
+});
+
+test("memorize and sentence pages identify the active book and explain missing meanings", async () => {
+  const [memorize, sentence] = await Promise.all([
+    readFile(new URL("../src/routes/_authenticated/memorize.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/sentence.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(memorize, /当前词书：/);
+  assert.match(memorize, /缺少中文释义，当前只能进行单词拼写/);
+  assert.match(sentence, /当前词书：/);
+});
+
+test("cursor writes queued before and after navigation cannot land out of order", async () => {
+  const writes = [];
+  let releaseFirst;
+  const firstBlocked = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const first = queueLearningStateWrite(async () => {
+    await firstBlocked;
+    writes.push(3);
+  });
+  const second = queueLearningStateWrite(async () => {
+    writes.push(4);
+  });
+
+  await Promise.resolve();
+  assert.deepEqual(writes, []);
+  releaseFirst();
+  await Promise.all([first, second]);
+  assert.deepEqual(writes, [3, 4]);
 });
 
 test("three-round recall still proceeds to spelling after an incorrect answer and advances cursor safely", () => {

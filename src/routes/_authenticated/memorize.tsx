@@ -1,18 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, PenLine, Sparkles, Volume2 } from "lucide-react";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { ALL_WORDS, hasMeaning, type MeaningfulEntry, type WordEntry } from "@/data/words";
-import { useBook } from "@/hooks/use-library";
+import { useBook, useLibrary } from "@/hooks/use-library";
+import { useLearningState } from "@/hooks/use-learning-state";
 import {
-  getLearningState,
   recordMemorizeStage,
   saveSettings,
   startMemorizeSession,
 } from "@/lib/learning.functions";
 import { attemptIdForStage, type MemorizeSession } from "@/lib/learning-session.shared";
+import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
@@ -72,15 +73,15 @@ function BoldSentence({ entry }: { entry: WordEntry }) {
 
 function MemorizePage() {
   const qc = useQueryClient();
-  const fetchState = useServerFn(getLearningState);
   const record = useServerFn(recordMemorizeStage);
   const start = useServerFn(startMemorizeSession);
   const persistSettings = useServerFn(saveSettings);
-  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+  const { data: state, isAuthoritative: stateIsAuthoritative } = useLearningState();
 
   const [session, setSession] = useState<MemorizeSession | null>(null);
   const [sessionBookId, setSessionBookId] = useState<string | null>(null);
   const [sessionRevision, setSessionRevision] = useState(0);
+  const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
   const [cursorIndex, setCursorIndex] = useState(0);
   const [picked, setPicked] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -88,11 +89,14 @@ function MemorizePage() {
   const initializingRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (state) setSpellOn(state.memorizeSpelling);
-  }, [state]);
+    if (state && stateIsAuthoritative) setSpellOn(state.memorizeSpelling);
+  }, [state, stateIsAuthoritative]);
 
-  const bookId = state?.activeBook || "core";
-  const { book } = useBook(state ? bookId : null);
+  const bookId = selectedBookId ?? (stateIsAuthoritative ? state?.activeBook : null) ?? "core";
+  const { all: allBooks } = useLibrary();
+  const { book } = useBook(
+    stateIsAuthoritative || selectedBookId !== null ? bookId : null,
+  );
   // 选义环节只使用有中文释义的词条
   const meaningful = useMemo(() => (book?.words ?? []).filter(hasMeaning), [book]);
   const spellingOnly = !!book?.words.length && meaningful.length === 0;
@@ -116,6 +120,24 @@ function MemorizePage() {
     void qc.invalidateQueries({ queryKey: ["learning-state"] });
   }, [qc]);
 
+  const switchBook = useCallback(
+    (id: string) => {
+      setSelectedBookId(id);
+      setSession(null);
+      setSessionBookId(null);
+      setPicked(null);
+      void queueLearningStateWrite(() => persistSettings({ data: { activeBook: id } }))
+        .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+        .catch(() => setSelectedBookId(null));
+    },
+    [persistSettings, qc],
+  );
+
+  useEffect(() => {
+    if (selectedBookId && state?.activeBook === selectedBookId && stateIsAuthoritative)
+      setSelectedBookId(null);
+  }, [selectedBookId, state?.activeBook, stateIsAuthoritative]);
+
   const beginSession = useCallback(
     async (startAt: number, expectedRevision: number) => {
       if (!book || book.words.length === 0) return;
@@ -129,18 +151,20 @@ function MemorizePage() {
         spellingOnly ? ordered : ordered.filter(({ entry: item }) => hasMeaning(item))
       ).slice(0, BATCH);
       if (!selected.length) return;
-      const result = await start({
-        data: {
-          bookId: book.id,
-          cursorIndex: normalizedStart,
-          expectedRevision,
-          bookWordCount: wordCount,
-          batchWords: selected.map(({ entry: item }) => item.word),
-          batchWordIndices: selected.map(({ position }) => position),
-          spellingOnly,
-          spellingEnabled: spellOn,
-        },
-      });
+      const result = await queueLearningStateWrite(() =>
+        start({
+          data: {
+            bookId: book.id,
+            cursorIndex: normalizedStart,
+            expectedRevision,
+            bookWordCount: wordCount,
+            batchWords: selected.map(({ entry: item }) => item.word),
+            batchWordIndices: selected.map(({ position }) => position),
+            spellingOnly,
+            spellingEnabled: spellOn,
+          },
+        }),
+      );
       const sessionFitsBook =
         !!result.session &&
         result.session.bookWordCount === wordCount &&
@@ -168,9 +192,17 @@ function MemorizePage() {
   );
 
   useEffect(() => {
-    if (!state || !book || !book.words.length || sessionBookId === book.id) return;
+    if (
+      !state ||
+      !stateIsAuthoritative ||
+      (selectedBookId !== null && state.activeBook !== selectedBookId) ||
+      !book ||
+      !book.words.length
+    )
+      return;
     const savedSession = state.memorizeSessions[book.id];
     const revision = state.progressRevisions[book.id]?.memorize ?? 0;
+    if (sessionBookId === book.id && sessionRevision === revision) return;
     const savedCursor = state.cursors[book.id]?.memorize ?? state.cursors[book.id]?.word ?? 0;
     const savedSessionFitsBook =
       !!savedSession &&
@@ -198,7 +230,16 @@ function MemorizePage() {
       .catch(() => {
         initializingRef.current = null;
       });
-  }, [state, book, spellingOnly, sessionBookId, beginSession]);
+  }, [
+    state,
+    stateIsAuthoritative,
+    selectedBookId,
+    book,
+    spellingOnly,
+    sessionBookId,
+    sessionRevision,
+    beginSession,
+  ]);
 
   const choose = useCallback(
     (option: string) => {
@@ -208,20 +249,22 @@ function MemorizePage() {
       setBusy(true);
       const correct = option === entry.cn;
       if (correct && phase === "context") speak(entry.word);
-      void record({
-        data: {
-          word: entry.word,
-          bookId,
-          translation: entry.cn,
-          stage: phase === "context" ? ("context" as const) : ("recall" as const),
-          sessionId: activeSession.sessionId,
-          attemptId: attemptIdForStage(activeSession, index, phase as "context" | "recall"),
-          revision: sessionRevision,
-          itemIndex: index,
-          spellingEnabled: spellOn,
-          correct,
-        },
-      })
+      void queueLearningStateWrite(() =>
+        record({
+          data: {
+            word: entry.word,
+            bookId,
+            translation: entry.cn,
+            stage: phase === "context" ? ("context" as const) : ("recall" as const),
+            sessionId: activeSession.sessionId,
+            attemptId: attemptIdForStage(activeSession, index, phase as "context" | "recall"),
+            revision: sessionRevision,
+            itemIndex: index,
+            spellingEnabled: spellOn,
+            correct,
+          },
+        }),
+      )
         .then((result) => {
           window.setTimeout(
             () => {
@@ -260,22 +303,24 @@ function MemorizePage() {
       if (!entry || !activeSession || busy) return;
       speak(entry.word);
       setBusy(true);
-      void record({
-        data: {
-          word: entry.word,
-          bookId,
-          translation: entry.cn,
-          stage: "spell" as const,
-          sessionId: activeSession.sessionId,
-          attemptId: attemptIdForStage(activeSession, index, "spell"),
-          revision: sessionRevision,
-          itemIndex: index,
-          spellingEnabled: spellOn,
-          correct: true,
-          typoCount: r.typoCount,
-          durationMs: r.durationMs,
-        },
-      })
+      void queueLearningStateWrite(() =>
+        record({
+          data: {
+            word: entry.word,
+            bookId,
+            translation: entry.cn,
+            stage: "spell" as const,
+            sessionId: activeSession.sessionId,
+            attemptId: attemptIdForStage(activeSession, index, "spell"),
+            revision: sessionRevision,
+            itemIndex: index,
+            spellingEnabled: spellOn,
+            correct: true,
+            typoCount: r.typoCount,
+            durationMs: r.durationMs,
+          },
+        }),
+      )
         .then((result) => {
           window.setTimeout(() => {
             if (result.session) setSession(result.session);
@@ -293,7 +338,7 @@ function MemorizePage() {
   const toggleSpell = () => {
     const next = !spellOn;
     setSpellOn(next);
-    void persistSettings({ data: { memorizeSpelling: next } })
+    void queueLearningStateWrite(() => persistSettings({ data: { memorizeSpelling: next } }))
       .then(invalidate)
       .catch(() => undefined);
   };
@@ -305,10 +350,42 @@ function MemorizePage() {
       .finally(() => setBusy(false));
   };
 
-  if (!state || !book || sessionBookId !== bookId || !activeSession || !entry) {
+  const bookSelector = (
+    <div className="focus-top flex w-full flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="px-1 text-sm text-muted-foreground">当前词书：{book?.name ?? "载入中"}</span>
+        {allBooks.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => switchBook(item.id)}
+            aria-pressed={item.id === bookId}
+            className={cn(
+              "rounded-full border px-3.5 py-1.5 text-sm transition-colors",
+              item.id === bookId
+                ? "border-primary/40 bg-card text-foreground shadow-sm"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {item.name}
+          </button>
+        ))}
+      </div>
+      {spellingOnly && (
+        <p className="w-full text-sm text-muted-foreground">
+          这本词书缺少中文释义，当前只能进行单词拼写。
+        </p>
+      )}
+    </div>
+  );
+
+  if (!stateIsAuthoritative || !state || !book || sessionBookId !== bookId || !activeSession || !entry) {
     return (
-      <div className="glass-stage flex min-h-[30rem] items-center justify-center">
-        {book && !book.words.length ? "这本词书暂无词条" : "载入中…"}
+      <div className="flex flex-col items-center overflow-x-clip pb-4">
+        {bookSelector}
+        <div className="glass-stage mt-6 flex min-h-[30rem] w-full items-center justify-center">
+          {book && !book.words.length ? "这本词书暂无词条" : "载入中…"}
+        </div>
       </div>
     );
   }
@@ -322,32 +399,35 @@ function MemorizePage() {
 
   if (phase === "done" || activeSession.status === "completed") {
     return (
-      <div className="glass-stage flex min-h-[30rem] flex-col items-center justify-center gap-5 text-center">
-        <CheckCircle2 className="size-12 text-success" />
-        <p className="font-display text-3xl">这一组背完了</p>
-        <p className="text-sm text-muted-foreground">
-          {currentSpellingOnly
-            ? `完成拼写 ${activeSession.masteredCount} / ${batch.length} 词`
-            : `答对 ${activeSession.rightCount} / ${total}`}
-          {!currentSpellingOnly && spellOn
-            ? ` · 完成三轮强化 ${activeSession.masteredCount} 词`
-            : ""}
-        </p>
-        <div className="flex flex-wrap justify-center gap-2">
-          <button
-            type="button"
-            onClick={restart}
-            disabled={busy}
-            className="rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground"
-          >
-            再来一组
-          </button>
-          <Link
-            to="/review"
-            className="rounded-full border border-border bg-card px-5 py-2 text-sm"
-          >
-            去复习
-          </Link>
+      <div className="flex flex-col items-center overflow-x-clip pb-4">
+        {bookSelector}
+        <div className="glass-stage mt-6 flex min-h-[30rem] w-full flex-col items-center justify-center gap-5 text-center">
+          <CheckCircle2 className="size-12 text-success" />
+          <p className="font-display text-3xl">这一组背完了</p>
+          <p className="text-sm text-muted-foreground">
+            {currentSpellingOnly
+              ? `完成拼写 ${activeSession.masteredCount} / ${batch.length} 词`
+              : `答对 ${activeSession.rightCount} / ${total}`}
+            {!currentSpellingOnly && spellOn
+              ? ` · 完成三轮强化 ${activeSession.masteredCount} 词`
+              : ""}
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={restart}
+              disabled={busy}
+              className="rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground"
+            >
+              再来一组
+            </button>
+            <Link
+              to="/review"
+              className="rounded-full border border-border bg-card px-5 py-2 text-sm"
+            >
+              去复习
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -355,6 +435,7 @@ function MemorizePage() {
 
   return (
     <div className="flex flex-col items-center overflow-x-clip pb-4">
+      {bookSelector}
       <div className="focus-top flex w-full flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="rounded-full bg-primary/10 px-3.5 py-1.5 text-sm text-primary">

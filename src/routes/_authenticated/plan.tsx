@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { SectionHeading } from "@/components/SectionHeading";
 import { cn } from "@/lib/utils";
-import { getLearningState, getStats, saveSettings } from "@/lib/learning.functions";
+import { getStats, saveSettings } from "@/lib/learning.functions";
 import { useLibrary } from "@/hooks/use-library";
+import { useLearningState } from "@/hooks/use-learning-state";
+import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 
 export const Route = createFileRoute("/_authenticated/plan")({
   head: () => ({
@@ -28,10 +30,9 @@ const PRESETS = [20, 30, 50];
 
 function PlanPage() {
   const qc = useQueryClient();
-  const fetchState = useServerFn(getLearningState);
   const fetchStats = useServerFn(getStats);
   const persist = useServerFn(saveSettings);
-  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+  const { data: state } = useLearningState();
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats() });
 
   const [goal, setGoal] = useState(20);
@@ -49,7 +50,7 @@ function PlanPage() {
   const toggleSpelling = () => {
     const next = !spelling;
     setSpelling(next);
-    void persist({ data: { memorizeSpelling: next } })
+    void queueLearningStateWrite(() => persist({ data: { memorizeSpelling: next } }))
       .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
       .catch(() => undefined);
   };
@@ -58,7 +59,7 @@ function PlanPage() {
     const v = Math.min(300, Math.max(5, Math.round(value)));
     setGoal(v);
     setSaved(false);
-    void persist({ data: { dailyGoal: v } })
+    void queueLearningStateWrite(() => persist({ data: { dailyGoal: v } }))
       .then(() => {
         setSaved(true);
         void qc.invalidateQueries({ queryKey: ["learning-state"] });

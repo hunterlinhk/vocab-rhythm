@@ -1,17 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useMemo, useEffect, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { hasSentence, type SentenceEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
+import { useLearningState } from "@/hooks/use-learning-state";
 import {
   completeSentenceCheckpoint,
-  getLearningState,
   saveSettings,
   startSentenceCheckpoint,
 } from "@/lib/learning.functions";
 import type { SentenceCheckpoint } from "@/lib/learning-session.shared";
+import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import {
   loadSentenceCursor,
   nextSentenceCursor,
@@ -81,13 +82,9 @@ function SpeakerButton({ text, className }: { text: string; className?: string }
 function SentencePage() {
   const startCheckpoint = useServerFn(startSentenceCheckpoint);
   const completeCheckpoint = useServerFn(completeSentenceCheckpoint);
-  const fetchState = useServerFn(getLearningState);
   const persistSettings = useServerFn(saveSettings);
   const qc = useQueryClient();
-  const { data: learningState } = useQuery({
-    queryKey: ["learning-state"],
-    queryFn: () => fetchState(),
-  });
+  const { data: learningState, isAuthoritative: stateIsAuthoritative } = useLearningState();
   const [bookId, setBookId] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
   const [checkpoint, setCheckpoint] = useState<ActiveSentenceCheckpoint | null>(null);
@@ -108,7 +105,7 @@ function SentencePage() {
   }, [prefs]);
   useEffect(() => setPrefs(loadPrefs()), []);
   useEffect(() => {
-    if (!learningState || ready) return;
+    if (!learningState || !stateIsAuthoritative || ready) return;
     const initialBook = learningState.activeBook || "core";
     setBookId(initialBook);
     const serverCursor = learningState.cursors[initialBook]?.sentence;
@@ -124,7 +121,7 @@ function SentencePage() {
       });
     }
     setReady(true);
-  }, [learningState, ready]);
+  }, [learningState, stateIsAuthoritative, ready]);
   const togglePref = useCallback((key: keyof Prefs) => {
     setPrefs((p) => {
       const nextPrefs = { ...p, [key]: !p[key] };
@@ -144,7 +141,7 @@ function SentencePage() {
   const entry = queue.length ? queue[Math.min(index, queue.length - 1)]! : undefined;
 
   useEffect(() => {
-    if (!ready || !bookId || !queue.length || !learningState || done) return;
+    if (!ready || !stateIsAuthoritative || !bookId || !queue.length || !learningState || done) return;
     const matchingCheckpoint = checkpoint?.bookId === bookId ? checkpoint : null;
     const targetIndex =
       matchingCheckpoint?.cursorIndex ?? learningState.cursors[bookId]?.sentence ?? index;
@@ -165,15 +162,17 @@ function SentencePage() {
     const syncKey = `${bookId}:${expectedRevision}:${normalizedIndex}:${queue.length}:${targetEntry.word}`;
     if (syncingRef.current === syncKey) return;
     syncingRef.current = syncKey;
-    void startCheckpoint({
-      data: {
-        bookId,
-        cursorIndex: normalizedIndex,
-        expectedRevision,
-        queueLength: queue.length,
-        activeWord: targetEntry.word,
-      },
-    })
+    void queueLearningStateWrite(() =>
+      startCheckpoint({
+        data: {
+          bookId,
+          cursorIndex: normalizedIndex,
+          expectedRevision,
+          queueLength: queue.length,
+          activeWord: targetEntry.word,
+        },
+      }),
+    )
       .then((result) => {
         const resultIndex = ((result.cursorIndex % queue.length) + queue.length) % queue.length;
         setIndex(resultIndex);
@@ -192,7 +191,7 @@ function SentencePage() {
       .finally(() => {
         syncingRef.current = null;
       });
-  }, [ready, bookId, queue, learningState, checkpoint, index, done, startCheckpoint, qc]);
+  }, [ready, stateIsAuthoritative, bookId, queue, learningState, checkpoint, index, done, startCheckpoint, qc]);
   const reviewing = reviewIndex !== null ? history[reviewIndex] : undefined;
   const panelResult = reviewing ? reviewing.result : done;
   const resultItem = reviewing ?? (done && entry ? { entry, result: done } : undefined);
@@ -219,9 +218,11 @@ function SentencePage() {
       setDone(null);
       setHistory([]);
       setReviewIndex(null);
-      void persistSettings({ data: { activeBook: id } }).catch(() => undefined);
+      void queueLearningStateWrite(() => persistSettings({ data: { activeBook: id } }))
+        .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+        .catch(() => undefined);
     },
-    [learningState, persistSettings],
+    [learningState, persistSettings, qc],
   );
 
   useEffect(() => {
@@ -239,21 +240,23 @@ function SentencePage() {
       setSavingCheckpoint(true);
       try {
         const nextIndex = nextSentenceCursor(index, queue.length);
-        const result = await completeCheckpoint({
-          data: {
-            bookId: entryBookId,
-            word: entry.word,
-            nextWord: queue[nextIndex]!.word,
-            translation: entry.cn,
-            attemptId: checkpoint.checkpoint.attemptId,
-            revision: checkpoint.revision,
-            queueLength: queue.length,
-            correct: true,
-            mistouch: r.mistouch,
-            typoCount: r.typoCount,
-            durationMs: r.durationMs,
-          },
-        });
+        const result = await queueLearningStateWrite(() =>
+          completeCheckpoint({
+            data: {
+              bookId: entryBookId,
+              word: entry.word,
+              nextWord: queue[nextIndex]!.word,
+              translation: entry.cn,
+              attemptId: checkpoint.checkpoint.attemptId,
+              revision: checkpoint.revision,
+              queueLength: queue.length,
+              correct: true,
+              mistouch: r.mistouch,
+              typoCount: r.typoCount,
+              durationMs: r.durationMs,
+            },
+          }),
+        );
         if (!result.accepted || !result.checkpoint) {
           setIndex(result.cursorIndex);
           setCheckpoint(
@@ -309,22 +312,24 @@ function SentencePage() {
     setSavingCheckpoint(true);
     try {
       const nextIndex = nextSentenceCursor(index, queue.length);
-      const result = await completeCheckpoint({
-        data: {
-          bookId: entryBookId,
-          word: entry.word,
-          nextWord: queue[nextIndex]!.word,
-          translation: entry.cn,
-          attemptId: checkpoint.checkpoint.attemptId,
-          revision: checkpoint.revision,
-          queueLength: queue.length,
-          correct: true,
-          mistouch: false,
-          typoCount: 0,
-          durationMs: 0,
-          skipped: true,
-        },
-      });
+      const result = await queueLearningStateWrite(() =>
+        completeCheckpoint({
+          data: {
+            bookId: entryBookId,
+            word: entry.word,
+            nextWord: queue[nextIndex]!.word,
+            translation: entry.cn,
+            attemptId: checkpoint.checkpoint.attemptId,
+            revision: checkpoint.revision,
+            queueLength: queue.length,
+            correct: true,
+            mistouch: false,
+            typoCount: 0,
+            durationMs: 0,
+            skipped: true,
+          },
+        }),
+      );
       setCheckpoint(
         result.checkpoint
           ? {
@@ -465,7 +470,12 @@ function SentencePage() {
   )
     return (
       <div className="flex flex-col items-center overflow-x-clip pb-4">
-        <div className="focus-top flex w-full flex-wrap items-center gap-1.5">{bookStrip}</div>
+        <div className="focus-top flex w-full flex-wrap items-center gap-1.5">
+          <span className="px-1 text-sm text-muted-foreground">
+            当前词书：{currentBook?.name ?? "载入中"}
+          </span>
+          {bookStrip}
+        </div>
         <div className="glass-stage mt-6 flex min-h-[30rem] w-full items-center justify-center">
           <p className="font-display text-2xl text-muted-foreground">
             {currentBook && queue.length === 0 ? "暂无例句" : "载入中…"}
@@ -477,7 +487,10 @@ function SentencePage() {
   return (
     <div className="flex flex-col items-center overflow-x-clip pb-4">
       <div className="focus-top flex w-full flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">{bookStrip}</div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="px-1 text-sm text-muted-foreground">当前词书：{currentBook?.name}</span>
+          {bookStrip}
+        </div>
         <div className="font-mono text-sm text-muted-foreground">
           {index + 1} / {queue.length} · 本次 {sessionDone}
         </div>

@@ -1,3 +1,15 @@
+# Learning flow recovery bugfix
+
+- Branch: `bugfix/learning-flow-recovery`, based on fetched `origin/main` at `d53a819c9a76203ff9b571553da8e6a2552b824a`; no upstream movement was found during this task.
+- Root cause: learning routes reused the shared React Query cache before a new server read completed, while one-word completion/cursor writes were detached and could race route changes or refreshes. Session-backed memorize/sentence state had the same stale-cache exposure.
+- Added one authoritative `useLearningState` query path. It waits for queued writes, always refetches on mount, and gates restoration until that fetch completes. Word completion now waits for the attempt and next cursor; a sessionStorage retry id plus idempotent attempt upsert protects interrupted retries. Sentence/memorize writes use the same ordered queue.
+- Error semantics now share one rule keyed by `bookId + word`: a real incorrect recall/selection or typo-bearing attempt adds the word to wrong; trouble requires at least two distinct non-skip, non-mistouch attempt IDs. Stats and AI context use the same inputs. Mistouch remains stored but is absent from review tabs/sidebar.
+- Memorize now shows the selected book and explains spelling-only use when that book has no Chinese meanings. Sentence practice labels its current book; both retain their existing book selectors.
+- Validation observed: `npm test` 38/38 passed; `npx tsc --noEmit` passed; production build passed; targeted ESLint rules passed with the repository's CRLF-sensitive Prettier rule disabled. Build emits existing `inputValidator()` deprecation notices. No migration or OEWN staging files changed; no production database connection or SQL was used.
+- Next action: commit and push this branch; do not merge `main`.
+
+---
+
 # Server-side learning checkpoints
 
 - Branch: `feat/core-learning-flow-integrity`; implementation commit `5d70038` has been pushed to origin. No merge to `main` has occurred.
@@ -8,7 +20,7 @@
 - Final validation: `npm test` 32/32 passed; `npx tsc --noEmit` passed; `npm run build` passed; targeted ESLint on changed learning code passed; `git diff --check` passed. Build reports existing TanStack `inputValidator()` deprecation notices.
 - Repository-wide `npm run lint` was attempted and emits thousands of Prettier CRLF errors across untouched files on this Windows checkout. Changed learning modules lint clean; generated Supabase types and the two minimally changed legacy cursor call sites are excluded from targeted Prettier validation because their checked-out CRLF baseline triggers the same rule.
 - Constraints: no production connection/SQL, no edits to `ops/oewn-2025-ngsl/**`, no edits to migrations `0000–0008`, preserve current UI/layout, then commit and push this branch.
-- Deployment prerequisite: apply migration `0009_book_progress_modes_and_sessions.sql` before deploying code that reads/writes the new `(user_id, book_id, mode)` key. It has not been applied to any production database. The latest build-generated `src/routeTree.gen.ts` output was restored; no generated route changes are intended.
+- Deployment prerequisite at the time of this checkpoint was migration `0009_book_progress_modes_and_sessions.sql`; the user later confirmed production 0009 succeeded before this task. No production database SQL was run in this bugfix. The latest build-generated `src/routeTree.gen.ts` output was restored; no generated route changes are intended.
 
 ---
 

@@ -22,6 +22,7 @@ import {
 export type { LearningState, LearningStats };
 
 const AttemptInput = z.object({
+  attemptId: z.string().uuid().optional(),
   mode: z.enum(["word", "sentence", "memorize"]),
   bookId: z.string(),
   word: z.string(),
@@ -38,7 +39,7 @@ export const recordAttempt = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => AttemptInput.parse(input))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.from("attempts").insert({
+    const attempt = {
       user_id: context.userId,
       mode: data.mode,
       book_id: data.bookId,
@@ -50,7 +51,13 @@ export const recordAttempt = createServerFn({ method: "POST" })
       duration_ms: data.durationMs,
       is_review: data.isReview ?? false,
       skipped: data.skipped ?? false,
-    });
+    };
+    const { error } = data.attemptId
+      ? await context.supabase.from("attempts").upsert(
+          { ...attempt, id: data.attemptId },
+          { onConflict: "id", ignoreDuplicates: true },
+        )
+      : await context.supabase.from("attempts").insert(attempt);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -689,7 +696,7 @@ export const getLearningState = createServerFn({ method: "GET" })
         .eq("user_id", context.userId),
       context.supabase
         .from("attempts")
-        .select("word, translation, book_id, typo_count, mistouch, correct, skipped, created_at")
+        .select("id, word, translation, book_id, typo_count, mistouch, correct, skipped, created_at")
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(2000),
@@ -782,7 +789,7 @@ export const getStats = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("attempts")
       .select(
-        "word, book_id, translation, mode, typo_count, mistouch, correct, skipped, created_at",
+        "id, word, book_id, translation, mode, typo_count, mistouch, correct, skipped, created_at",
       )
       .eq("user_id", context.userId)
       .order("created_at", { ascending: false })
@@ -842,7 +849,7 @@ export const sendMessage = createServerFn({ method: "POST" })
         .limit(40),
       context.supabase
         .from("attempts")
-        .select("word, book_id, translation, typo_count, mistouch, mode, skipped, created_at")
+        .select("id, word, book_id, translation, correct, typo_count, mistouch, mode, skipped, created_at")
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(200),
@@ -870,7 +877,7 @@ export const sendMessage = createServerFn({ method: "POST" })
       attempts.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today),
     );
     const wrongWords = distinctEntries(
-      attempts.filter((r) => r.typo_count > 0 && !r.mistouch),
+      attempts.filter((r) => (r.typo_count > 0 || !r.correct) && !r.mistouch),
     ).slice(0, 20);
     const learned = distinctEntries(attempts).slice(0, 60);
     const masteryRows = mastery ?? [];

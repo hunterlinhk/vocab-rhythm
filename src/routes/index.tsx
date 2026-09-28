@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { SectionHeading } from "@/components/SectionHeading";
 import { AppShell } from "@/components/AppShell";
-import { getLearningState, getStats } from "@/lib/learning.functions";
+import { getStats } from "@/lib/learning.functions";
+import { useLearningState } from "@/hooks/use-learning-state";
 import { useLibrary } from "@/hooks/use-library";
 import { entryKey } from "@/lib/entry-identity";
 import { supabase } from "@/integrations/supabase/client";
@@ -120,7 +121,6 @@ function LoginPrompt() {
 
 function HomeContent() {
   const fetchStats = useServerFn(getStats);
-  const fetchState = useServerFn(getLearningState);
   const [authed, setAuthed] = useState(false);
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setAuthed(!!data.session));
@@ -129,7 +129,7 @@ function HomeContent() {
   }, []);
   const { data, isLoading: statsLoading } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats(), enabled: authed });
   const isLoading = authed && statsLoading;
-  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState(), enabled: authed });
+  const { data: state } = useLearningState({ enabled: authed });
   const todayCount = data?.todayCount ?? 0;
   const dailyGoal = state?.dailyGoal ?? 20;
   const progress = Math.min(100, Math.round((todayCount / dailyGoal) * 100));

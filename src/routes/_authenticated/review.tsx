@@ -1,21 +1,18 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
-import { AlertCircle, CheckCircle2, MousePointer2, RotateCcw, Star } from "lucide-react";
+import { AlertCircle, CheckCircle2, RotateCcw, Star } from "lucide-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getLearningState } from "@/lib/learning.functions";
 import { entryKey } from "@/lib/entry-identity";
+import { useLearningState } from "@/hooks/use-learning-state";
 
-const tabs = ["今日复习", "错词", "易错词", "误触记录"] as const;
+const tabs = ["今日复习", "错词", "易错词"] as const;
 type Tab = (typeof tabs)[number];
 
-const QUEUE_OF: Record<Tab, "today" | "wrong" | "trouble" | "mistouch"> = {
+const QUEUE_OF: Record<Tab, "today" | "wrong" | "trouble"> = {
   今日复习: "today",
   错词: "wrong",
   易错词: "trouble",
-  误触记录: "mistouch",
 };
 
 export const Route = createFileRoute("/_authenticated/review")({
@@ -26,7 +23,7 @@ export const Route = createFileRoute("/_authenticated/review")({
   head: () => ({
     meta: [
       { title: "复习中心 · 韵词 Cadence" },
-      { name: "description", content: "集中复习错词、今日任务、易错词与误触记录。" },
+      { name: "description", content: "集中复习错词、今日任务与易错词。" },
       { property: "og:title", content: "复习中心 · 韵词 Cadence" },
       { property: "og:description", content: "根据真实学习记录安排复习。" },
       { property: "og:type", content: "website" },
@@ -39,24 +36,19 @@ export const Route = createFileRoute("/_authenticated/review")({
 function ReviewPage() {
   const { tab = "今日复习" } = Route.useSearch();
   const navigate = useNavigate();
-  const fetchState = useServerFn(getLearningState);
-  const { data, isLoading } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+  const { data, isLoading, isAuthoritative } = useLearningState();
 
   const lists = useMemo(
     () => ({
       今日复习: data?.todayItems.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: "今天学过" })) ?? [],
-      错词: data?.wrongWords.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: "曾答错" })) ?? [],
+      错词: data?.wrongWords.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: "发生过错误" })) ?? [],
       易错词:
-        data?.troubleWords.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: `${w.typos} 次错误` })) ?? [],
-      误触记录: [...new Map(data?.mistouchWords.map((w) => [
-        entryKey(w),
-        { word: w.word, bookId: w.bookId, translation: w.translation, note: "已标记误触" },
-      ]) ?? []).values()],
+        data?.troubleWords.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: `${w.errorAttempts} 次错误尝试` })) ?? [],
     }),
     [data],
   );
 
-  const current = lists[tab];
+  const current = isAuthoritative ? lists[tab] : [];
 
   return (
     <div className="space-y-7 pb-8">
@@ -83,13 +75,17 @@ function ReviewPage() {
       <section className="glass-hero flex flex-col justify-between gap-8 rounded-[2rem] p-7 sm:flex-row sm:items-end sm:p-9">
         <div>
           <div className="flex size-12 items-center justify-center rounded-2xl bg-warning/15 text-warning">
-            {tab === "误触记录" ? <MousePointer2 /> : tab === "今日复习" ? <RotateCcw /> : <AlertCircle />}
+            {tab === "今日复习" ? <RotateCcw /> : <AlertCircle />}
           </div>
           <h2 className="mt-7 font-display text-3xl">
-            {current.length ? `${current.length} 个词等待复习` : `${tab}暂时是空的`}
+            {!isAuthoritative
+              ? "载入中…"
+              : current.length
+                ? `${current.length} 个词等待复习`
+                : `${tab}暂时是空的`}
           </h2>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-            只练习这批词，完成后会更新学习记录。误触记录不计入真正的错误。
+            只练习这批词，完成后会更新学习记录。
           </p>
         </div>
         <Button asChild size="lg" disabled={!current.length} className="rounded-full px-6">
@@ -102,7 +98,7 @@ function ReviewPage() {
       <section className="glass-panel p-6 sm:p-8">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            {tab === "误触记录" ? <MousePointer2 className="text-primary" /> : <AlertCircle className="text-warning" />}
+            {tab === "今日复习" ? <RotateCcw className="text-primary" /> : <AlertCircle className="text-warning" />}
             <h2 className="font-display text-2xl">{tab}</h2>
           </div>
           <Button asChild variant="ghost" size="sm">
@@ -121,7 +117,10 @@ function ReviewPage() {
               <span className="rounded-full bg-secondary/70 px-3 py-1 text-xs text-muted-foreground">{item.note}</span>
             </div>
           ))}
-          {!isLoading && !current.length && (
+          {!isAuthoritative && (
+            <p className="py-8 text-center text-sm text-muted-foreground">载入中…</p>
+          )}
+          {!isLoading && isAuthoritative && !current.length && (
             <div className="py-14 text-center">
               <CheckCircle2 className="mx-auto size-8 text-success" />
               <p className="mt-3 text-sm text-muted-foreground">这里暂时没有记录。</p>

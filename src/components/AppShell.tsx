@@ -26,7 +26,6 @@ const nav = [
       { label: "今日复习", to: "/review", search: { tab: "今日复习" } },
       { label: "错词", to: "/review", search: { tab: "错词" } },
       { label: "易错词", to: "/review", search: { tab: "易错词" } },
-      { label: "误触记录", to: "/review", search: { tab: "误触记录" } },
     ],
   },
   {

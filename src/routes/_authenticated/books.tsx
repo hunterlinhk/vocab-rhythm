@@ -25,7 +25,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { useLibrary, type BookSummary } from "@/hooks/use-library";
-import { getLearningState, saveSettings } from "@/lib/learning.functions";
+import { useLearningState } from "@/hooks/use-learning-state";
+import { saveSettings } from "@/lib/learning.functions";
+import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import { createCustomBook, deleteCustomBook } from "@/lib/library.functions";
 import { parsePastedWords, type EntryInputT } from "@/lib/library.shared";
 
@@ -54,17 +56,16 @@ function BooksPage() {
   const { tab = "官方词库" } = Route.useSearch();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const fetchState = useServerFn(getLearningState);
   const persist = useServerFn(saveSettings);
   const remove = useServerFn(deleteCustomBook);
-  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+  const { data: state } = useLearningState();
   const { official, custom } = useLibrary();
   const activeBook = state?.activeBook ?? "core";
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<BookSummary | null>(null);
 
   const choose = (id: string) => {
-    void persist({ data: { activeBook: id } })
+    void queueLearningStateWrite(() => persist({ data: { activeBook: id } }))
       .then(() => {
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
         void navigate({ to: "/learn" });

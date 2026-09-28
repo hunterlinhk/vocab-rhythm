@@ -23,7 +23,12 @@ export type LearningState = {
   learnedWords: string[];
   todayItems: { word: string; bookId: string; translation: string | null }[];
   wrongWords: { word: string; bookId: string; translation: string | null }[];
-  troubleWords: { word: string; bookId: string; translation: string | null; typos: number }[];
+  troubleWords: {
+    word: string;
+    bookId: string;
+    translation: string | null;
+    errorAttempts: number;
+  }[];
   mistouchWords: { word: string; bookId: string; translation: string | null; at: string }[];
   skippedWords: { word: string; bookId: string; translation: string | null; at: string }[];
 };
@@ -39,7 +44,7 @@ export type LearningStats = {
     word: string;
     bookId: string;
     translation: string | null;
-    typos: number;
+    errorAttempts: number;
     times: number;
   }[];
   recent: {
@@ -47,6 +52,7 @@ export type LearningStats = {
     bookId: string;
     translation: string | null;
     mode: string;
+    correct: boolean;
     typos: number;
     mistouch: boolean;
     at: string;
@@ -54,6 +60,7 @@ export type LearningStats = {
 };
 
 export type LearningAttemptRow = {
+  id?: string;
   word: string;
   book_id: string;
   translation: string | null;
@@ -66,6 +73,41 @@ export type LearningAttemptRow = {
 };
 
 const dayKey = (date: Date) => date.toLocaleDateString("en-CA");
+
+function collectErrorWords(rows: LearningAttemptRow[]) {
+  const wrong = new Map<string, { word: string; bookId: string; translation: string | null }>();
+  const errorAttempts = new Map<
+    string,
+    { word: string; bookId: string; translation: string | null; errorAttempts: number }
+  >();
+  const seenAttempts = new Set<string>();
+
+  rows.forEach((row, index) => {
+    const attemptId = row.id ? `id:${row.id}` : `row:${index}`;
+    if (row.skipped || row.mistouch || (row.correct && row.typo_count <= 0)) return;
+    if (seenAttempts.has(attemptId)) return;
+    seenAttempts.add(attemptId);
+
+    const key = entryKey({ bookId: row.book_id, word: row.word });
+    if (!wrong.has(key))
+      wrong.set(key, { word: row.word, bookId: row.book_id, translation: row.translation });
+    const current = errorAttempts.get(key) ?? {
+      word: row.word,
+      bookId: row.book_id,
+      translation: row.translation,
+      errorAttempts: 0,
+    };
+    current.errorAttempts += 1;
+    errorAttempts.set(key, current);
+  });
+
+  return {
+    wrongWords: [...wrong.values()],
+    troubleWords: [...errorAttempts.values()]
+      .filter((item) => item.errorAttempts >= 2)
+      .sort((a, b) => b.errorAttempts - a.errorAttempts),
+  };
+}
 
 export function shouldRunSpellingRound(phase: string, spellingEnabled: boolean): boolean {
   return phase === "recall" && spellingEnabled;
@@ -120,14 +162,14 @@ export function buildLearningState(input: {
 
   const identity = (row: { book_id: string; word: string }) =>
     entryKey({ bookId: row.book_id, word: row.word });
-  const wrong = new Map<string, { word: string; bookId: string; translation: string | null }>();
-  const trouble = new Map<
-    string,
-    { word: string; bookId: string; translation: string | null; typos: number }
-  >();
+  const errorWords = collectErrorWords(rows);
+  const wrongWords = errorWords.wrongWords.slice(0, 60);
+  const visibleWrongKeys = new Set(wrongWords.map(entryKey));
+  const troubleWords = errorWords.troubleWords
+    .filter((item) => visibleWrongKeys.has(entryKey(item)))
+    .slice(0, 60);
   const mistouch: LearningState["mistouchWords"] = [];
   for (const row of studied) {
-    const key = identity(row);
     if (row.mistouch) {
       if (mistouch.length < 40)
         mistouch.push({
@@ -137,19 +179,6 @@ export function buildLearningState(input: {
           at: row.created_at,
         });
       continue;
-    }
-    // Attempts are newest first. Keep the newest mistake for an identity and its translation.
-    if (row.correct === false && !wrong.has(key))
-      wrong.set(key, { word: row.word, bookId: row.book_id, translation: row.translation });
-    if (row.typo_count > 0) {
-      const current = trouble.get(key) ?? {
-        word: row.word,
-        bookId: row.book_id,
-        translation: row.translation,
-        typos: 0,
-      };
-      current.typos += row.typo_count;
-      trouble.set(key, current);
     }
   }
 
@@ -182,8 +211,8 @@ export function buildLearningState(input: {
     learnedByBook,
     learnedWords: [...new Set(studied.map((row) => row.word))],
     todayItems: [...todayItems.values()],
-    wrongWords: [...wrong.values()].slice(0, 60),
-    troubleWords: [...trouble.values()].sort((a, b) => b.typos - a.typos).slice(0, 60),
+    wrongWords,
+    troubleWords,
     mistouchWords: mistouch,
     skippedWords: rows
       .filter((row) => row.skipped)
@@ -202,23 +231,15 @@ export function buildLearningStats(rows: LearningAttemptRow[], now = new Date())
   const today = dayKey(now);
   const todayRows = attempts.filter((row) => dayKey(new Date(row.created_at)) === today);
 
-  const trouble = new Map<
-    string,
-    { word: string; bookId: string; translation: string | null; typos: number; times: number }
-  >();
+  const practiceAttempts = new Map<string, number>();
   for (const row of attempts) {
     const key = entryKey({ bookId: row.book_id, word: row.word });
-    const current = trouble.get(key) ?? {
-      word: row.word,
-      bookId: row.book_id,
-      translation: row.translation,
-      typos: 0,
-      times: 0,
-    };
-    current.typos += row.mistouch ? 0 : row.typo_count;
-    current.times += 1;
-    trouble.set(key, current);
+    practiceAttempts.set(key, (practiceAttempts.get(key) ?? 0) + 1);
   }
+  const troubleWords = collectErrorWords(rows).troubleWords.map((item) => ({
+    ...item,
+    times: practiceAttempts.get(entryKey(item)) ?? 0,
+  }));
 
   const days = new Set(attempts.map((row) => dayKey(new Date(row.created_at))));
   let streak = 0;
@@ -253,15 +274,13 @@ export function buildLearningStats(rows: LearningAttemptRow[], now = new Date())
     uniqueWords: new Set(attempts.map((row) => row.word)).size,
     cleanRate: attempts.length ? Math.round((clean / attempts.length) * 100) : 0,
     streakDays: streak,
-    troubleWords: [...trouble.values()]
-      .filter((item) => item.typos > 0)
-      .sort((a, b) => b.typos - a.typos)
-      .slice(0, 8),
+    troubleWords: troubleWords.slice(0, 8),
     recent: attempts.slice(0, 20).map((row) => ({
       word: row.word,
       bookId: row.book_id,
       translation: row.translation,
       mode: row.mode ?? "word",
+      correct: row.correct,
       typos: row.typo_count,
       mistouch: row.mistouch,
       at: row.created_at,

@@ -1,12 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Bell, ChevronRight, Crown, Headphones, Keyboard, LogOut, Moon, ShieldCheck, UserRound } from "lucide-react";
 import { setVirtualKeyboard, useVirtualKeyboard } from "@/lib/virtual-keyboard";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { getLearningState, saveSettings } from "@/lib/learning.functions";
+import { saveSettings } from "@/lib/learning.functions";
+import { useLearningState } from "@/hooks/use-learning-state";
+import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/_authenticated/profile")({
@@ -26,10 +28,9 @@ function ProfilePage() {
   const [email, setEmail] = useState("学习者");
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [sound, setSound] = useState(true);
-  const fetchState = useServerFn(getLearningState);
   const persistSettings = useServerFn(saveSettings);
   const qc = useQueryClient();
-  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+  const { data: state } = useLearningState();
   const [strict, setStrict] = useState(false);
   const vk = useVirtualKeyboard();
 
@@ -38,7 +39,7 @@ function ProfilePage() {
 
   const toggleStrict = (on: boolean) => {
     setStrict(on);
-    void persistSettings({ data: { strictSpelling: on } })
+    void queueLearningStateWrite(() => persistSettings({ data: { strictSpelling: on } }))
       .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
       .catch(() => undefined);
   };

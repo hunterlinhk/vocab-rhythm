@@ -5,26 +5,30 @@ import { useServerFn } from "@tanstack/react-start";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { bareEntry, findInBundledBook, findWord, isBundledBook, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
+import { useLearningState } from "@/hooks/use-learning-state";
 import { resolveEntries } from "@/lib/library.functions";
 import { entryKey, parseFavorites, type EntryIdentity } from "@/lib/entry-identity";
 import {
-  getLearningState,
   markAttemptMistouch,
   recordAttempt,
   saveBookCursor,
   saveSettings,
 } from "@/lib/learning.functions";
+import {
+  clearPendingWordAttempt,
+  getOrCreatePendingWordAttemptId,
+  queueLearningStateWrite,
+} from "@/lib/learning-state.runtime";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 import { Volume2, BookOpen, PenLine, CheckCircle2 } from "lucide-react";
 
-export type QueueKind = "today" | "wrong" | "trouble" | "mistouch" | "favorites";
+export type QueueKind = "today" | "wrong" | "trouble" | "favorites";
 
 const QUEUE_LABEL: Record<QueueKind, string> = {
   today: "今日复习",
   wrong: "错词",
   trouble: "易错词",
-  mistouch: "误触记录",
   favorites: "收藏",
 };
 
@@ -215,14 +219,16 @@ function LearnPage() {
   const flagMistouch = useServerFn(markAttemptMistouch);
   const persistCursor = useServerFn(saveBookCursor);
   const persistSettings = useServerFn(saveSettings);
-  const fetchState = useServerFn(getLearningState);
   const qc = useQueryClient();
-  const { data: state } = useQuery({ queryKey: ["learning-state"], queryFn: () => fetchState() });
+  const { data: state, isAuthoritative: stateIsAuthoritative } = useLearningState();
 
   const [bookId, setBookId] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
   const [ready, setReady] = useState(false);
   const [done, setDone] = useState<TypingResult | null>(null);
+  const [savingProgress, setSavingProgress] = useState(false);
+  const [completionRetry, setCompletionRetry] = useState<TypingResult | null>(null);
+  const savingProgressRef = useRef(false);
   const [sessionDone, setSessionDone] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
@@ -275,13 +281,7 @@ function LearnPage() {
     if (queueKind === "today") return state.todayItems;
     if (queueKind === "wrong") return state.wrongWords;
     if (queueKind === "trouble") return state.troubleWords;
-    const seen = new Set<string>();
-    return state.mistouchWords.filter((w) => {
-      const key = entryKey(w);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    return [];
   }, [queueKind, state, favorites]);
 
   const { all: allBooks } = useLibrary();
@@ -313,7 +313,7 @@ function LearnPage() {
 
   // hydrate the persisted book + cursor once the state arrives
   useEffect(() => {
-    if (!state || ready) return;
+    if (!state || !stateIsAuthoritative || ready) return;
     if (queueKind) {
       setReady(true);
       return;
@@ -323,7 +323,7 @@ function LearnPage() {
     setBookId(book);
     setIndex(saved);
     setReady(true);
-  }, [state, ready, queueKind]);
+  }, [state, stateIsAuthoritative, ready, queueKind]);
 
   const [navDir, setNavDir] = useState<1 | -1>(1);
 
@@ -335,9 +335,11 @@ function LearnPage() {
       setHistory([]);
       setReviewIndex(null);
       setFinished(false);
-      void persistSettings({ data: { activeBook: id } }).catch(() => undefined);
+      void queueLearningStateWrite(() => persistSettings({ data: { activeBook: id } }))
+        .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+        .catch(() => undefined);
     },
-    [persistSettings, state],
+    [persistSettings, state, qc],
   );
 
   const next = useCallback(() => {
@@ -353,11 +355,9 @@ function LearnPage() {
         }
         return nextIndex;
       }
-      const wrapped = queue.length ? nextIndex % queue.length : 0;
-      if (bookId) void persistCursor({ data: { bookId, mode: "word", cursorIndex: wrapped } }).catch(() => undefined);
-      return wrapped;
+      return queue.length ? nextIndex % queue.length : 0;
     });
-  }, [queue.length, queueKind, bookId, persistCursor]);
+  }, [queue.length, queueKind]);
 
   const entry = queue.length
     ? queue[queueKind ? Math.min(index, queue.length - 1) : index % queue.length]!
@@ -370,63 +370,114 @@ function LearnPage() {
   const resultKey = resultItem ? entryKey({ bookId: resultBookId, word: resultItem.entry.word }) : "";
 
   const onComplete = useCallback(
-    (r: TypingResult) => {
-      if (!entry) return;
-      setDone(r);
-      setSessionDone((n) => n + 1);
-      setHistory((h) => [...h, { entry, result: r }]);
-      if (!queueKind && bookId && queue.length)
-        void persistCursor({ data: { bookId, mode: "word", cursorIndex: (index + 1) % queue.length } }).catch(() => undefined);
-      if (prefsRef.current.speech) speak(entry.word);
-      void save({
-        data: {
-          mode: "word" as const,
-          bookId: entryBook,
-          word: entry.word,
-          translation: entry.cn,
-          correct: true,
-          mistouch: r.mistouch,
-          typoCount: r.typoCount,
-          durationMs: r.durationMs,
-          isReview: !!queueKind,
-        },
-      })
-        .then(() => {
-          void qc.invalidateQueries({ queryKey: ["stats"] });
-          void qc.invalidateQueries({ queryKey: ["learning-state"] });
-        })
-        .catch(() => undefined);
+    async (r: TypingResult) => {
+      if (!entry || savingProgressRef.current) return;
+      const identity = `${queueKind ?? "learn"}:${entryBook}:${entry.word}:${index}`;
+      const attemptId = getOrCreatePendingWordAttemptId(identity);
+      savingProgressRef.current = true;
+      setSavingProgress(true);
+      setCompletionRetry(null);
+      try {
+        await queueLearningStateWrite(async () => {
+          await save({
+            data: {
+              attemptId,
+              mode: "word" as const,
+              bookId: entryBook,
+              word: entry.word,
+              translation: entry.cn,
+              correct: true,
+              mistouch: r.mistouch,
+              typoCount: r.typoCount,
+              durationMs: r.durationMs,
+              isReview: !!queueKind,
+            },
+          });
+          if (!queueKind && bookId && queue.length)
+            await persistCursor({
+              data: { bookId, mode: "word", cursorIndex: (index + 1) % queue.length },
+            });
+        });
+        clearPendingWordAttempt(identity);
+        setDone(r);
+        setSessionDone((n) => n + 1);
+        setHistory((h) => [...h, { entry, result: r }]);
+        if (prefsRef.current.speech) speak(entry.word);
+        void qc.invalidateQueries({ queryKey: ["stats"] });
+        void qc.invalidateQueries({ queryKey: ["learning-state"] });
+      } catch {
+        setCompletionRetry(r);
+      } finally {
+        savingProgressRef.current = false;
+        setSavingProgress(false);
+      }
     },
-    [entryBook, entry, save, queueKind, qc, bookId, queue.length, index, persistCursor],
+    [
+      entryBook,
+      entry,
+      save,
+      queueKind,
+      qc,
+      bookId,
+      queue.length,
+      index,
+      persistCursor,
+    ],
   );
 
-  const skipCurrent = useCallback(() => {
-    if (!entry) return;
-    void save({
-      data: {
-        mode: "word" as const,
-        bookId: entryBook,
-        word: entry.word,
-        translation: entry.cn,
-        correct: true,
-        mistouch: false,
-        typoCount: 0,
-        durationMs: 0,
-        isReview: !!queueKind,
-        skipped: true,
-      },
-    })
-      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
-      .catch(() => undefined);
-    next();
-  }, [entry, entryBook, save, queueKind, qc, next]);
+  const skipCurrent = useCallback(async () => {
+    if (!entry || savingProgressRef.current || completionRetry) return;
+    savingProgressRef.current = true;
+    setSavingProgress(true);
+    try {
+      await queueLearningStateWrite(async () => {
+        await save({
+          data: {
+            mode: "word" as const,
+            bookId: entryBook,
+            word: entry.word,
+            translation: entry.cn,
+            correct: true,
+            mistouch: false,
+            typoCount: 0,
+            durationMs: 0,
+            isReview: !!queueKind,
+            skipped: true,
+          },
+        });
+        if (!queueKind && bookId && queue.length)
+          await persistCursor({
+            data: { bookId, mode: "word", cursorIndex: (index + 1) % queue.length },
+          });
+      });
+      void qc.invalidateQueries({ queryKey: ["learning-state"] });
+      next();
+    } catch {
+      // Keep the skipped word in place if the server did not persist the skip/cursor.
+    } finally {
+      savingProgressRef.current = false;
+      setSavingProgress(false);
+    }
+  }, [
+    entry,
+    entryBook,
+    save,
+    queueKind,
+    qc,
+    next,
+    completionRetry,
+    bookId,
+    queue.length,
+    index,
+    persistCursor,
+  ]);
 
   const markMistouch = useCallback(
     (item: EntryIdentity) => {
       const key = entryKey(item);
       if (mistouched.has(key)) return;
       setLocallyMistouched((s) => new Set(s).add(key));
-      void flagMistouch({ data: item })
+      void queueLearningStateWrite(() => flagMistouch({ data: item }))
         .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
         .catch(() => undefined);
     },
@@ -545,18 +596,20 @@ function LearnPage() {
       const key = entryKey({ bookId: itemBookId, word: item.entry.word });
       if (savedToMistakes.has(key)) return;
       setLocallySavedToMistakes((s) => new Set(s).add(key));
-      void save({
-        data: {
-          mode: "word" as const,
-          bookId: itemBookId,
-          word: item.entry.word,
-          translation: item.entry.cn,
-          correct: false,
-          mistouch: false,
-          typoCount: Math.max(1, item.result.typoCount),
-          durationMs: item.result.durationMs,
-        },
-      })
+      void queueLearningStateWrite(() =>
+        save({
+          data: {
+            mode: "word" as const,
+            bookId: itemBookId,
+            word: item.entry.word,
+            translation: item.entry.cn,
+            correct: false,
+            mistouch: false,
+            typoCount: Math.max(1, item.result.typoCount),
+            durationMs: item.result.durationMs,
+          },
+        }),
+      )
         .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
         .catch(() => undefined);
     },
@@ -686,6 +739,7 @@ function LearnPage() {
           <button
             type="button"
             onClick={skipCurrent}
+            disabled={savingProgress || !!completionRetry}
             className="absolute top-5 right-6 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
           >
             Skip
@@ -754,8 +808,27 @@ function LearnPage() {
                 masked={prefs.dictation}
                 strict={strict}
                 hideMistouch={strict}
+                paused={savingProgress || !!completionRetry}
                 onComplete={onComplete}
               />
+              {savingProgress && (
+                <p className="text-sm text-muted-foreground" role="status">
+                  正在保存学习进度…
+                </p>
+              )}
+              {completionRetry && (
+                <div className="flex flex-wrap items-center justify-center gap-3 text-sm" role="alert">
+                  <span className="text-destructive">学习进度暂未保存。</span>
+                  <button
+                    type="button"
+                    onClick={() => void onComplete(completionRetry)}
+                    disabled={savingProgress}
+                    className="rounded-full border border-border bg-card px-3 py-1.5 hover:border-primary/40 disabled:opacity-50"
+                  >
+                    重试保存
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
