@@ -861,7 +861,6 @@ export const getDueReviewItems = createServerFn({ method: "GET" })
   .inputValidator((input: unknown) =>
     z
       .object({
-        bookId: z.string().min(1),
         reviewMode: z.enum(["recognition", "spelling"]),
         limit: z.number().int().min(1).max(500).optional(),
       })
@@ -871,10 +870,9 @@ export const getDueReviewItems = createServerFn({ method: "GET" })
     const { data: dueItems, error } = await context.supabase
       .from("review_states")
       .select(
-        "book_id, word, review_mode, last_reviewed_at, next_due_at, interval_seconds, consecutive_correct, total_wrong, hint_count, difficulty, scheduler_data, last_attempt_id, revision, updated_at",
+        "source_book_id, word, review_mode, last_reviewed_at, next_due_at, interval_seconds, consecutive_correct, total_wrong, hint_count, difficulty, scheduler_data, last_attempt_id, revision, updated_at",
       )
       .eq("user_id", context.userId)
-      .eq("book_id", data.bookId)
       .eq("review_mode", data.reviewMode)
       .lte("next_due_at", new Date().toISOString())
       .order("next_due_at", { ascending: true })
@@ -905,6 +903,7 @@ export const saveSettings = createServerFn({ method: "POST" })
       memorize_spelling?: boolean;
       strict_spelling?: boolean;
       include_spelling_in_review?: boolean | null;
+      include_spelling_in_review_first_choice?: boolean | null;
     } = {
       user_id: context.userId,
       updated_at: new Date().toISOString(),
@@ -919,12 +918,16 @@ export const saveSettings = createServerFn({ method: "POST" })
     if (data.includeSpellingInReview !== undefined) {
       const { data: previous, error: previousError } = await context.supabase
         .from("user_settings")
-        .select("include_spelling_in_review")
+        .select("include_spelling_in_review, include_spelling_in_review_first_choice")
         .eq("user_id", context.userId)
         .maybeSingle();
       if (previousError) throw new Error(previousError.message);
+      const firstChoice =
+        previous?.include_spelling_in_review_first_choice ?? data.includeSpellingInReview ?? null;
+      patch.include_spelling_in_review_first_choice = firstChoice;
       shouldRebuildPendingSpelling =
-        (previous?.include_spelling_in_review ?? null) !== data.includeSpellingInReview;
+        (previous?.include_spelling_in_review ?? null) !== data.includeSpellingInReview ||
+        (previous?.include_spelling_in_review_first_choice ?? null) !== firstChoice;
     }
     const { error } = await context.supabase
       .from("user_settings")

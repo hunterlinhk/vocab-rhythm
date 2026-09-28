@@ -300,6 +300,7 @@ export type Database = {
           memorize_spelling: boolean
           strict_spelling: boolean
           include_spelling_in_review: boolean | null
+          include_spelling_in_review_first_choice: boolean | null
           updated_at: string
           user_id: string
         }
@@ -309,6 +310,7 @@ export type Database = {
           memorize_spelling?: boolean
           strict_spelling?: boolean
           include_spelling_in_review?: boolean | null
+          include_spelling_in_review_first_choice?: boolean | null
           updated_at?: string
           user_id: string
         }
@@ -318,6 +320,7 @@ export type Database = {
           memorize_spelling?: boolean
           strict_spelling?: boolean
           include_spelling_in_review?: boolean | null
+          include_spelling_in_review_first_choice?: boolean | null
           updated_at?: string
           user_id?: string
         }
@@ -326,7 +329,7 @@ export type Database = {
       review_states: {
         Row: {
           user_id: string
-          book_id: string
+          source_book_id: string | null
           word: string
           review_mode: string
           last_reviewed_at: string | null
@@ -351,7 +354,7 @@ export type Database = {
         }
         Insert: {
           user_id: string
-          book_id: string
+          source_book_id?: string | null
           word: string
           review_mode: string
           last_reviewed_at?: string | null
@@ -376,7 +379,7 @@ export type Database = {
         }
         Update: {
           user_id?: string
-          book_id?: string
+          source_book_id?: string | null
           word?: string
           review_mode?: string
           last_reviewed_at?: string | null

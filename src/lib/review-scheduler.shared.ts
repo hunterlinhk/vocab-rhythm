@@ -15,6 +15,7 @@ export type ScheduleReason =
 
 export type ReviewAttemptEvent = {
   id: string;
+  book_id: string;
   review_session_id: string | null;
   review_mode: ReviewMode | null;
   session_stage: string | null;
@@ -31,6 +32,8 @@ export type ReviewAttemptEvent = {
 
 export type ReviewSessionResult = {
   sessionId: string;
+  /** Source book for this session; review state itself is shared across books. */
+  bookId: string;
   reviewMode: ReviewMode;
   outcome: ReviewOutcome | null;
   countedForReview: boolean | null;
@@ -47,6 +50,11 @@ export type ReviewSessionResult = {
   learningDay: string;
   sourceFingerprint: string;
 };
+
+export type ReviewSessionSource = Pick<
+  ReviewSessionResult,
+  "sessionId" | "bookId" | "countedForReview" | "completedAt" | "timeZone" | "learningDay" | "sourceFingerprint"
+>;
 
 export type ReviewScheduleState = {
   reviewMode: ReviewMode;
@@ -151,12 +159,12 @@ function orderedAttempts(reviewMode: ReviewMode, attempts: ReviewAttemptEvent[])
     .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
 }
 
-/** Rebuilds one session result from its attempt history; mistouches are removed before grading. */
-export function aggregateReviewSession(
+/** Stable session provenance, including attempts later voided as mistouches. */
+export function reviewSessionSource(
   reviewMode: ReviewMode,
   attempts: ReviewAttemptEvent[],
   persisted?: Pick<ReviewSessionResult, "completedAt" | "timeZone" | "learningDay">,
-): ReviewSessionResult | null {
+): ReviewSessionSource | null {
   const ordered = orderedAttempts(reviewMode, attempts);
   if (!ordered.length) return null;
 
@@ -165,7 +173,55 @@ export function aggregateReviewSession(
   const sessionId = [...sessionIds][0];
   if (!sessionId) return null;
   const sessionAttempts = ordered.filter((attempt) => attempt.review_session_id === sessionId);
+  const bookId = sessionAttempts[0]?.book_id;
+  if (!bookId || sessionAttempts.some((attempt) => attempt.book_id !== bookId))
+    throw new Error("A review session cannot span source books");
+  const explicitInclusions = sessionAttempts
+    .map((attempt) => attempt.counted_for_review)
+    .filter((value): value is boolean => value !== null);
+  const completedAt = persisted?.completedAt ?? sessionAttempts.at(-1)!.created_at;
+  const timeZone = persisted?.timeZone ?? sessionAttempts.at(-1)!.time_zone ?? "UTC";
+
+  return {
+    sessionId,
+    bookId,
+    countedForReview: explicitInclusions.at(-1) ?? null,
+    completedAt,
+    timeZone,
+    learningDay: persisted?.learningDay ?? learningDayAt(completedAt, timeZone),
+    sourceFingerprint: JSON.stringify(
+      sessionAttempts.map((attempt) => [
+        attempt.id,
+        attempt.book_id,
+        attempt.correct,
+        attempt.skipped,
+        attempt.mistouch,
+        attempt.typo_count,
+        attempt.hint_count,
+        attempt.counted_for_review,
+        attempt.review_mode,
+        attempt.session_stage,
+        attempt.duration_ms,
+        attempt.time_zone,
+        attempt.created_at,
+      ]),
+    ),
+  };
+}
+
+/** Rebuilds one session result; fully voided sessions have no result row. */
+export function aggregateReviewSession(
+  reviewMode: ReviewMode,
+  attempts: ReviewAttemptEvent[],
+  persisted?: Pick<ReviewSessionResult, "completedAt" | "timeZone" | "learningDay">,
+): ReviewSessionResult | null {
+  const ordered = orderedAttempts(reviewMode, attempts);
+  if (!ordered.length) return null;
+  const source = reviewSessionSource(reviewMode, ordered, persisted);
+  if (!source) return null;
+  const sessionAttempts = ordered.filter((attempt) => attempt.review_session_id === source.sessionId);
   const valid = sessionAttempts.filter((attempt) => !attempt.mistouch);
+  if (!valid.length) return null;
   const finalAttempt = valid.at(-1);
   const realWrongCount = valid.filter(
     (attempt) =>
@@ -175,7 +231,10 @@ export function aggregateReviewSession(
   // A mistouched attempt is removed from grading as a whole, including its hints.
   const hintCount = valid.reduce((sum, attempt) => sum + Math.max(0, attempt.hint_count), 0);
   const usedHint = hintCount > 0;
-  const finalCorrect = finalAttempt?.correct ?? null;
+  const finalByStage = new Map<string, ReviewAttemptEvent>();
+  for (const attempt of valid) finalByStage.set(attempt.session_stage ?? "unknown", attempt);
+  const finalCorrect =
+    finalByStage.size === 0 ? null : [...finalByStage.values()].every((attempt) => attempt.correct);
   const outcome: ReviewOutcome | null =
     finalCorrect === null
       ? null
@@ -184,35 +243,13 @@ export function aggregateReviewSession(
         : hadRealError || usedHint
           ? "strained"
           : "smooth";
-  const explicitInclusions = sessionAttempts
-    .map((attempt) => attempt.counted_for_review)
-    .filter((value): value is boolean => value !== null);
-  const countedForReview = explicitInclusions.at(-1) ?? null;
-  const completedAt = persisted?.completedAt ?? sessionAttempts.at(-1)!.created_at;
-  const timeZone = persisted?.timeZone ?? sessionAttempts.at(-1)!.time_zone ?? "UTC";
-  const learningDay = persisted?.learningDay ?? learningDayAt(completedAt, timeZone);
-  const sourceFingerprint = JSON.stringify(
-    sessionAttempts.map((attempt) => [
-      attempt.id,
-      attempt.correct,
-      attempt.skipped,
-      attempt.mistouch,
-      attempt.typo_count,
-      attempt.hint_count,
-      attempt.counted_for_review,
-      attempt.review_mode,
-      attempt.session_stage,
-      attempt.duration_ms,
-      attempt.time_zone,
-      attempt.created_at,
-    ]),
-  );
 
   return {
-    sessionId,
+    sessionId: source.sessionId,
+    bookId: source.bookId,
     reviewMode,
     outcome,
-    countedForReview,
+    countedForReview: source.countedForReview,
     finalCorrect,
     hadRealError,
     realWrongCount,
@@ -221,10 +258,10 @@ export function aggregateReviewSession(
     attemptCount: sessionAttempts.length,
     validAttemptCount: valid.length,
     lastAttemptId: finalAttempt?.id ?? null,
-    completedAt,
-    timeZone,
-    learningDay,
-    sourceFingerprint,
+    completedAt: source.completedAt,
+    timeZone: source.timeZone,
+    learningDay: source.learningDay,
+    sourceFingerprint: source.sourceFingerprint,
   };
 }
 
@@ -334,7 +371,7 @@ export const eventOnlyReviewScheduler: ReviewScheduler = {
 export function projectReviewScheduleState(
   reviewMode: ReviewMode,
   sessions: ReviewSessionResult[],
-  pendingSpellingPreference: boolean | null,
+  firstSpellingChoice: boolean | null,
   scheduler: ReviewScheduler = eventOnlyReviewScheduler,
 ): { state: ReviewScheduleState; decisions: ReviewDecision[] } {
   const initialState = emptyReviewScheduleState(reviewMode);
@@ -348,7 +385,7 @@ export function projectReviewScheduleState(
   for (const session of ordered) {
     const effectiveInclusion =
       session.countedForReview ??
-      (reviewMode === "spelling" ? pendingSpellingPreference : null);
+      (reviewMode === "spelling" ? firstSpellingChoice : null);
     const isInitialLearning = effectiveInclusion === true && !hasPriorIncludedSession;
     const successAlreadyAdvancedToday = state.successfulGrowthDay === session.learningDay;
     const beforeState = state;

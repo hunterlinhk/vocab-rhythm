@@ -385,6 +385,7 @@ test("word completion shows the result before saving and keeps failed progress r
 function rawReviewAttempt(id, overrides = {}) {
   return {
     id,
+    book_id: "book-a",
     review_session_id: "session-a",
     review_mode: "recognition",
     session_stage: "recall",
@@ -405,6 +406,7 @@ function reviewSession(sessionId, overrides = {}) {
   const completedAt = overrides.completedAt ?? "2026-09-28T18:00:00.000Z";
   return {
     sessionId,
+    bookId: "book-a",
     reviewMode: "recognition",
     outcome: "smooth",
     countedForReview: true,
@@ -464,8 +466,7 @@ test("review session outcome is rebuilt from attempts after mistouches are remov
   assert.equal(selectionAppliedDuringSession.countedForReview, true);
 
   const voided = aggregateReviewSession("recognition", [{ ...wrong, mistouch: true }]);
-  assert.equal(voided.outcome, null);
-  assert.equal(voided.validAttemptCount, 0);
+  assert.equal(voided, null);
 
   const hintOnMistouch = aggregateReviewSession("recognition", [
     { ...wrong, mistouch: true, hint_count: 1 },
@@ -494,21 +495,35 @@ test("review session outcome is rebuilt from attempts after mistouches are remov
   assert.equal(spellingSmooth.realWrongCount, 1);
 });
 
-test("session outcomes are smooth, strained, or failed based on final valid attempt", () => {
-  const smooth = aggregateReviewSession("recognition", [rawReviewAttempt("context"), rawReviewAttempt("recall", {
-    created_at: "2026-09-28T18:01:00.000Z",
-  })]);
-  const strained = aggregateReviewSession("recognition", [
-    rawReviewAttempt("context", { correct: false }),
-    rawReviewAttempt("recall", { created_at: "2026-09-28T18:01:00.000Z" }),
+test("recognition grading evaluates each round's final valid answer", () => {
+  const smooth = aggregateReviewSession("recognition", [
+    rawReviewAttempt("context", { session_stage: "context" }),
+    rawReviewAttempt("recall", { session_stage: "recall", created_at: "2026-09-28T18:01:00.000Z" }),
   ]);
-  const failed = aggregateReviewSession("recognition", [
-    rawReviewAttempt("context"),
-    rawReviewAttempt("recall", { correct: false, created_at: "2026-09-28T18:01:00.000Z" }),
+  const correctedWithinRound = aggregateReviewSession("recognition", [
+    rawReviewAttempt("context-wrong", { session_stage: "context", correct: false }),
+    rawReviewAttempt("context-final", {
+      session_stage: "context",
+      created_at: "2026-09-28T18:00:30.000Z",
+    }),
+    rawReviewAttempt("recall-final", { session_stage: "recall", created_at: "2026-09-28T18:01:00.000Z" }),
+  ]);
+  const failedContext = aggregateReviewSession("recognition", [
+    rawReviewAttempt("context", { session_stage: "context", correct: false }),
+    rawReviewAttempt("recall", { session_stage: "recall", created_at: "2026-09-28T18:01:00.000Z" }),
+  ]);
+  const failedRecall = aggregateReviewSession("recognition", [
+    rawReviewAttempt("context", { session_stage: "context" }),
+    rawReviewAttempt("recall", {
+      session_stage: "recall",
+      correct: false,
+      created_at: "2026-09-28T18:01:00.000Z",
+    }),
   ]);
   assert.equal(smooth.outcome, "smooth");
-  assert.equal(strained.outcome, "strained");
-  assert.equal(failed.outcome, "failed");
+  assert.equal(correctedWithinRound.outcome, "strained");
+  assert.equal(failedContext.outcome, "failed");
+  assert.equal(failedRecall.outcome, "failed");
 });
 
 test("learning day uses the user's local zone and a 04:00 boundary across DST", () => {
@@ -576,6 +591,67 @@ test("a success after failure can grow if the learning day has no earlier growth
   assert.equal(projected.state.pendingAction, "grow");
 });
 
+test("review state is shared across source books but remains independent by mode", () => {
+  const day = "2026-09-28";
+  const sharedAcrossBooks = projectReviewScheduleState(
+    "recognition",
+    [
+      reviewSession("initial-a", { bookId: "book-a", learningDay: day }),
+      reviewSession("growth-a", {
+        bookId: "book-a",
+        completedAt: "2026-09-28T19:00:00.000Z",
+        learningDay: day,
+      }),
+      reviewSession("repeat-b", {
+        bookId: "book-b",
+        completedAt: "2026-09-28T20:00:00.000Z",
+        learningDay: day,
+      }),
+    ],
+    null,
+  );
+  assert.deepEqual(
+    sharedAcrossBooks.decisions.map(({ reason, intervalAdvanced }) => [reason, intervalAdvanced]),
+    [["first_learning", false], ["normal_growth", true], ["same_day_repeat", false]],
+  );
+  assert.equal(sharedAcrossBooks.decisions[2].session.bookId, "book-b");
+
+  const failureThenOtherBookSuccess = projectReviewScheduleState(
+    "recognition",
+    [
+      reviewSession("failure-a", {
+        bookId: "book-a",
+        outcome: "failed",
+        finalCorrect: false,
+        hadRealError: true,
+        realWrongCount: 1,
+        learningDay: day,
+      }),
+      reviewSession("recovery-b", {
+        bookId: "book-b",
+        completedAt: "2026-09-28T19:00:00.000Z",
+        learningDay: day,
+      }),
+    ],
+    null,
+  );
+  assert.deepEqual(
+    failureThenOtherBookSuccess.decisions.map(({ reason, intervalAdvanced }) => [reason, intervalAdvanced]),
+    [["failure_reset", false], ["normal_growth", true]],
+  );
+
+  const independentMode = projectReviewScheduleState(
+    "spelling",
+    [reviewSession("spelling-b", {
+      bookId: "book-b",
+      reviewMode: "spelling",
+      learningDay: day,
+    })],
+    true,
+  );
+  assert.equal(independentMode.decisions[0].reason, "first_learning");
+});
+
 test("pending spelling inclusion stays replayable and review modes keep independent day limits", () => {
   const pending = reviewSession("pending", {
     reviewMode: "spelling",
@@ -591,6 +667,23 @@ test("pending spelling inclusion stays replayable and review modes keep independ
   assert.equal(included.state.lastReviewedAt, pending.completedAt);
   assert.equal(excluded.decisions[0].reason, "excluded_by_preference");
   assert.equal(excluded.state.lastReviewedAt, null);
+
+  const explicitlyIncluded = reviewSession("explicit-include", {
+    reviewMode: "spelling",
+    countedForReview: true,
+  });
+  const explicitlyExcluded = reviewSession("explicit-exclude", {
+    reviewMode: "spelling",
+    countedForReview: false,
+  });
+  assert.equal(
+    projectReviewScheduleState("spelling", [explicitlyIncluded], false).decisions[0].effectiveInclusion,
+    true,
+  );
+  assert.equal(
+    projectReviewScheduleState("spelling", [explicitlyExcluded], true).decisions[0].effectiveInclusion,
+    false,
+  );
 
   const recognition = projectReviewScheduleState("recognition", [reviewSession("recognition")], null);
   assert.equal(recognition.decisions[0].reason, "first_learning");
@@ -609,6 +702,10 @@ test("review integration separates raw attempts, session results, and append-onl
     readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/migrations/0011_review_system_v1_foundation.sql", import.meta.url), "utf8"),
   ]);
+  const dueQuery = functions.slice(
+    functions.indexOf("export const getDueReviewItems"),
+    functions.indexOf("export const saveSettings"),
+  );
 
   assert.match(learn, /sessionId: nextCompletion\.attemptId/);
   assert.match(learn, /includeInReview: includeSpellingInReview/);
@@ -617,20 +714,39 @@ test("review integration separates raw attempts, session results, and append-onl
   assert.match(functions, /review_mode: data\.stage === "spell" \? null : "recognition"/);
   assert.match(functions, /data\.stage === "recall" && effectiveAttempt\.review_mode === "recognition"/);
   assert.match(functions, /review_session_id: data\.stage === "spell" \? null : data\.sessionId/);
+  assert.match(functions, /\.update\(\{ mistouch: true \}\)/);
+  assert.match(functions, /await finalizeReviewSession\(context\.supabase/);
   assert.match(functions, /export const getDueReviewItems/);
   assert.match(persistence, /\.from\("review_session_results"\)/);
   assert.match(persistence, /\.from\("review_schedule_decisions"\)/);
   assert.match(persistence, /input_fingerprint: decision\.inputFingerprint/);
-  assert.match(migration, /include_spelling_in_review boolean;/);
+  assert.match(persistence, /include_spelling_in_review_first_choice/);
+  assert.match(functions, /include_spelling_in_review_first_choice/);
+  assert.match(functions, /previous\?\.include_spelling_in_review_first_choice \?\? data\.includeSpellingInReview/);
+  assert.match(persistence, /\.from\("review_session_results"\)[\s\S]*\.delete\(\)/);
+  assert.match(persistence, /decision_reason: "no_valid_attempts"/);
+  assert.match(migration, /include_spelling_in_review_first_choice boolean/);
   assert.match(migration, /counted_for_review boolean,/);
-  assert.match(migration, /PRIMARY KEY \(user_id, book_id, word, review_mode, session_id\)/);
+  assert.match(migration, /PRIMARY KEY \(user_id, word, review_mode, session_id\)/);
+  assert.match(migration, /PRIMARY KEY \(user_id, word, review_mode\)/);
+  assert.match(migration, /source_book_id text/);
+  assert.match(migration, /book_id text NOT NULL/);
+  assert.match(migration, /ON public\.attempts \(user_id, word, review_mode, review_session_id, created_at, id\)/);
+  assert.match(migration, /UNIQUE \(user_id, word, review_mode, session_id, decision_revision\)/);
+  assert.doesNotMatch(migration, /PRIMARY KEY \(user_id, book_id, word, review_mode/);
   assert.match(migration, /review_mode = 'recognition' AND mode = 'memorize'/);
   assert.match(migration, /review_mode = 'spelling' AND mode = 'word'/);
   assert.match(migration, /attempts_review_stage_owner_check/);
   assert.ok(migration.includes("session_stage IS NOT NULL AND session_stage IN ('context', 'recall')"));
+  assert.doesNotMatch(migration, /REFERENCES public\.review_session_results/);
   assert.match(functions, /Memorize stages have fixed review ownership/);
   assert.match(functions, /Attempt id is already associated with different learning data/);
-  assert.match(migration, /UNIQUE \(user_id, book_id, word, review_mode, session_id, decision_revision\)/);
+  assert.doesNotMatch(persistence, /\.eq\("book_id", identity\.bookId\)/);
+  assert.match(persistence, /book_id: decision\.session\.bookId/);
+  assert.match(persistence, /source_book_id: lastIncluded\.session\.bookId/);
+  assert.match(persistence, /onConflict: "user_id,word,review_mode,session_id"/);
+  assert.match(dueQuery, /"source_book_id, word, review_mode/);
+  assert.doesNotMatch(dueQuery, /bookId|\.eq\("book_id"/);
 });
 
 test("spelling review inclusion keeps the tri-state setting", () => {
