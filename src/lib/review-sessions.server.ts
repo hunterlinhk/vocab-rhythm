@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/integrations/supabase/types";
 import {
   aggregateReviewSession,
+  normalizeReviewWord,
   eventOnlyReviewScheduler,
   reviewSessionSource,
   projectReviewScheduleState,
@@ -13,15 +14,22 @@ import {
 } from "@/lib/review-scheduler.shared";
 
 type Client = SupabaseClient<Database>;
-type Identity = { userId: string; word: string; reviewMode: ReviewMode };
-type SessionIdentity = Identity & { bookId: string };
+type Identity = { userId: string; wordKey: string; reviewMode: ReviewMode };
+type SessionIdentity = Identity & { bookId: string; word: string };
+type SessionInput = { userId: string; bookId: string; word: string; reviewMode: ReviewMode };
 type SessionRow = Database["public"]["Tables"]["review_session_results"]["Row"];
 const PAGE_SIZE = 500;
+
+function sessionIdentityKey(bookId: string, sessionId: string): string {
+  return JSON.stringify([bookId, sessionId]);
+}
 
 function sessionFromRow(row: SessionRow): ReviewSessionResult {
   return {
     sessionId: row.session_id,
     bookId: row.book_id,
+    word: row.word,
+    wordKey: row.word_key,
     reviewMode: row.review_mode as ReviewMode,
     outcome: row.outcome as ReviewSessionResult["outcome"],
     countedForReview: row.counted_for_review,
@@ -47,9 +55,10 @@ async function fetchSessions(supabase: Client, identity: Identity): Promise<Sess
       .from("review_session_results")
       .select("*")
       .eq("user_id", identity.userId)
-      .eq("word", identity.word)
+      .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
       .order("completed_at", { ascending: true })
+      .order("book_id", { ascending: true })
       .order("session_id", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
@@ -68,10 +77,10 @@ async function fetchAttempts(
     let query = supabase
       .from("attempts")
       .select(
-        "id, book_id, review_session_id, review_mode, session_stage, counted_for_review, correct, skipped, hint_count, typo_count, mistouch, duration_ms, time_zone, created_at",
+        "id, book_id, word, review_word_key, review_session_id, review_mode, session_stage, counted_for_review, correct, skipped, hint_count, typo_count, mistouch, duration_ms, time_zone, created_at",
       )
       .eq("user_id", identity.userId)
-      .eq("word", identity.word)
+      .eq("review_word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
       .not("review_session_id", "is", null)
       .order("created_at", { ascending: true })
@@ -99,7 +108,8 @@ async function persistSessionResultFromAttempts(
       .from("review_session_results")
       .select("completed_at, time_zone, learning_day, source_fingerprint, revision")
       .eq("user_id", identity.userId)
-      .eq("word", identity.word)
+      .eq("book_id", identity.bookId)
+      .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
       .eq("session_id", sessionId)
       .maybeSingle(),
@@ -121,7 +131,8 @@ async function persistSessionResultFromAttempts(
       .from("review_session_results")
       .delete()
       .eq("user_id", identity.userId)
-      .eq("word", identity.word)
+      .eq("book_id", identity.bookId)
+      .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
       .eq("session_id", sessionId);
     if (error) throw new Error(error.message);
@@ -134,7 +145,8 @@ async function persistSessionResultFromAttempts(
     {
       user_id: identity.userId,
       book_id: result.bookId,
-      word: identity.word,
+      word: result.word,
+      word_key: result.wordKey,
       review_mode: identity.reviewMode,
       session_id: sessionId,
       outcome: result.outcome,
@@ -154,7 +166,7 @@ async function persistSessionResultFromAttempts(
       revision: existing ? existing.revision + 1 : 0,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: "user_id,word,review_mode,session_id" },
+    { onConflict: "user_id,book_id,word_key,review_mode,session_id" },
   );
   if (error) throw new Error(error.message);
 }
@@ -169,13 +181,16 @@ async function rebuildReviewSessionResultsFromAttempts(
   for (const attempt of attempts) {
     const sessionId = attempt.review_session_id;
     if (!sessionId) continue;
-    const group = bySession.get(sessionId) ?? [];
+    const key = sessionIdentityKey(attempt.book_id, sessionId);
+    const group = bySession.get(key) ?? [];
     group.push(attempt);
-    bySession.set(sessionId, group);
+    bySession.set(key, group);
   }
 
   const invalidated: ReviewSessionSource[] = [];
-  for (const [sessionId, group] of bySession) {
+  for (const group of bySession.values()) {
+    const sessionId = group[0]?.review_session_id;
+    if (!sessionId) continue;
     const completed =
       identity.reviewMode === "spelling"
         ? group.some((attempt) => attempt.session_stage === "word_spelling" && !attempt.skipped)
@@ -183,9 +198,15 @@ async function rebuildReviewSessionResultsFromAttempts(
     if (!completed) continue;
     const result = aggregateReviewSession(identity.reviewMode, group);
     const sourceBookId = group[0]?.book_id;
-    if (!sourceBookId || group.some((attempt) => attempt.book_id !== sourceBookId))
+    const sourceWord = group[0]?.word;
+    if (!sourceBookId || !sourceWord || group.some((attempt) => attempt.book_id !== sourceBookId))
       throw new Error("A review session cannot span source books");
-    await persistSessionResultFromAttempts(supabase, { ...identity, bookId: sourceBookId }, sessionId, group);
+    await persistSessionResultFromAttempts(
+      supabase,
+      { ...identity, bookId: sourceBookId, word: sourceWord },
+      sessionId,
+      group,
+    );
     if (!result) {
       const source = reviewSessionSource(identity.reviewMode, group);
       if (source) invalidated.push(source);
@@ -202,21 +223,23 @@ async function fetchLatestDecisions(
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const { data, error } = await supabase
       .from("review_schedule_decisions")
-      .select("session_id, decision_revision, input_fingerprint, decision_id")
+      .select("book_id, session_id, decision_revision, input_fingerprint, decision_id")
       .eq("user_id", identity.userId)
-      .eq("word", identity.word)
+      .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
       .order("decision_revision", { ascending: false })
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
-    for (const row of data ?? [])
-      if (!latest.has(row.session_id))
-        latest.set(row.session_id, {
+    for (const row of data ?? []) {
+      const key = sessionIdentityKey(row.book_id, row.session_id);
+      if (!latest.has(key))
+        latest.set(key, {
           revision: row.decision_revision,
           fingerprint: row.input_fingerprint,
           decisionId: row.decision_id,
         });
+    }
     if (!data || data.length < PAGE_SIZE) return latest;
   }
 }
@@ -236,7 +259,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
       .from("review_states")
       .select("revision, source_book_id")
       .eq("user_id", identity.userId)
-      .eq("word", identity.word)
+      .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
       .maybeSingle(),
     fetchLatestDecisions(supabase, identity),
@@ -253,7 +276,8 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
   const decisionIds = new Map(previousDecisions);
 
   for (const decision of projection.decisions) {
-    const prior = previousDecisions.get(decision.session.sessionId);
+    const decisionKey = sessionIdentityKey(decision.session.bookId, decision.session.sessionId);
+    const prior = previousDecisions.get(decisionKey);
     if (prior?.fingerprint === decision.inputFingerprint) continue;
     const revision = (prior?.revision ?? -1) + 1;
     const { data, error } = await supabase
@@ -261,10 +285,12 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
       .insert({
         user_id: identity.userId,
         book_id: decision.session.bookId,
-        word: identity.word,
+        word: decision.session.word,
+        word_key: decision.session.wordKey,
         review_mode: identity.reviewMode,
         session_id: decision.session.sessionId,
         decision_revision: revision,
+        supersedes_decision_id: prior?.decisionId ?? null,
         learning_day: decision.session.learningDay,
         session_outcome: decision.session.outcome,
         effective_inclusion: decision.effectiveInclusion,
@@ -282,7 +308,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
       .single();
     if (error?.code === "23505") throw new Error("Review decisions changed concurrently; retry projection");
     if (error) throw new Error(error.message);
-    decisionIds.set(decision.session.sessionId, {
+    decisionIds.set(decisionKey, {
       revision,
       fingerprint: decision.inputFingerprint,
       decisionId: data.decision_id,
@@ -291,7 +317,8 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
 
   const schedulerVersion = eventOnlyReviewScheduler.version;
   for (const invalidated of invalidatedSessions) {
-    const prior = previousDecisions.get(invalidated.sessionId);
+    const decisionKey = sessionIdentityKey(invalidated.bookId, invalidated.sessionId);
+    const prior = previousDecisions.get(decisionKey);
     if (!prior) continue;
     const effectiveInclusion =
       invalidated.countedForReview ??
@@ -299,6 +326,8 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
     const inputFingerprint = JSON.stringify({
       schedulerVersion,
       sessionId: invalidated.sessionId,
+      bookId: invalidated.bookId,
+      wordKey: invalidated.wordKey,
       sourceFingerprint: invalidated.sourceFingerprint,
       effectiveInclusion,
       learningDay: invalidated.learningDay,
@@ -310,10 +339,12 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
     const { error } = await supabase.from("review_schedule_decisions").insert({
       user_id: identity.userId,
       book_id: invalidated.bookId,
-      word: identity.word,
+      word: invalidated.word,
+      word_key: invalidated.wordKey,
       review_mode: identity.reviewMode,
       session_id: invalidated.sessionId,
       decision_revision: revision,
+      supersedes_decision_id: prior.decisionId,
       learning_day: invalidated.learningDay,
       session_outcome: null,
       effective_inclusion: effectiveInclusion,
@@ -340,7 +371,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
       .from("review_states")
       .delete()
       .eq("user_id", identity.userId)
-      .eq("word", identity.word)
+      .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
       .eq("revision", stateResult.data.revision)
       .select("revision")
@@ -353,12 +384,14 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
   const lastIncluded = [...projection.decisions]
     .reverse()
     .find((decision) => decision.effectiveInclusion === true && decision.session.outcome !== null)!;
-  const lastDecisionId = decisionIds.get(lastIncluded.session.sessionId)?.decisionId ?? null;
+  const lastDecisionId =
+    decisionIds.get(sessionIdentityKey(lastIncluded.session.bookId, lastIncluded.session.sessionId))?.decisionId ?? null;
   const state: ReviewScheduleState = projection.state;
   const stateRow = {
     user_id: identity.userId,
     source_book_id: lastIncluded.session.bookId,
-    word: identity.word,
+    word: lastIncluded.session.word,
+    word_key: identity.wordKey,
     review_mode: identity.reviewMode,
     last_reviewed_at: state.lastReviewedAt,
     next_due_at: state.nextDueAt,
@@ -391,7 +424,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
     .from("review_states")
     .update({ ...stateRow, revision: stateResult.data.revision + 1 })
     .eq("user_id", identity.userId)
-    .eq("word", identity.word)
+    .eq("word_key", identity.wordKey)
     .eq("review_mode", identity.reviewMode)
     .eq("revision", stateResult.data.revision)
     .select("revision")
@@ -414,12 +447,18 @@ export async function rebuildReviewState(supabase: Client, identity: Identity): 
 
 export async function finalizeReviewSession(
   supabase: Client,
-  identity: SessionIdentity,
+  source: SessionInput,
   sessionId: string,
 ): Promise<void> {
-  await persistSessionResultFromAttempts(supabase, identity, sessionId);
-  const { bookId: _sourceBookId, ...projectionIdentity } = identity;
-  await rebuildReviewState(supabase, projectionIdentity);
+  const wordKey = normalizeReviewWord(source.word);
+  if (!wordKey) throw new Error("A review word must contain non-whitespace characters");
+  const identity: Identity = { userId: source.userId, wordKey, reviewMode: source.reviewMode };
+  await persistSessionResultFromAttempts(
+    supabase,
+    { ...identity, bookId: source.bookId, word: source.word },
+    sessionId,
+  );
+  await rebuildReviewState(supabase, identity);
 }
 
 export async function rebuildPendingSpellingStates(supabase: Client, userId: string): Promise<void> {
@@ -427,17 +466,17 @@ export async function rebuildPendingSpellingStates(supabase: Client, userId: str
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const { data, error } = await supabase
       .from("attempts")
-      .select("word")
+      .select("review_word_key")
       .eq("user_id", userId)
       .eq("mode", "word")
       .eq("review_mode", "spelling")
       .is("counted_for_review", null)
       .eq("skipped", false)
-      .order("word", { ascending: true })
+      .order("review_word_key", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
     for (const row of data ?? [])
-      identities.set(row.word, { userId, word: row.word, reviewMode: "spelling" });
+      identities.set(row.review_word_key, { userId, wordKey: row.review_word_key, reviewMode: "spelling" });
     if (!data || data.length < PAGE_SIZE) break;
   }
 

@@ -48,6 +48,7 @@ export type Database = {
           is_review: boolean
           mistouch: boolean
           mode: string
+          review_word_key: string
           review_mode: string | null
           counted_for_review: boolean | null
           hint_count: number
@@ -331,6 +332,7 @@ export type Database = {
           user_id: string
           source_book_id: string | null
           word: string
+          word_key: string
           review_mode: string
           last_reviewed_at: string | null
           next_due_at: string | null
@@ -356,6 +358,7 @@ export type Database = {
           user_id: string
           source_book_id?: string | null
           word: string
+          word_key: string
           review_mode: string
           last_reviewed_at?: string | null
           next_due_at?: string | null
@@ -381,6 +384,7 @@ export type Database = {
           user_id?: string
           source_book_id?: string | null
           word?: string
+          word_key?: string
           review_mode?: string
           last_reviewed_at?: string | null
           next_due_at?: string | null
@@ -402,13 +406,36 @@ export type Database = {
           revision?: number
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "review_states_source_book_id_fkey"
+            columns: ["source_book_id"]
+            isOneToOne: false
+            referencedRelation: "word_books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "review_states_last_attempt_id_fkey"
+            columns: ["last_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "review_states_last_decision_id_fkey"
+            columns: ["last_decision_id"]
+            isOneToOne: false
+            referencedRelation: "review_schedule_decisions"
+            referencedColumns: ["decision_id"]
+          },
+        ]
       }
       review_session_results: {
         Row: {
           user_id: string
           book_id: string
           word: string
+          word_key: string
           review_mode: string
           session_id: string
           outcome: string | null
@@ -432,6 +459,7 @@ export type Database = {
           user_id: string
           book_id: string
           word: string
+          word_key: string
           review_mode: string
           session_id: string
           outcome?: string | null
@@ -455,6 +483,7 @@ export type Database = {
           user_id?: string
           book_id?: string
           word?: string
+          word_key?: string
           review_mode?: string
           session_id?: string
           outcome?: string | null
@@ -474,7 +503,15 @@ export type Database = {
           revision?: number
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "review_session_results_last_attempt_id_fkey"
+            columns: ["last_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "attempts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       review_schedule_decisions: {
         Row: {
@@ -482,9 +519,11 @@ export type Database = {
           user_id: string
           book_id: string
           word: string
+          word_key: string
           review_mode: string
           session_id: string
           decision_revision: number
+          supersedes_decision_id: string | null
           learning_day: string
           session_outcome: string | null
           effective_inclusion: boolean | null
@@ -504,9 +543,11 @@ export type Database = {
           user_id: string
           book_id: string
           word: string
+          word_key: string
           review_mode: string
           session_id: string
           decision_revision: number
+          supersedes_decision_id?: string | null
           learning_day: string
           session_outcome?: string | null
           effective_inclusion?: boolean | null
@@ -526,9 +567,11 @@ export type Database = {
           user_id?: string
           book_id?: string
           word?: string
+          word_key?: string
           review_mode?: string
           session_id?: string
           decision_revision?: number
+          supersedes_decision_id?: string | null
           learning_day?: string
           session_outcome?: string | null
           effective_inclusion?: boolean | null
@@ -543,7 +586,15 @@ export type Database = {
           after_state?: Json
           created_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "review_schedule_decisions_supersedes_decision_id_fkey"
+            columns: ["supersedes_decision_id"]
+            isOneToOne: false
+            referencedRelation: "review_schedule_decisions"
+            referencedColumns: ["decision_id"]
+          },
+        ]
       }
       word_books: {
         Row: {

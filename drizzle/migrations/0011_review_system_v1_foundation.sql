@@ -10,7 +10,10 @@ ALTER TABLE public.attempts
   ADD COLUMN IF NOT EXISTS hint_count integer NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS review_session_id uuid,
   ADD COLUMN IF NOT EXISTS session_stage text,
-  ADD COLUMN IF NOT EXISTS time_zone text;
+  ADD COLUMN IF NOT EXISTS time_zone text,
+  ADD COLUMN IF NOT EXISTS review_word_key text GENERATED ALWAYS AS (
+    lower(regexp_replace(word, '^[[:space:]]+|[[:space:]]+$', '', 'g'))
+  ) STORED;
 
 DO $$
 BEGIN
@@ -68,13 +71,16 @@ BEGIN
 END $$;
 
 CREATE INDEX IF NOT EXISTS attempts_review_session_idx
-  ON public.attempts (user_id, word, review_mode, review_session_id, created_at, id)
+  ON public.attempts (user_id, review_word_key, review_mode, review_session_id, created_at, id)
   WHERE review_session_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS public.review_session_results (
   user_id uuid NOT NULL,
   book_id text NOT NULL,
   word text NOT NULL,
+  word_key text NOT NULL CHECK (
+    word_key <> '' AND word_key = lower(regexp_replace(word, '^[[:space:]]+|[[:space:]]+$', '', 'g'))
+  ),
   review_mode text NOT NULL CHECK (review_mode IN ('recognition', 'spelling')),
   session_id uuid NOT NULL,
   outcome text CHECK (outcome IS NULL OR outcome IN ('smooth', 'strained', 'failed')),
@@ -93,22 +99,28 @@ CREATE TABLE IF NOT EXISTS public.review_session_results (
   source_fingerprint text NOT NULL,
   revision integer NOT NULL DEFAULT 0 CHECK (revision >= 0),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (user_id, word, review_mode, session_id)
+  PRIMARY KEY (user_id, book_id, word_key, review_mode, session_id)
 );
 COMMENT ON COLUMN public.review_session_results.book_id IS
   'Source book for this session; review scheduling is shared by user, word, and review mode.';
+COMMENT ON COLUMN public.review_session_results.word_key IS
+  'Trimmed and lowercased word; part of shared review identity, while word retains source spelling.';
 
 CREATE INDEX IF NOT EXISTS review_session_results_replay_idx
-  ON public.review_session_results (user_id, word, review_mode, completed_at, session_id);
+  ON public.review_session_results (user_id, word_key, review_mode, completed_at, book_id, session_id);
 
 CREATE TABLE IF NOT EXISTS public.review_schedule_decisions (
   decision_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   book_id text NOT NULL,
   word text NOT NULL,
+  word_key text NOT NULL CHECK (
+    word_key <> '' AND word_key = lower(regexp_replace(word, '^[[:space:]]+|[[:space:]]+$', '', 'g'))
+  ),
   review_mode text NOT NULL CHECK (review_mode IN ('recognition', 'spelling')),
   session_id uuid NOT NULL,
   decision_revision integer NOT NULL CHECK (decision_revision >= 0),
+  supersedes_decision_id uuid REFERENCES public.review_schedule_decisions(decision_id),
   learning_day date NOT NULL,
   session_outcome text CHECK (session_outcome IS NULL OR session_outcome IN ('smooth', 'strained', 'failed')),
   effective_inclusion boolean,
@@ -129,18 +141,25 @@ CREATE TABLE IF NOT EXISTS public.review_schedule_decisions (
   before_state jsonb NOT NULL,
   after_state jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (user_id, word, review_mode, session_id, decision_revision)
+  UNIQUE (user_id, book_id, word_key, review_mode, session_id, decision_revision)
 );
 COMMENT ON COLUMN public.review_schedule_decisions.book_id IS
   'Source book for the session that produced this scheduling decision.';
+COMMENT ON COLUMN public.review_schedule_decisions.word_key IS
+  'Trimmed and lowercased word; scopes this source session within its shared review identity.';
+COMMENT ON COLUMN public.review_schedule_decisions.supersedes_decision_id IS
+  'Previous immutable revision for this source session; the latest revision is current.';
 
 CREATE INDEX IF NOT EXISTS review_schedule_decisions_replay_idx
-  ON public.review_schedule_decisions (user_id, word, review_mode, learning_day, created_at);
+  ON public.review_schedule_decisions (user_id, word_key, review_mode, learning_day, created_at);
 
 CREATE TABLE IF NOT EXISTS public.review_states (
   user_id uuid NOT NULL,
-  source_book_id text,
   word text NOT NULL,
+  word_key text NOT NULL CHECK (
+    word_key <> '' AND word_key = lower(regexp_replace(word, '^[[:space:]]+|[[:space:]]+$', '', 'g'))
+  ),
+  source_book_id text REFERENCES public.word_books(id) ON DELETE SET NULL,
   review_mode text NOT NULL CHECK (review_mode IN ('recognition', 'spelling')),
   last_reviewed_at timestamptz,
   next_due_at timestamptz,
@@ -163,10 +182,12 @@ CREATE TABLE IF NOT EXISTS public.review_states (
   last_decision_id uuid REFERENCES public.review_schedule_decisions(decision_id) ON DELETE SET NULL,
   revision integer NOT NULL DEFAULT 0 CHECK (revision >= 0),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (user_id, word, review_mode)
+  PRIMARY KEY (user_id, word_key, review_mode)
 );
 COMMENT ON COLUMN public.review_states.source_book_id IS
-  'Source book of the latest included session; not part of the review-state identity.';
+  'Source book of the latest included session; deletion sets this provenance pointer to NULL.';
+COMMENT ON COLUMN public.review_states.word_key IS
+  'Trimmed and lowercased word; review state identity is user_id + word_key + review_mode across all books.';
 
 CREATE INDEX IF NOT EXISTS review_states_due_idx
   ON public.review_states (user_id, review_mode, next_due_at)

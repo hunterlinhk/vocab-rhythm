@@ -13,9 +13,24 @@ export type ScheduleReason =
   | "excluded_by_preference"
   | "no_valid_attempts";
 
+/** Review identity is shared across books; trim edge whitespace and preserve display spelling. */
+export function normalizeReviewWord(word: string): string {
+  return word.trim().toLowerCase();
+}
+
+/** First explicit spelling inclusion choice resolves pending history permanently. */
+export function captureFirstSpellingReviewChoice(
+  previous: boolean | null | undefined,
+  selected: boolean | null | undefined,
+): boolean | null {
+  return previous ?? selected ?? null;
+}
+
 export type ReviewAttemptEvent = {
   id: string;
   book_id: string;
+  word: string;
+  review_word_key: string;
   review_session_id: string | null;
   review_mode: ReviewMode | null;
   session_stage: string | null;
@@ -34,6 +49,9 @@ export type ReviewSessionResult = {
   sessionId: string;
   /** Source book for this session; review state itself is shared across books. */
   bookId: string;
+  /** Original spelling is retained for display/provenance; wordKey is canonical. */
+  word: string;
+  wordKey: string;
   reviewMode: ReviewMode;
   outcome: ReviewOutcome | null;
   countedForReview: boolean | null;
@@ -53,7 +71,15 @@ export type ReviewSessionResult = {
 
 export type ReviewSessionSource = Pick<
   ReviewSessionResult,
-  "sessionId" | "bookId" | "countedForReview" | "completedAt" | "timeZone" | "learningDay" | "sourceFingerprint"
+  | "sessionId"
+  | "bookId"
+  | "word"
+  | "wordKey"
+  | "countedForReview"
+  | "completedAt"
+  | "timeZone"
+  | "learningDay"
+  | "sourceFingerprint"
 >;
 
 export type ReviewScheduleState = {
@@ -176,6 +202,17 @@ export function reviewSessionSource(
   const bookId = sessionAttempts[0]?.book_id;
   if (!bookId || sessionAttempts.some((attempt) => attempt.book_id !== bookId))
     throw new Error("A review session cannot span source books");
+  const word = sessionAttempts[0]?.word;
+  const wordKey = sessionAttempts[0]?.review_word_key;
+  if (
+    !word ||
+    !wordKey ||
+    normalizeReviewWord(word) !== wordKey ||
+    sessionAttempts.some(
+      (attempt) => attempt.review_word_key !== wordKey || normalizeReviewWord(attempt.word) !== wordKey,
+    )
+  )
+    throw new Error("Review attempt word key does not match its normalized word");
   const explicitInclusions = sessionAttempts
     .map((attempt) => attempt.counted_for_review)
     .filter((value): value is boolean => value !== null);
@@ -185,6 +222,8 @@ export function reviewSessionSource(
   return {
     sessionId,
     bookId,
+    word,
+    wordKey,
     countedForReview: explicitInclusions.at(-1) ?? null,
     completedAt,
     timeZone,
@@ -193,6 +232,8 @@ export function reviewSessionSource(
       sessionAttempts.map((attempt) => [
         attempt.id,
         attempt.book_id,
+        attempt.word,
+        attempt.review_word_key,
         attempt.correct,
         attempt.skipped,
         attempt.mistouch,
@@ -247,6 +288,8 @@ export function aggregateReviewSession(
   return {
     sessionId: source.sessionId,
     bookId: source.bookId,
+    word: source.word,
+    wordKey: source.wordKey,
     reviewMode,
     outcome,
     countedForReview: source.countedForReview,
@@ -377,7 +420,14 @@ export function projectReviewScheduleState(
   const initialState = emptyReviewScheduleState(reviewMode);
   const ordered = [...sessions]
     .filter((session) => session.reviewMode === reviewMode)
-    .sort((a, b) => a.completedAt.localeCompare(b.completedAt) || a.sessionId.localeCompare(b.sessionId));
+    .sort(
+      (a, b) =>
+        a.completedAt.localeCompare(b.completedAt) ||
+        a.bookId.localeCompare(b.bookId) ||
+        a.sessionId.localeCompare(b.sessionId),
+    );
+  if (new Set(ordered.map((session) => session.wordKey)).size > 1)
+    throw new Error("Review state projection cannot combine different normalized words");
   let state = initialState;
   let hasPriorIncludedSession = false;
   const decisions: ReviewDecision[] = [];

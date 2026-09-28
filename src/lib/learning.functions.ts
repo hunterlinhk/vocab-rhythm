@@ -2,7 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 import { entryKey } from "@/lib/entry-identity";
-import { learningDayAt, type ReviewMode } from "@/lib/review-scheduler.shared";
+import {
+  captureFirstSpellingReviewChoice,
+  learningDayAt,
+  normalizeReviewWord,
+  type ReviewMode,
+} from "@/lib/review-scheduler.shared";
 import {
   finalizeReviewSession,
   rebuildPendingSpellingStates,
@@ -47,6 +52,8 @@ const AttemptInput = z
     hintCount: z.number().int().min(0).optional(),
   })
   .superRefine((value, ctx) => {
+    if (!normalizeReviewWord(value.word))
+      ctx.addIssue({ code: "custom", path: ["word"], message: "Word must contain non-whitespace characters" });
     const sessionStage = value.sessionStage ?? (value.mode === "word" ? "word_spelling" : null);
     if (value.includeInReview && !value.reviewMode)
       ctx.addIssue({ code: "custom", path: ["reviewMode"], message: "Review mode is required" });
@@ -371,6 +378,8 @@ const StageInput = z.object({
   typoCount: z.number().int().min(0).optional(),
   durationMs: z.number().int().min(0).optional(),
 }).superRefine((value, ctx) => {
+  if (!normalizeReviewWord(value.word))
+    ctx.addIssue({ code: "custom", path: ["word"], message: "Word must contain non-whitespace characters" });
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value.timeZone });
   } catch {
@@ -870,7 +879,7 @@ export const getDueReviewItems = createServerFn({ method: "GET" })
     const { data: dueItems, error } = await context.supabase
       .from("review_states")
       .select(
-        "source_book_id, word, review_mode, last_reviewed_at, next_due_at, interval_seconds, consecutive_correct, total_wrong, hint_count, difficulty, scheduler_data, last_attempt_id, revision, updated_at",
+        "source_book_id, word, word_key, review_mode, last_reviewed_at, next_due_at, interval_seconds, consecutive_correct, total_wrong, hint_count, difficulty, scheduler_data, last_attempt_id, revision, updated_at",
       )
       .eq("user_id", context.userId)
       .eq("review_mode", data.reviewMode)
@@ -922,8 +931,10 @@ export const saveSettings = createServerFn({ method: "POST" })
         .eq("user_id", context.userId)
         .maybeSingle();
       if (previousError) throw new Error(previousError.message);
-      const firstChoice =
-        previous?.include_spelling_in_review_first_choice ?? data.includeSpellingInReview ?? null;
+      const firstChoice = captureFirstSpellingReviewChoice(
+        previous?.include_spelling_in_review_first_choice,
+        data.includeSpellingInReview,
+      );
       patch.include_spelling_in_review_first_choice = firstChoice;
       shouldRebuildPendingSpelling =
         (previous?.include_spelling_in_review ?? null) !== data.includeSpellingInReview ||
