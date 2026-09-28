@@ -1,16 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { Database } from "@/integrations/supabase/types";
 import { z } from "zod";
 import { entryKey } from "@/lib/entry-identity";
+import { learningDayAt, type ReviewMode } from "@/lib/review-scheduler.shared";
 import {
-  eventOnlyReviewScheduler,
-  projectReviewScheduleState,
-  type ReviewAttemptEvent,
-  type ReviewMode,
-  type ReviewScheduler,
-} from "@/lib/review-scheduler.shared";
+  finalizeReviewSession,
+  rebuildPendingSpellingStates,
+} from "@/lib/review-sessions.server";
 import {
   buildLearningState,
   buildLearningStats,
@@ -43,102 +39,51 @@ const AttemptInput = z
     durationMs: z.number().int().min(0),
     isReview: z.boolean().optional(),
     skipped: z.boolean().optional(),
+    sessionId: z.string().uuid().optional(),
+    sessionStage: z.enum(["word_spelling", "context", "recall", "spell"]).nullable().optional(),
+    timeZone: z.string().min(1).max(100).optional().default("UTC"),
     reviewMode: z.enum(["recognition", "spelling"]).nullable().optional(),
-    includeInReview: z.boolean().optional(),
+    includeInReview: z.boolean().nullable().optional(),
     hintCount: z.number().int().min(0).optional(),
   })
   .superRefine((value, ctx) => {
+    const sessionStage = value.sessionStage ?? (value.mode === "word" ? "word_spelling" : null);
     if (value.includeInReview && !value.reviewMode)
       ctx.addIssue({ code: "custom", path: ["reviewMode"], message: "Review mode is required" });
-    if (value.includeInReview && value.skipped)
+    if (value.includeInReview === true && value.skipped)
       ctx.addIssue({ code: "custom", path: ["includeInReview"], message: "Skipped attempts cannot be reviewed" });
     if (value.mode === "sentence" && (value.reviewMode || value.includeInReview))
       ctx.addIssue({ code: "custom", path: ["reviewMode"], message: "Sentence attempts are not reviewable" });
-  });
-
-type LearningSupabaseClient = SupabaseClient<Database>;
-
-async function rebuildReviewState(
-  supabase: LearningSupabaseClient,
-  identity: { userId: string; bookId: string; word: string; reviewMode: ReviewMode },
-  scheduler: ReviewScheduler = eventOnlyReviewScheduler,
-): Promise<void> {
-  for (let retry = 0; retry < 6; retry += 1) {
-    const [attemptsResult, stateResult] = await Promise.all([
-      supabase
-        .from("attempts")
-        .select(
-          "id, review_mode, counted_for_review, correct, skipped, hint_count, typo_count, mistouch, duration_ms, created_at",
-        )
-        .eq("user_id", identity.userId)
-        .eq("book_id", identity.bookId)
-        .eq("word", identity.word)
-        .eq("review_mode", identity.reviewMode)
-        .eq("counted_for_review", true)
-        .eq("skipped", false)
-        .order("created_at", { ascending: true })
-        .order("id", { ascending: true }),
-      supabase
-        .from("review_states")
-        .select("revision")
-        .eq("user_id", identity.userId)
-        .eq("book_id", identity.bookId)
-        .eq("word", identity.word)
-        .eq("review_mode", identity.reviewMode)
-        .maybeSingle(),
-    ]);
-    if (attemptsResult.error) throw new Error(attemptsResult.error.message);
-    if (stateResult.error) throw new Error(stateResult.error.message);
-
-    const events = (attemptsResult.data ?? []) as ReviewAttemptEvent[];
-    if (!events.length) return;
-    const projected = projectReviewScheduleState(identity.reviewMode, events, scheduler);
-    const stateRow = {
-      user_id: identity.userId,
-      book_id: identity.bookId,
-      word: identity.word,
-      review_mode: identity.reviewMode,
-      last_reviewed_at: projected.lastReviewedAt,
-      next_due_at: projected.nextDueAt,
-      interval_seconds: projected.intervalSeconds,
-      consecutive_correct: projected.consecutiveCorrect,
-      total_wrong: projected.totalWrong,
-      hint_count: projected.hintCount,
-      difficulty: projected.difficulty,
-      scheduler_data: projected.schedulerData,
-      last_attempt_id: projected.lastAttemptId,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (!stateResult.data) {
-      const { error } = await supabase.from("review_states").insert({ ...stateRow, revision: 0 });
-      if (error?.code === "23505") continue;
-      if (error) throw new Error(error.message);
-      return;
+    if (value.reviewMode === "spelling" && value.mode !== "word")
+      ctx.addIssue({ code: "custom", path: ["reviewMode"], message: "Spelling review belongs to word spelling" });
+    if (value.reviewMode === "recognition" && value.mode !== "memorize")
+      ctx.addIssue({ code: "custom", path: ["reviewMode"], message: "Recognition review belongs to memorize" });
+    if (value.mode === "word" && (value.reviewMode !== "spelling" || sessionStage !== "word_spelling"))
+      ctx.addIssue({ code: "custom", path: ["reviewMode"], message: "Word spelling attempts require spelling review mode" });
+    if (
+      value.mode === "memorize" &&
+      !(
+        (value.reviewMode === "recognition" && (sessionStage === "context" || sessionStage === "recall")) ||
+        (value.reviewMode === null && sessionStage === "spell")
+      )
+    )
+      ctx.addIssue({ code: "custom", path: ["reviewMode"], message: "Memorize stages have fixed review ownership" });
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: value.timeZone });
+    } catch {
+      ctx.addIssue({ code: "custom", path: ["timeZone"], message: "Invalid time zone" });
     }
-
-    const { data: updated, error } = await supabase
-      .from("review_states")
-      .update({ ...stateRow, revision: stateResult.data.revision + 1 })
-      .eq("user_id", identity.userId)
-      .eq("book_id", identity.bookId)
-      .eq("word", identity.word)
-      .eq("review_mode", identity.reviewMode)
-      .eq("revision", stateResult.data.revision)
-      .select("revision")
-      .maybeSingle();
-    if (error) throw new Error(error.message);
-    if (updated) return;
-  }
-
-  throw new Error("Review state changed concurrently; retry the learning attempt");
-}
+  });
 
 export const recordAttempt = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => AttemptInput.parse(input))
   .handler(async ({ data, context }) => {
+    const attemptId = data.attemptId ?? globalThis.crypto.randomUUID();
+    const sessionId = data.sessionId ?? attemptId;
+    const reviewMode = data.mode === "sentence" ? null : (data.reviewMode ?? null);
     const attempt = {
+      id: attemptId,
       user_id: context.userId,
       mode: data.mode,
       book_id: data.bookId,
@@ -150,39 +95,56 @@ export const recordAttempt = createServerFn({ method: "POST" })
       duration_ms: data.durationMs,
       is_review: data.isReview ?? false,
       skipped: data.skipped ?? false,
-      review_mode: data.reviewMode ?? null,
-      counted_for_review: data.includeInReview ?? false,
+      review_mode: reviewMode,
+      counted_for_review: data.skipped || data.mode === "sentence" ? false : (data.includeInReview ?? null),
       hint_count: data.hintCount ?? 0,
+      review_session_id: reviewMode ? sessionId : null,
+      session_stage: data.sessionStage ?? (data.mode === "word" ? "word_spelling" : null),
+      time_zone: data.timeZone,
     };
-    const { data: inserted, error } = data.attemptId
-      ? await context.supabase.from("attempts").upsert(
-          { ...attempt, id: data.attemptId },
-          { onConflict: "id", ignoreDuplicates: true },
-        ).select("id, book_id, word, review_mode, counted_for_review").maybeSingle()
-      : await context.supabase
-          .from("attempts")
-          .insert(attempt)
-          .select("id, book_id, word, review_mode, counted_for_review")
-          .single();
+    const { data: inserted, error } = await context.supabase
+      .from("attempts")
+      .upsert(attempt, { onConflict: "id", ignoreDuplicates: true })
+      .select("id, mode, book_id, word, translation, correct, typo_count, duration_ms, is_review, skipped, review_mode, counted_for_review, hint_count, review_session_id, session_stage, time_zone")
+      .maybeSingle();
     if (error) throw new Error(error.message);
     let saved = inserted;
-    if (!saved && data.attemptId) {
+    if (!saved) {
       const { data: existing, error: existingError } = await context.supabase
         .from("attempts")
-        .select("id, book_id, word, review_mode, counted_for_review")
-        .eq("id", data.attemptId)
+        .select("id, mode, book_id, word, translation, correct, typo_count, duration_ms, is_review, skipped, review_mode, counted_for_review, hint_count, review_session_id, session_stage, time_zone")
+        .eq("id", attemptId)
         .eq("user_id", context.userId)
         .single();
       if (existingError) throw new Error(existingError.message);
       saved = existing;
     }
-    if (saved?.counted_for_review && saved.review_mode)
-      await rebuildReviewState(context.supabase, {
+    if (
+      !saved ||
+      saved.mode !== attempt.mode ||
+      saved.book_id !== attempt.book_id ||
+      saved.word !== attempt.word ||
+      saved.translation !== attempt.translation ||
+      saved.correct !== attempt.correct ||
+      saved.typo_count !== attempt.typo_count ||
+      saved.duration_ms !== attempt.duration_ms ||
+      saved.is_review !== attempt.is_review ||
+      saved.skipped !== attempt.skipped ||
+      saved.review_mode !== attempt.review_mode ||
+      saved.counted_for_review !== attempt.counted_for_review ||
+      saved.hint_count !== attempt.hint_count ||
+      saved.review_session_id !== attempt.review_session_id ||
+      saved.session_stage !== attempt.session_stage ||
+      saved.time_zone !== attempt.time_zone
+    )
+      throw new Error("Attempt id is already associated with different learning data");
+    if (saved?.review_mode && saved.review_session_id && !data.skipped)
+      await finalizeReviewSession(context.supabase, {
         userId: context.userId,
         bookId: saved.book_id,
         word: saved.word,
         reviewMode: saved.review_mode as ReviewMode,
-      });
+      }, saved.review_session_id);
     return { ok: true };
   });
 
@@ -195,7 +157,7 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const q = context.supabase
       .from("attempts")
-      .select("id, book_id, word, mode, typo_count, review_mode, counted_for_review")
+      .select("id, book_id, word, mode, typo_count, mistouch, review_mode, review_session_id")
       .eq("user_id", context.userId)
       .eq("word", data.word)
       .eq("book_id", data.bookId);
@@ -212,18 +174,18 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
       throw new Error("Attempt id is associated with a different learning entry");
     const { data: updated, error } = await context.supabase
       .from("attempts")
-      .update({ mistouch: true, typo_count: Math.max(0, (row.typo_count ?? 0) - 1) })
+      .update({ mistouch: true })
       .eq("id", row.id)
-      .select("review_mode, counted_for_review")
+      .select("review_mode, review_session_id")
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (updated?.counted_for_review && updated.review_mode)
-      await rebuildReviewState(context.supabase, {
+    if (updated?.review_mode && updated.review_session_id)
+      await finalizeReviewSession(context.supabase, {
         userId: context.userId,
         bookId: data.bookId,
         word: data.word,
         reviewMode: updated.review_mode as ReviewMode,
-      });
+      }, updated.review_session_id);
     return { ok: true };
   });
 
@@ -404,10 +366,16 @@ const StageInput = z.object({
   revision: z.number().int().min(0),
   itemIndex: z.number().int().min(0),
   spellingEnabled: z.boolean(),
-  includeInReview: z.boolean().optional(),
+  timeZone: z.string().min(1).max(100).optional().default("UTC"),
   correct: z.boolean(),
   typoCount: z.number().int().min(0).optional(),
   durationMs: z.number().int().min(0).optional(),
+}).superRefine((value, ctx) => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value.timeZone });
+  } catch {
+    ctx.addIssue({ code: "custom", path: ["timeZone"], message: "Invalid time zone" });
+  }
 });
 
 /** records one reinforcement round of the 背单词 flow (context → recall → spell) */
@@ -430,7 +398,7 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
     const { data: priorAttempt, error: priorError } = await context.supabase
       .from("attempts")
       .select(
-        "id, book_id, word, mode, correct, typo_count, duration_ms, review_mode, counted_for_review, hint_count, created_at",
+        "id, book_id, word, mode, correct, typo_count, duration_ms, review_mode, counted_for_review, hint_count, created_at, review_session_id, session_stage, time_zone",
       )
       .eq("id", data.attemptId)
       .eq("user_id", context.userId)
@@ -491,15 +459,18 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
         typo_count: data.typoCount ?? 0,
         duration_ms: data.durationMs ?? 0,
         is_review: data.stage !== "context",
-        review_mode: data.stage === "spell" ? "spelling" : "recognition",
-        counted_for_review: data.stage === "spell" ? (data.includeInReview ?? true) : true,
+        review_mode: data.stage === "spell" ? null : "recognition",
+        counted_for_review: data.stage === "spell" ? false : true,
         hint_count: 0,
+        review_session_id: data.stage === "spell" ? null : data.sessionId,
+        session_stage: data.stage,
+        time_zone: data.timeZone,
       });
       if (error && error.code !== "23505") throw new Error(error.message);
       const { data: stored, error: storedError } = await context.supabase
         .from("attempts")
         .select(
-          "id, book_id, word, mode, correct, typo_count, duration_ms, review_mode, counted_for_review, hint_count, created_at",
+          "id, book_id, word, mode, correct, typo_count, duration_ms, review_mode, counted_for_review, hint_count, created_at, review_session_id, session_stage, time_zone",
         )
         .eq("id", data.attemptId)
         .eq("user_id", context.userId)
@@ -510,13 +481,13 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
       effectiveAttempt = stored;
     }
 
-    if (effectiveAttempt.counted_for_review && effectiveAttempt.review_mode)
-      await rebuildReviewState(context.supabase, {
+    if (data.stage === "recall" && effectiveAttempt.review_mode === "recognition")
+      await finalizeReviewSession(context.supabase, {
         userId: context.userId,
         bookId: data.bookId,
         word: data.word,
-        reviewMode: effectiveAttempt.review_mode as ReviewMode,
-      });
+        reviewMode: "recognition",
+      }, data.sessionId);
 
     const { data: existing, error: existingError } = await context.supabase
       .from("word_mastery")
@@ -921,7 +892,7 @@ export const saveSettings = createServerFn({ method: "POST" })
         activeBook: z.string().optional(),
         memorizeSpelling: z.boolean().optional(),
         strictSpelling: z.boolean().optional(),
-        includeSpellingInReview: z.boolean().optional(),
+        includeSpellingInReview: z.boolean().nullable().optional(),
       })
       .parse(input),
   )
@@ -933,7 +904,7 @@ export const saveSettings = createServerFn({ method: "POST" })
       active_book?: string;
       memorize_spelling?: boolean;
       strict_spelling?: boolean;
-      include_spelling_in_review?: boolean;
+      include_spelling_in_review?: boolean | null;
     } = {
       user_id: context.userId,
       updated_at: new Date().toISOString(),
@@ -944,10 +915,23 @@ export const saveSettings = createServerFn({ method: "POST" })
     if (data.strictSpelling !== undefined) patch.strict_spelling = data.strictSpelling;
     if (data.includeSpellingInReview !== undefined)
       patch.include_spelling_in_review = data.includeSpellingInReview;
+    let shouldRebuildPendingSpelling = false;
+    if (data.includeSpellingInReview !== undefined) {
+      const { data: previous, error: previousError } = await context.supabase
+        .from("user_settings")
+        .select("include_spelling_in_review")
+        .eq("user_id", context.userId)
+        .maybeSingle();
+      if (previousError) throw new Error(previousError.message);
+      shouldRebuildPendingSpelling =
+        (previous?.include_spelling_in_review ?? null) !== data.includeSpellingInReview;
+    }
     const { error } = await context.supabase
       .from("user_settings")
       .upsert(patch, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
+    if (shouldRebuildPendingSpelling)
+      await rebuildPendingSpellingStates(context.supabase, context.userId);
     return { ok: true };
   });
 

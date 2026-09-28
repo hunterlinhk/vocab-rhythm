@@ -73,6 +73,14 @@ export function queueLearningStateWrite<T>(write: () => Promise<T>): Promise<T> 
   return operation;
 }
 
+export function getUserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
 export async function fetchAfterLearningStateWrites<T>(fetch: () => Promise<T>): Promise<T> {
   while (pendingLearningStateWrites.size > 0) {
     await Promise.allSettled([...pendingLearningStateWrites]);

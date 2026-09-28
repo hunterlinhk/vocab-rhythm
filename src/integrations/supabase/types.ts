@@ -49,8 +49,11 @@ export type Database = {
           mistouch: boolean
           mode: string
           review_mode: string | null
-          counted_for_review: boolean
+          counted_for_review: boolean | null
           hint_count: number
+          review_session_id: string | null
+          session_stage: string | null
+          time_zone: string | null
           skipped: boolean
           translation: string | null
           typo_count: number
@@ -67,8 +70,11 @@ export type Database = {
           mistouch?: boolean
           mode?: string
           review_mode?: string | null
-          counted_for_review?: boolean
+          counted_for_review?: boolean | null
           hint_count?: number
+          review_session_id?: string | null
+          session_stage?: string | null
+          time_zone?: string | null
           skipped?: boolean
           translation?: string | null
           typo_count?: number
@@ -85,8 +91,11 @@ export type Database = {
           mistouch?: boolean
           mode?: string
           review_mode?: string | null
-          counted_for_review?: boolean
+          counted_for_review?: boolean | null
           hint_count?: number
+          review_session_id?: string | null
+          session_stage?: string | null
+          time_zone?: string | null
           skipped?: boolean
           translation?: string | null
           typo_count?: number
@@ -290,7 +299,7 @@ export type Database = {
           daily_goal: number
           memorize_spelling: boolean
           strict_spelling: boolean
-          include_spelling_in_review: boolean
+          include_spelling_in_review: boolean | null
           updated_at: string
           user_id: string
         }
@@ -299,7 +308,7 @@ export type Database = {
           daily_goal?: number
           memorize_spelling?: boolean
           strict_spelling?: boolean
-          include_spelling_in_review?: boolean
+          include_spelling_in_review?: boolean | null
           updated_at?: string
           user_id: string
         }
@@ -308,7 +317,7 @@ export type Database = {
           daily_goal?: number
           memorize_spelling?: boolean
           strict_spelling?: boolean
-          include_spelling_in_review?: boolean
+          include_spelling_in_review?: boolean | null
           updated_at?: string
           user_id?: string
         }
@@ -329,6 +338,14 @@ export type Database = {
           difficulty: number | null
           scheduler_data: Json
           last_attempt_id: string | null
+          last_session_id: string | null
+          last_learning_day: string | null
+          successful_growth_day: string | null
+          pending_action: string
+          last_outcome: string | null
+          last_decision_reason: string | null
+          scheduler_version: string | null
+          last_decision_id: string | null
           revision: number
           updated_at: string
         }
@@ -346,6 +363,14 @@ export type Database = {
           difficulty?: number | null
           scheduler_data?: Json
           last_attempt_id?: string | null
+          last_session_id?: string | null
+          last_learning_day?: string | null
+          successful_growth_day?: string | null
+          pending_action?: string
+          last_outcome?: string | null
+          last_decision_reason?: string | null
+          scheduler_version?: string | null
+          last_decision_id?: string | null
           revision?: number
           updated_at?: string
         }
@@ -363,8 +388,157 @@ export type Database = {
           difficulty?: number | null
           scheduler_data?: Json
           last_attempt_id?: string | null
+          last_session_id?: string | null
+          last_learning_day?: string | null
+          successful_growth_day?: string | null
+          pending_action?: string
+          last_outcome?: string | null
+          last_decision_reason?: string | null
+          scheduler_version?: string | null
+          last_decision_id?: string | null
           revision?: number
           updated_at?: string
+        }
+        Relationships: []
+      }
+      review_session_results: {
+        Row: {
+          user_id: string
+          book_id: string
+          word: string
+          review_mode: string
+          session_id: string
+          outcome: string | null
+          counted_for_review: boolean | null
+          final_correct: boolean | null
+          had_real_error: boolean
+          real_wrong_count: number
+          used_hint: boolean
+          hint_count: number
+          attempt_count: number
+          valid_attempt_count: number
+          last_attempt_id: string | null
+          completed_at: string
+          time_zone: string
+          learning_day: string
+          source_fingerprint: string
+          revision: number
+          updated_at: string
+        }
+        Insert: {
+          user_id: string
+          book_id: string
+          word: string
+          review_mode: string
+          session_id: string
+          outcome?: string | null
+          counted_for_review?: boolean | null
+          final_correct?: boolean | null
+          had_real_error?: boolean
+          real_wrong_count?: number
+          used_hint?: boolean
+          hint_count?: number
+          attempt_count?: number
+          valid_attempt_count?: number
+          last_attempt_id?: string | null
+          completed_at: string
+          time_zone: string
+          learning_day: string
+          source_fingerprint: string
+          revision?: number
+          updated_at?: string
+        }
+        Update: {
+          user_id?: string
+          book_id?: string
+          word?: string
+          review_mode?: string
+          session_id?: string
+          outcome?: string | null
+          counted_for_review?: boolean | null
+          final_correct?: boolean | null
+          had_real_error?: boolean
+          real_wrong_count?: number
+          used_hint?: boolean
+          hint_count?: number
+          attempt_count?: number
+          valid_attempt_count?: number
+          last_attempt_id?: string | null
+          completed_at?: string
+          time_zone?: string
+          learning_day?: string
+          source_fingerprint?: string
+          revision?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      review_schedule_decisions: {
+        Row: {
+          decision_id: string
+          user_id: string
+          book_id: string
+          word: string
+          review_mode: string
+          session_id: string
+          decision_revision: number
+          learning_day: string
+          session_outcome: string | null
+          effective_inclusion: boolean | null
+          is_initial_learning: boolean
+          state_advanced: boolean
+          interval_advanced: boolean
+          schedule_action: string
+          decision_reason: string
+          scheduler_version: string
+          input_fingerprint: string
+          before_state: Json
+          after_state: Json
+          created_at: string
+        }
+        Insert: {
+          decision_id?: string
+          user_id: string
+          book_id: string
+          word: string
+          review_mode: string
+          session_id: string
+          decision_revision: number
+          learning_day: string
+          session_outcome?: string | null
+          effective_inclusion?: boolean | null
+          is_initial_learning?: boolean
+          state_advanced: boolean
+          interval_advanced: boolean
+          schedule_action: string
+          decision_reason: string
+          scheduler_version: string
+          input_fingerprint: string
+          before_state: Json
+          after_state: Json
+          created_at?: string
+        }
+        Update: {
+          decision_id?: string
+          user_id?: string
+          book_id?: string
+          word?: string
+          review_mode?: string
+          session_id?: string
+          decision_revision?: number
+          learning_day?: string
+          session_outcome?: string | null
+          effective_inclusion?: boolean | null
+          is_initial_learning?: boolean
+          state_advanced?: boolean
+          interval_advanced?: boolean
+          schedule_action?: string
+          decision_reason?: string
+          scheduler_version?: string
+          input_fingerprint?: string
+          before_state?: Json
+          after_state?: Json
+          created_at?: string
         }
         Relationships: []
       }

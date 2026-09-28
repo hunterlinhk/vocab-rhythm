@@ -19,7 +19,11 @@ const { advanceMemorizeSession, attemptIdForStage, parseMemorizeSession } =
   await vite.ssrLoadModule("/src/lib/learning-session.shared.ts");
 const { loadSentenceCursor, nextSentenceCursor, saveSentenceCursor, SENTENCE_PROGRESS_KEY } =
   await vite.ssrLoadModule("/src/lib/sentence-progress.ts");
-const { projectReviewScheduleState } = await vite.ssrLoadModule("/src/lib/review-scheduler.shared.ts");
+const {
+  aggregateReviewSession,
+  learningDayAt,
+  projectReviewScheduleState,
+} = await vite.ssrLoadModule("/src/lib/review-scheduler.shared.ts");
 
 const now = new Date("2026-09-27T12:00:00.000Z");
 const today = now.toISOString();
@@ -378,151 +382,258 @@ test("word completion shows the result before saving and keeps failed progress r
   assert.doesNotMatch(learn, /正在保存学习进度/);
 });
 
-test("review schedule projections isolate recognition and spelling and ignore excluded attempts", () => {
-  const events = [
-    {
-      id: "recognition-1",
-      review_mode: "recognition",
-      counted_for_review: true,
-      correct: true,
-      skipped: false,
-      hint_count: 1,
-      typo_count: 0,
-      mistouch: false,
-      duration_ms: 900,
-      created_at: "2026-09-20T10:00:00Z",
-    },
-    {
-      id: "spelling-1",
+function rawReviewAttempt(id, overrides = {}) {
+  return {
+    id,
+    review_session_id: "session-a",
+    review_mode: "recognition",
+    session_stage: "recall",
+    counted_for_review: true,
+    correct: true,
+    skipped: false,
+    hint_count: 0,
+    typo_count: 0,
+    mistouch: false,
+    duration_ms: 900,
+    time_zone: "America/Los_Angeles",
+    created_at: "2026-09-28T18:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function reviewSession(sessionId, overrides = {}) {
+  const completedAt = overrides.completedAt ?? "2026-09-28T18:00:00.000Z";
+  return {
+    sessionId,
+    reviewMode: "recognition",
+    outcome: "smooth",
+    countedForReview: true,
+    finalCorrect: true,
+    hadRealError: false,
+    realWrongCount: 0,
+    usedHint: false,
+    hintCount: 0,
+    attemptCount: 1,
+    validAttemptCount: 1,
+    lastAttemptId: `${sessionId}-attempt`,
+    completedAt,
+    timeZone: "America/Los_Angeles",
+    learningDay: "2026-09-28",
+    sourceFingerprint: sessionId,
+    ...overrides,
+  };
+}
+
+test("review session outcome is rebuilt from attempts after mistouches are removed", () => {
+  const wrong = rawReviewAttempt("wrong", { correct: false });
+  const final = rawReviewAttempt("final", {
+    created_at: "2026-09-28T18:01:00.000Z",
+  });
+  const beforeMistouch = aggregateReviewSession("recognition", [wrong, final]);
+  assert.equal(beforeMistouch.outcome, "strained");
+  assert.equal(beforeMistouch.realWrongCount, 1);
+
+  const rebuilt = aggregateReviewSession("recognition", [
+    { ...wrong, mistouch: true },
+    final,
+  ]);
+  assert.equal(rebuilt.outcome, "smooth");
+  assert.equal(rebuilt.realWrongCount, 0);
+  assert.equal(rebuilt.hadRealError, false);
+
+  const hinted = aggregateReviewSession("recognition", [
+    rawReviewAttempt("hinted", { hint_count: 1 }),
+  ]);
+  assert.equal(hinted.outcome, "strained");
+  assert.equal(hinted.usedHint, true);
+
+  const selectionAppliedDuringSession = aggregateReviewSession("spelling", [
+    rawReviewAttempt("before-choice", {
+      counted_for_review: null,
       review_mode: "spelling",
+      session_stage: "word_spelling",
+    }),
+    rawReviewAttempt("after-choice", {
+      id: "after-choice",
       counted_for_review: true,
-      correct: true,
-      skipped: false,
-      hint_count: 0,
+      review_mode: "spelling",
+      session_stage: "word_spelling",
+      created_at: "2026-09-28T18:01:00.000Z",
+    }),
+  ]);
+  assert.equal(selectionAppliedDuringSession.countedForReview, true);
+
+  const voided = aggregateReviewSession("recognition", [{ ...wrong, mistouch: true }]);
+  assert.equal(voided.outcome, null);
+  assert.equal(voided.validAttemptCount, 0);
+
+  const hintOnMistouch = aggregateReviewSession("recognition", [
+    { ...wrong, mistouch: true, hint_count: 1 },
+    { ...final, correct: true },
+  ]);
+  assert.equal(hintOnMistouch.outcome, "smooth");
+  assert.equal(hintOnMistouch.hintCount, 0);
+
+  const spellingSmooth = aggregateReviewSession("spelling", [
+    rawReviewAttempt("typo", {
+      review_session_id: "spelling-session",
+      review_mode: "spelling",
+      session_stage: "word_spelling",
       typo_count: 2,
-      mistouch: false,
-      duration_ms: 1800,
-      created_at: "2026-09-21T10:00:00Z",
-    },
-    {
-      id: "spelling-mistouch",
+    }),
+    rawReviewAttempt("mistouch", {
+      review_session_id: "spelling-session",
       review_mode: "spelling",
-      counted_for_review: true,
-      correct: true,
-      skipped: false,
-      hint_count: 0,
+      session_stage: "word_spelling",
       typo_count: 1,
       mistouch: true,
-      duration_ms: 1200,
-      created_at: "2026-09-21T11:00:00Z",
-    },
-    {
-      id: "recognition-2",
-      review_mode: "recognition",
-      counted_for_review: true,
-      correct: false,
-      skipped: false,
-      hint_count: 2,
-      typo_count: 0,
-      mistouch: false,
-      duration_ms: 1500,
-      created_at: "2026-09-22T10:00:00Z",
-    },
-    {
-      id: "excluded-spelling",
-      review_mode: "spelling",
-      counted_for_review: false,
-      correct: true,
-      skipped: false,
-      hint_count: 0,
-      typo_count: 0,
-      mistouch: false,
-      duration_ms: 1000,
-      created_at: "2026-09-23T10:00:00Z",
-    },
-    {
-      id: "sentence",
-      review_mode: null,
-      counted_for_review: false,
-      correct: true,
-      skipped: false,
-      hint_count: 0,
-      typo_count: 0,
-      mistouch: false,
-      duration_ms: 800,
-      created_at: "2026-09-24T10:00:00Z",
-    },
-    {
-      id: "skipped",
-      review_mode: "recognition",
-      counted_for_review: true,
-      correct: true,
-      skipped: true,
-      hint_count: 0,
-      typo_count: 0,
-      mistouch: false,
-      duration_ms: 0,
-      created_at: "2026-09-25T10:00:00Z",
-    },
-    {
-      id: "recognition-2",
-      review_mode: "recognition",
-      counted_for_review: true,
-      correct: false,
-      skipped: false,
-      hint_count: 2,
-      typo_count: 0,
-      mistouch: false,
-      duration_ms: 1500,
-      created_at: "2026-09-22T10:00:00Z",
-    },
-  ];
-
-  const recognition = projectReviewScheduleState("recognition", events);
-  const spelling = projectReviewScheduleState("spelling", events);
-
-  assert.equal(recognition.lastAttemptId, "recognition-2");
-  assert.equal(recognition.consecutiveCorrect, 0);
-  assert.equal(recognition.totalWrong, 1);
-  assert.equal(recognition.hintCount, 3);
-  assert.equal(spelling.lastAttemptId, "spelling-mistouch");
-  assert.equal(spelling.consecutiveCorrect, 0);
-  assert.equal(spelling.totalWrong, 1);
-  assert.equal(spelling.nextDueAt, null);
-  assert.equal(spelling.intervalSeconds, null);
-  const replacement = projectReviewScheduleState("spelling", events, {
-    applyAttempt: (state, attempt) => ({
-      ...state,
-      nextDueAt: attempt.created_at,
-      intervalSeconds: 60,
+      created_at: "2026-09-28T18:01:00.000Z",
     }),
-  });
-  assert.equal(replacement.nextDueAt, "2026-09-21T11:00:00Z");
-  assert.equal(replacement.intervalSeconds, 60);
+  ]);
+  assert.equal(spellingSmooth.outcome, "strained");
+  assert.equal(spellingSmooth.realWrongCount, 1);
 });
 
-test("review foundation persists the spelling default and excludes sentence attempts", async () => {
-  const [learn, memorize, functions, migration] = await Promise.all([
+test("session outcomes are smooth, strained, or failed based on final valid attempt", () => {
+  const smooth = aggregateReviewSession("recognition", [rawReviewAttempt("context"), rawReviewAttempt("recall", {
+    created_at: "2026-09-28T18:01:00.000Z",
+  })]);
+  const strained = aggregateReviewSession("recognition", [
+    rawReviewAttempt("context", { correct: false }),
+    rawReviewAttempt("recall", { created_at: "2026-09-28T18:01:00.000Z" }),
+  ]);
+  const failed = aggregateReviewSession("recognition", [
+    rawReviewAttempt("context"),
+    rawReviewAttempt("recall", { correct: false, created_at: "2026-09-28T18:01:00.000Z" }),
+  ]);
+  assert.equal(smooth.outcome, "smooth");
+  assert.equal(strained.outcome, "strained");
+  assert.equal(failed.outcome, "failed");
+});
+
+test("learning day uses the user's local zone and a 04:00 boundary across DST", () => {
+  assert.equal(learningDayAt("2026-09-28T09:30:00.000Z", "America/Los_Angeles"), "2026-09-27");
+  assert.equal(learningDayAt("2026-09-28T11:00:00.000Z", "America/Los_Angeles"), "2026-09-28");
+  assert.equal(learningDayAt("2026-03-08T10:30:00.000Z", "America/Los_Angeles"), "2026-03-07");
+  assert.equal(learningDayAt("2026-03-08T11:00:00.000Z", "America/Los_Angeles"), "2026-03-08");
+});
+
+test("daily scheduler permits one success growth, but every failure resets immediately", () => {
+  const day = "2026-09-28";
+  const sessions = [
+    reviewSession("initial"),
+    reviewSession("growth", { completedAt: "2026-09-28T19:00:00.000Z", sourceFingerprint: "2" }),
+    reviewSession("repeat", { completedAt: "2026-09-28T20:00:00.000Z", sourceFingerprint: "3" }),
+    reviewSession("failure", {
+      completedAt: "2026-09-28T21:00:00.000Z",
+      outcome: "failed",
+      finalCorrect: false,
+      realWrongCount: 1,
+      hadRealError: true,
+      sourceFingerprint: "4",
+    }),
+    reviewSession("after-failure", { completedAt: "2026-09-28T22:00:00.000Z", sourceFingerprint: "5" }),
+    reviewSession("second-failure", {
+      completedAt: "2026-09-28T23:00:00.000Z",
+      outcome: "failed",
+      finalCorrect: false,
+      realWrongCount: 1,
+      hadRealError: true,
+      sourceFingerprint: "6",
+    }),
+  ].map((session) => ({ ...session, learningDay: day }));
+  const projected = projectReviewScheduleState("recognition", sessions, null);
+  const decisions = projected.decisions;
+  assert.equal(decisions[0].reason, "first_learning");
+  assert.equal(decisions[0].intervalAdvanced, false);
+  assert.equal(decisions[1].reason, "normal_growth");
+  assert.equal(decisions[1].intervalAdvanced, true);
+  assert.equal(decisions[2].reason, "same_day_repeat");
+  assert.equal(decisions[2].intervalAdvanced, false);
+  assert.equal(decisions[3].reason, "failure_reset");
+  assert.equal(decisions[4].reason, "same_day_repeat");
+  assert.equal(decisions[4].afterState.pendingAction, "failure_reset_short");
+  assert.equal(decisions[5].reason, "failure_reset");
+  assert.equal(projected.state.totalWrong, 2);
+  assert.equal(projected.state.consecutiveCorrect, 0);
+  assert.equal(projected.state.successfulGrowthDay, day);
+});
+
+test("a success after failure can grow if the learning day has no earlier growth", () => {
+  const sessions = [
+    reviewSession("first-failure", {
+      outcome: "failed",
+      finalCorrect: false,
+      hadRealError: true,
+      realWrongCount: 1,
+    }),
+    reviewSession("recovered", { completedAt: "2026-09-28T19:00:00.000Z" }),
+  ];
+  const projected = projectReviewScheduleState("recognition", sessions, null);
+  assert.equal(projected.decisions[0].reason, "failure_reset");
+  assert.equal(projected.decisions[1].reason, "normal_growth");
+  assert.equal(projected.state.successfulGrowthDay, "2026-09-28");
+  assert.equal(projected.state.pendingAction, "grow");
+});
+
+test("pending spelling inclusion stays replayable and review modes keep independent day limits", () => {
+  const pending = reviewSession("pending", {
+    reviewMode: "spelling",
+    countedForReview: null,
+    sourceFingerprint: "pending",
+  });
+  const unanswered = projectReviewScheduleState("spelling", [pending], null);
+  const included = projectReviewScheduleState("spelling", [pending], true);
+  const excluded = projectReviewScheduleState("spelling", [pending], false);
+  assert.equal(unanswered.decisions[0].reason, "inclusion_pending");
+  assert.equal(unanswered.state.lastReviewedAt, null);
+  assert.equal(included.decisions[0].reason, "first_learning");
+  assert.equal(included.state.lastReviewedAt, pending.completedAt);
+  assert.equal(excluded.decisions[0].reason, "excluded_by_preference");
+  assert.equal(excluded.state.lastReviewedAt, null);
+
+  const recognition = projectReviewScheduleState("recognition", [reviewSession("recognition")], null);
+  assert.equal(recognition.decisions[0].reason, "first_learning");
+  const spelling = projectReviewScheduleState("spelling", [reviewSession("spelling", {
+    reviewMode: "spelling",
+    learningDay: "2026-09-28",
+  })], null);
+  assert.equal(spelling.decisions[0].reason, "first_learning");
+});
+
+test("review integration separates raw attempts, session results, and append-only decisions", async () => {
+  const [learn, memorize, functions, persistence, migration] = await Promise.all([
     readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/routes/_authenticated/memorize.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8"),
     readFile(new URL("../drizzle/migrations/0011_review_system_v1_foundation.sql", import.meta.url), "utf8"),
   ]);
 
-  assert.match(learn, /includeSpellingInReview/);
+  assert.match(learn, /sessionId: nextCompletion\.attemptId/);
   assert.match(learn, /includeInReview: includeSpellingInReview/);
-  assert.match(memorize, /includeInReview: state\?\.includeSpellingInReview/);
-  assert.match(functions, /review_mode: data\.stage === "spell" \? "spelling" : "recognition"/);
-  assert.match(functions, /review_mode: null,[\s\S]*counted_for_review: false/);
-  assert.match(functions, /\.eq\("book_id", identity\.bookId\)[\s\S]*\.eq\("word", identity\.word\)[\s\S]*\.eq\("review_mode", identity\.reviewMode\)/);
-  assert.match(learn, /reviewPreferenceWriteRef\.current === writeId/);
+  assert.match(memorize, /stage: "spell" as const/);
+  assert.match(memorize, /timeZone: getUserTimeZone\(\)/);
+  assert.match(functions, /review_mode: data\.stage === "spell" \? null : "recognition"/);
+  assert.match(functions, /data\.stage === "recall" && effectiveAttempt\.review_mode === "recognition"/);
+  assert.match(functions, /review_session_id: data\.stage === "spell" \? null : data\.sessionId/);
   assert.match(functions, /export const getDueReviewItems/);
-  assert.match(migration, /include_spelling_in_review boolean NOT NULL DEFAULT true/);
-  assert.match(migration, /PRIMARY KEY \(user_id, book_id, word, review_mode\)/);
-  assert.match(migration, /mode <> 'sentence' OR \(review_mode IS NULL AND NOT counted_for_review\)/);
+  assert.match(persistence, /\.from\("review_session_results"\)/);
+  assert.match(persistence, /\.from\("review_schedule_decisions"\)/);
+  assert.match(persistence, /input_fingerprint: decision\.inputFingerprint/);
+  assert.match(migration, /include_spelling_in_review boolean;/);
+  assert.match(migration, /counted_for_review boolean,/);
+  assert.match(migration, /PRIMARY KEY \(user_id, book_id, word, review_mode, session_id\)/);
+  assert.match(migration, /review_mode = 'recognition' AND mode = 'memorize'/);
+  assert.match(migration, /review_mode = 'spelling' AND mode = 'word'/);
+  assert.match(migration, /attempts_review_stage_owner_check/);
+  assert.ok(migration.includes("session_stage IS NOT NULL AND session_stage IN ('context', 'recall')"));
+  assert.match(functions, /Memorize stages have fixed review ownership/);
+  assert.match(functions, /Attempt id is already associated with different learning data/);
+  assert.match(migration, /UNIQUE \(user_id, book_id, word, review_mode, session_id, decision_revision\)/);
 });
 
-test("spelling review inclusion defaults to enabled but follows a persisted setting", () => {
+test("spelling review inclusion keeps the tri-state setting", () => {
   const base = {
     daily_goal: null,
     active_book: null,
@@ -538,7 +649,7 @@ test("spelling review inclusion defaults to enabled but follows a persisted sett
       now,
     });
 
-  assert.equal(state(undefined).includeSpellingInReview, true);
+  assert.equal(state(undefined).includeSpellingInReview, null);
   assert.equal(state(false).includeSpellingInReview, false);
   assert.equal(state(true).includeSpellingInReview, true);
 });
