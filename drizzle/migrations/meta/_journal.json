@@ -71,6 +71,13 @@
       "when": 1790501060118,
       "tag": "0009_book_progress_modes_and_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790557756797,
+      "tag": "0010_apply_pending_0009_marker",
+      "breakpoints": true
     }
   ]
 }
