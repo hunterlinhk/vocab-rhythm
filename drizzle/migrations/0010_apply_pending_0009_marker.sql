@@ -1,0 +1,2 @@
+-- Marker migration: triggers the Drizzle migrator to apply pending 0009_book_progress_modes_and_sessions.
+-- No schema changes here; 0009 performs the actual book_progress changes.
