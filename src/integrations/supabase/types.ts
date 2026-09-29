@@ -42,20 +42,20 @@ export type Database = {
         Row: {
           book_id: string
           correct: boolean
+          counted_for_review: boolean | null
           created_at: string
           duration_ms: number
+          hint_count: number
           id: string
           is_review: boolean
           mistouch: boolean
           mode: string
-          review_word_key: string
           review_mode: string | null
-          counted_for_review: boolean | null
-          hint_count: number
           review_session_id: string | null
+          review_word_key: string | null
           session_stage: string | null
-          time_zone: string | null
           skipped: boolean
+          time_zone: string | null
           translation: string | null
           typo_count: number
           user_id: string
@@ -64,19 +64,20 @@ export type Database = {
         Insert: {
           book_id?: string
           correct?: boolean
+          counted_for_review?: boolean | null
           created_at?: string
           duration_ms?: number
+          hint_count?: number
           id?: string
           is_review?: boolean
           mistouch?: boolean
           mode?: string
           review_mode?: string | null
-          counted_for_review?: boolean | null
-          hint_count?: number
           review_session_id?: string | null
+          review_word_key?: string | null
           session_stage?: string | null
-          time_zone?: string | null
           skipped?: boolean
+          time_zone?: string | null
           translation?: string | null
           typo_count?: number
           user_id: string
@@ -85,19 +86,20 @@ export type Database = {
         Update: {
           book_id?: string
           correct?: boolean
+          counted_for_review?: boolean | null
           created_at?: string
           duration_ms?: number
+          hint_count?: number
           id?: string
           is_review?: boolean
           mistouch?: boolean
           mode?: string
           review_mode?: string | null
-          counted_for_review?: boolean | null
-          hint_count?: number
           review_session_id?: string | null
+          review_word_key?: string | null
           session_stage?: string | null
-          time_zone?: string | null
           skipped?: boolean
+          time_zone?: string | null
           translation?: string | null
           typo_count?: number
           user_id?: string
@@ -294,126 +296,252 @@ export type Database = {
         }
         Relationships: []
       }
-      user_settings: {
+      review_schedule_decisions: {
         Row: {
-          active_book: string
-          daily_goal: number
-          memorize_spelling: boolean
-          strict_spelling: boolean
-          include_spelling_in_review: boolean | null
-          include_spelling_in_review_first_choice: boolean | null
-          updated_at: string
+          after_state: Json
+          before_state: Json
+          book_id: string
+          created_at: string
+          decision_id: string
+          decision_reason: string
+          decision_revision: number
+          effective_inclusion: boolean | null
+          input_fingerprint: string
+          interval_advanced: boolean
+          is_initial_learning: boolean
+          learning_day: string
+          review_mode: string
+          schedule_action: string
+          scheduler_version: string
+          session_id: string
+          session_outcome: string | null
+          state_advanced: boolean
+          supersedes_decision_id: string | null
           user_id: string
-        }
-        Insert: {
-          active_book?: string
-          daily_goal?: number
-          memorize_spelling?: boolean
-          strict_spelling?: boolean
-          include_spelling_in_review?: boolean | null
-          include_spelling_in_review_first_choice?: boolean | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          active_book?: string
-          daily_goal?: number
-          memorize_spelling?: boolean
-          strict_spelling?: boolean
-          include_spelling_in_review?: boolean | null
-          include_spelling_in_review_first_choice?: boolean | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
-      review_states: {
-        Row: {
-          user_id: string
-          source_book_id: string | null
           word: string
           word_key: string
-          review_mode: string
-          last_reviewed_at: string | null
-          next_due_at: string | null
-          interval_seconds: number | null
-          consecutive_correct: number
-          total_wrong: number
-          hint_count: number
-          difficulty: number | null
-          scheduler_data: Json
-          last_attempt_id: string | null
-          last_session_id: string | null
-          last_learning_day: string | null
-          successful_growth_day: string | null
-          pending_action: string
-          last_outcome: string | null
-          last_decision_reason: string | null
-          scheduler_version: string | null
-          last_decision_id: string | null
-          revision: number
-          updated_at: string
         }
         Insert: {
+          after_state: Json
+          before_state: Json
+          book_id: string
+          created_at?: string
+          decision_id?: string
+          decision_reason: string
+          decision_revision: number
+          effective_inclusion?: boolean | null
+          input_fingerprint: string
+          interval_advanced: boolean
+          is_initial_learning?: boolean
+          learning_day: string
+          review_mode: string
+          schedule_action: string
+          scheduler_version: string
+          session_id: string
+          session_outcome?: string | null
+          state_advanced: boolean
+          supersedes_decision_id?: string | null
           user_id: string
-          source_book_id?: string | null
           word: string
           word_key: string
-          review_mode: string
-          last_reviewed_at?: string | null
-          next_due_at?: string | null
-          interval_seconds?: number | null
-          consecutive_correct?: number
-          total_wrong?: number
-          hint_count?: number
-          difficulty?: number | null
-          scheduler_data?: Json
-          last_attempt_id?: string | null
-          last_session_id?: string | null
-          last_learning_day?: string | null
-          successful_growth_day?: string | null
-          pending_action?: string
-          last_outcome?: string | null
-          last_decision_reason?: string | null
-          scheduler_version?: string | null
-          last_decision_id?: string | null
-          revision?: number
-          updated_at?: string
         }
         Update: {
+          after_state?: Json
+          before_state?: Json
+          book_id?: string
+          created_at?: string
+          decision_id?: string
+          decision_reason?: string
+          decision_revision?: number
+          effective_inclusion?: boolean | null
+          input_fingerprint?: string
+          interval_advanced?: boolean
+          is_initial_learning?: boolean
+          learning_day?: string
+          review_mode?: string
+          schedule_action?: string
+          scheduler_version?: string
+          session_id?: string
+          session_outcome?: string | null
+          state_advanced?: boolean
+          supersedes_decision_id?: string | null
           user_id?: string
-          source_book_id?: string | null
           word?: string
           word_key?: string
-          review_mode?: string
-          last_reviewed_at?: string | null
-          next_due_at?: string | null
-          interval_seconds?: number | null
-          consecutive_correct?: number
-          total_wrong?: number
-          hint_count?: number
-          difficulty?: number | null
-          scheduler_data?: Json
-          last_attempt_id?: string | null
-          last_session_id?: string | null
-          last_learning_day?: string | null
-          successful_growth_day?: string | null
-          pending_action?: string
-          last_outcome?: string | null
-          last_decision_reason?: string | null
-          scheduler_version?: string | null
-          last_decision_id?: string | null
-          revision?: number
-          updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "review_states_source_book_id_fkey"
-            columns: ["source_book_id"]
+            foreignKeyName: "review_schedule_decisions_supersedes_decision_id_fkey"
+            columns: ["supersedes_decision_id"]
             isOneToOne: false
-            referencedRelation: "word_books"
+            referencedRelation: "review_schedule_decisions"
+            referencedColumns: ["decision_id"]
+          },
+        ]
+      }
+      review_session_results: {
+        Row: {
+          attempt_count: number
+          book_id: string
+          completed_at: string
+          counted_for_review: boolean | null
+          final_correct: boolean | null
+          had_real_error: boolean
+          hint_count: number
+          last_attempt_id: string | null
+          learning_day: string
+          outcome: string | null
+          real_wrong_count: number
+          review_mode: string
+          revision: number
+          session_id: string
+          source_fingerprint: string
+          time_zone: string
+          updated_at: string
+          used_hint: boolean
+          user_id: string
+          valid_attempt_count: number
+          word: string
+          word_key: string
+        }
+        Insert: {
+          attempt_count?: number
+          book_id: string
+          completed_at: string
+          counted_for_review?: boolean | null
+          final_correct?: boolean | null
+          had_real_error?: boolean
+          hint_count?: number
+          last_attempt_id?: string | null
+          learning_day: string
+          outcome?: string | null
+          real_wrong_count?: number
+          review_mode: string
+          revision?: number
+          session_id: string
+          source_fingerprint: string
+          time_zone: string
+          updated_at?: string
+          used_hint?: boolean
+          user_id: string
+          valid_attempt_count?: number
+          word: string
+          word_key: string
+        }
+        Update: {
+          attempt_count?: number
+          book_id?: string
+          completed_at?: string
+          counted_for_review?: boolean | null
+          final_correct?: boolean | null
+          had_real_error?: boolean
+          hint_count?: number
+          last_attempt_id?: string | null
+          learning_day?: string
+          outcome?: string | null
+          real_wrong_count?: number
+          review_mode?: string
+          revision?: number
+          session_id?: string
+          source_fingerprint?: string
+          time_zone?: string
+          updated_at?: string
+          used_hint?: boolean
+          user_id?: string
+          valid_attempt_count?: number
+          word?: string
+          word_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "review_session_results_last_attempt_id_fkey"
+            columns: ["last_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "attempts"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      review_states: {
+        Row: {
+          consecutive_correct: number
+          difficulty: number | null
+          hint_count: number
+          interval_seconds: number | null
+          last_attempt_id: string | null
+          last_decision_id: string | null
+          last_decision_reason: string | null
+          last_learning_day: string | null
+          last_outcome: string | null
+          last_reviewed_at: string | null
+          last_session_id: string | null
+          next_due_at: string | null
+          pending_action: string
+          review_mode: string
+          revision: number
+          scheduler_data: Json
+          scheduler_version: string | null
+          source_book_id: string | null
+          successful_growth_day: string | null
+          total_wrong: number
+          updated_at: string
+          user_id: string
+          word: string
+          word_key: string
+        }
+        Insert: {
+          consecutive_correct?: number
+          difficulty?: number | null
+          hint_count?: number
+          interval_seconds?: number | null
+          last_attempt_id?: string | null
+          last_decision_id?: string | null
+          last_decision_reason?: string | null
+          last_learning_day?: string | null
+          last_outcome?: string | null
+          last_reviewed_at?: string | null
+          last_session_id?: string | null
+          next_due_at?: string | null
+          pending_action?: string
+          review_mode: string
+          revision?: number
+          scheduler_data?: Json
+          scheduler_version?: string | null
+          source_book_id?: string | null
+          successful_growth_day?: string | null
+          total_wrong?: number
+          updated_at?: string
+          user_id: string
+          word: string
+          word_key: string
+        }
+        Update: {
+          consecutive_correct?: number
+          difficulty?: number | null
+          hint_count?: number
+          interval_seconds?: number | null
+          last_attempt_id?: string | null
+          last_decision_id?: string | null
+          last_decision_reason?: string | null
+          last_learning_day?: string | null
+          last_outcome?: string | null
+          last_reviewed_at?: string | null
+          last_session_id?: string | null
+          next_due_at?: string | null
+          pending_action?: string
+          review_mode?: string
+          revision?: number
+          scheduler_data?: Json
+          scheduler_version?: string | null
+          source_book_id?: string | null
+          successful_growth_day?: string | null
+          total_wrong?: number
+          updated_at?: string
+          user_id?: string
+          word?: string
+          word_key?: string
+        }
+        Relationships: [
           {
             foreignKeyName: "review_states_last_attempt_id_fkey"
             columns: ["last_attempt_id"]
@@ -428,173 +556,47 @@ export type Database = {
             referencedRelation: "review_schedule_decisions"
             referencedColumns: ["decision_id"]
           },
-        ]
-      }
-      review_session_results: {
-        Row: {
-          user_id: string
-          book_id: string
-          word: string
-          word_key: string
-          review_mode: string
-          session_id: string
-          outcome: string | null
-          counted_for_review: boolean | null
-          final_correct: boolean | null
-          had_real_error: boolean
-          real_wrong_count: number
-          used_hint: boolean
-          hint_count: number
-          attempt_count: number
-          valid_attempt_count: number
-          last_attempt_id: string | null
-          completed_at: string
-          time_zone: string
-          learning_day: string
-          source_fingerprint: string
-          revision: number
-          updated_at: string
-        }
-        Insert: {
-          user_id: string
-          book_id: string
-          word: string
-          word_key: string
-          review_mode: string
-          session_id: string
-          outcome?: string | null
-          counted_for_review?: boolean | null
-          final_correct?: boolean | null
-          had_real_error?: boolean
-          real_wrong_count?: number
-          used_hint?: boolean
-          hint_count?: number
-          attempt_count?: number
-          valid_attempt_count?: number
-          last_attempt_id?: string | null
-          completed_at: string
-          time_zone: string
-          learning_day: string
-          source_fingerprint: string
-          revision?: number
-          updated_at?: string
-        }
-        Update: {
-          user_id?: string
-          book_id?: string
-          word?: string
-          word_key?: string
-          review_mode?: string
-          session_id?: string
-          outcome?: string | null
-          counted_for_review?: boolean | null
-          final_correct?: boolean | null
-          had_real_error?: boolean
-          real_wrong_count?: number
-          used_hint?: boolean
-          hint_count?: number
-          attempt_count?: number
-          valid_attempt_count?: number
-          last_attempt_id?: string | null
-          completed_at?: string
-          time_zone?: string
-          learning_day?: string
-          source_fingerprint?: string
-          revision?: number
-          updated_at?: string
-        }
-        Relationships: [
           {
-            foreignKeyName: "review_session_results_last_attempt_id_fkey"
-            columns: ["last_attempt_id"]
+            foreignKeyName: "review_states_source_book_id_fkey"
+            columns: ["source_book_id"]
             isOneToOne: false
-            referencedRelation: "attempts"
+            referencedRelation: "word_books"
             referencedColumns: ["id"]
           },
         ]
       }
-      review_schedule_decisions: {
+      user_settings: {
         Row: {
-          decision_id: string
+          active_book: string
+          daily_goal: number
+          include_spelling_in_review: boolean | null
+          include_spelling_in_review_first_choice: boolean | null
+          memorize_spelling: boolean
+          strict_spelling: boolean
+          updated_at: string
           user_id: string
-          book_id: string
-          word: string
-          word_key: string
-          review_mode: string
-          session_id: string
-          decision_revision: number
-          supersedes_decision_id: string | null
-          learning_day: string
-          session_outcome: string | null
-          effective_inclusion: boolean | null
-          is_initial_learning: boolean
-          state_advanced: boolean
-          interval_advanced: boolean
-          schedule_action: string
-          decision_reason: string
-          scheduler_version: string
-          input_fingerprint: string
-          before_state: Json
-          after_state: Json
-          created_at: string
         }
         Insert: {
-          decision_id?: string
+          active_book?: string
+          daily_goal?: number
+          include_spelling_in_review?: boolean | null
+          include_spelling_in_review_first_choice?: boolean | null
+          memorize_spelling?: boolean
+          strict_spelling?: boolean
+          updated_at?: string
           user_id: string
-          book_id: string
-          word: string
-          word_key: string
-          review_mode: string
-          session_id: string
-          decision_revision: number
-          supersedes_decision_id?: string | null
-          learning_day: string
-          session_outcome?: string | null
-          effective_inclusion?: boolean | null
-          is_initial_learning?: boolean
-          state_advanced: boolean
-          interval_advanced: boolean
-          schedule_action: string
-          decision_reason: string
-          scheduler_version: string
-          input_fingerprint: string
-          before_state: Json
-          after_state: Json
-          created_at?: string
         }
         Update: {
-          decision_id?: string
+          active_book?: string
+          daily_goal?: number
+          include_spelling_in_review?: boolean | null
+          include_spelling_in_review_first_choice?: boolean | null
+          memorize_spelling?: boolean
+          strict_spelling?: boolean
+          updated_at?: string
           user_id?: string
-          book_id?: string
-          word?: string
-          word_key?: string
-          review_mode?: string
-          session_id?: string
-          decision_revision?: number
-          supersedes_decision_id?: string | null
-          learning_day?: string
-          session_outcome?: string | null
-          effective_inclusion?: boolean | null
-          is_initial_learning?: boolean
-          state_advanced?: boolean
-          interval_advanced?: boolean
-          schedule_action?: string
-          decision_reason?: string
-          scheduler_version?: string
-          input_fingerprint?: string
-          before_state?: Json
-          after_state?: Json
-          created_at?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "review_schedule_decisions_supersedes_decision_id_fkey"
-            columns: ["supersedes_decision_id"]
-            isOneToOne: false
-            referencedRelation: "review_schedule_decisions"
-            referencedColumns: ["decision_id"]
-          },
-        ]
+        Relationships: []
       }
       word_books: {
         Row: {

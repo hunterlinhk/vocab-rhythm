@@ -477,8 +477,12 @@ export async function rebuildPendingSpellingStates(supabase: Client, userId: str
       .order("review_word_key", { ascending: true })
       .range(offset, offset + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
-    for (const row of data ?? [])
+    for (const row of data ?? []) {
+      if (row.review_word_key === null) {
+        throw new Error("Attempt is missing its generated review word key");
+      }
       identities.set(row.review_word_key, { userId, wordKey: row.review_word_key, reviewMode: "spelling" });
+    }
     if (!data || data.length < PAGE_SIZE) break;
   }
 

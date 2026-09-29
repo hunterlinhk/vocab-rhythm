@@ -995,10 +995,12 @@ test("review integration separates raw attempts, session results, and append-onl
 });
 
 test("review tables have owner-scoped RLS and immutable decision history", async () => {
-  const migration = await readFile(
-    new URL("../drizzle/migrations/0011_review_system_v1_foundation.sql", import.meta.url),
-    "utf8",
-  );
+  const migration = (
+    await readFile(
+      new URL("../drizzle/migrations/0011_review_system_v1_foundation.sql", import.meta.url),
+      "utf8",
+    )
+  ).replace(/\r\n/g, "\n");
   for (const table of ["review_session_results", "review_schedule_decisions", "review_states"]) {
     assert.match(migration, new RegExp(`ALTER TABLE public\\.${table} ENABLE ROW LEVEL SECURITY;`));
     assert.match(
