@@ -556,13 +556,6 @@ export type Database = {
             referencedRelation: "review_schedule_decisions"
             referencedColumns: ["decision_id"]
           },
-          {
-            foreignKeyName: "review_states_source_book_id_fkey"
-            columns: ["source_book_id"]
-            isOneToOne: false
-            referencedRelation: "word_books"
-            referencedColumns: ["id"]
-          },
         ]
       }
       user_settings: {
