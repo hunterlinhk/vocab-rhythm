@@ -1,12 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { AlertCircle, CheckCircle2, RotateCcw, Star } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { entryKey } from "@/lib/entry-identity";
-import { repairMissingReviewStates } from "@/lib/learning.functions";
 import { useLearningState } from "@/hooks/use-learning-state";
 
 const tabs = ["今日复习", "错词", "易错词"] as const;
@@ -39,14 +36,6 @@ export const Route = createFileRoute("/_authenticated/review")({
 function ReviewPage() {
   const { tab = "今日复习" } = Route.useSearch();
   const navigate = useNavigate();
-  const repairReviewStates = useServerFn(repairMissingReviewStates);
-  const { mutate: recoverReviewStates } = useMutation({
-    mutationFn: () => repairReviewStates(),
-    retry: 2,
-    onError: (error) => console.error("Review state recovery failed", error),
-  });
-  // The server replay is idempotent and restores projections lost to the old source-book FK.
-  useEffect(() => recoverReviewStates(), [recoverReviewStates]);
   const { data, isLoading, isAuthoritative } = useLearningState();
 
   const lists = useMemo(

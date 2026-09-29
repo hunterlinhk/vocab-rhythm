@@ -11,7 +11,6 @@ import {
 import {
   finalizeReviewSession,
   rebuildPendingSpellingStates,
-  rebuildMissingReviewStates,
 } from "@/lib/review-sessions.server";
 import {
   buildLearningState,
@@ -866,12 +865,6 @@ export const getLearningState = createServerFn({ method: "GET" })
     });
   });
 
-export const repairMissingReviewStates = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => ({
-    repaired: await rebuildMissingReviewStates(context.supabase, context.userId),
-  }));
-
 export const getDueReviewItems = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
@@ -883,8 +876,6 @@ export const getDueReviewItems = createServerFn({ method: "GET" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    // Repair missing v1 projections before returning the word-based review queue.
-    await rebuildMissingReviewStates(context.supabase, context.userId);
     const { data: dueItems, error } = await context.supabase
       .from("review_states")
       .select(

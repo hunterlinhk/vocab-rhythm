@@ -1,11 +1,12 @@
-# Review source provenance decoupling
+# Review source provenance and historical repair
 
-- Current phase: completed implementation on `bugfix/review-source-book-independence`, based on fetched `origin/main` at `9ed7a65bcaa7887efc4efeffb31afb6e6d907915`.
-- Root cause: migration 0011 gave `review_states.source_book_id` a foreign key to `word_books`, although review state identity is `(user, normalized word, mode)` and bundled books have no registry rows. This could let attempt, session-result, and decision writes persist before the final state insert failed.
-- Added migration 0013 to drop only that foreign key while retaining the nullable provenance column. Review queue reads no longer request the source ID. An authenticated idempotent recovery scans included v1 session results, finds missing user/word/mode projections, and replays their complete history; legacy attempts remain outside the scan.
-- Updated the local isolated PostgreSQL RLS runner to test an unregistered `ngsl-1.2` source, source retention after custom-book deletion, and repeat application of 0013. The runner passed PowerShell parsing but was not executed against a database. No production/shared database was accessed and no SQL was executed.
-- Validation: `npm test` 59/59 passed; `npx tsc --noEmit` passed; `npm run build` passed; changed-file ESLint passed with the repository Prettier rule disabled; `git diff --check` and PowerShell parsing passed. Build reports existing Vite path plugin and TanStack `inputValidator()` deprecation warnings. No 0011/0012 or OEWN files were changed.
-- Next action: feature branch is ready for review; wait for a separate merge request. Do not merge `main` or execute production SQL.
+- Current phase: implementation complete on `bugfix/review-source-book-independence`, based on `origin/main` at `9ed7a65bcaa7887efc4efeffb31afb6e6d907915`.
+- Root cause: migration 0011 gave `review_states.source_book_id` a foreign key to `word_books`, although review identity is `(user, normalized word, mode)` and bundled books have no registry rows. Attempt, session-result, and decision writes could persist before the final state insert failed.
+- Migration 0013 drops only that foreign key. `source_book_id` remains nullable historical provenance and may refer to bundled or deleted books; due-review selection does not depend on it.
+- Historical repair is an operator-run, idempotent one-off CLI task, not part of review-page or due-queue reads. It requires an explicit `completed_at` window, reports only included v1 identities missing state, checks existing states only for those users/words, and replays full history only for each selected `(user, word, mode)`. Legacy attempts are excluded. Dry-run is the default; apply requires explicit confirmation that 0013 is deployed and a new local audit report path.
+- Normal `finalizeReviewSession` still replays the current word/mode identity after writing a session result, preserving retry recovery for the active session. No production/shared database was contacted and no SQL was executed.
+- Validation: `npm test` 60/60 passed; `npx tsc --noEmit` passed; `npm run build` passed; scoped ESLint passed with the repository Prettier rule disabled; CLI `--help` and `git diff --check` passed. Build reports existing Vite path-plugin and TanStack `inputValidator()` deprecation warnings. No migration files, OEWN files, or UI visuals were changed.
+- The feature branch remains unmerged. The historical repair has not been run; when authorized operationally, use the exact production 0011-to-0013 rollout timestamps and inspect the dry-run report before applying.
 
 # Review system v1 foundation
 
