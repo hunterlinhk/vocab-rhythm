@@ -14,7 +14,7 @@ import {
   startMemorizeSession,
 } from "@/lib/learning.functions";
 import { attemptIdForStage, type MemorizeSession } from "@/lib/learning-session.shared";
-import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
+import { getUserTimeZone, queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
@@ -262,6 +262,7 @@ function MemorizePage() {
             revision: sessionRevision,
             itemIndex: index,
             spellingEnabled: spellOn,
+            timeZone: getUserTimeZone(),
             correct,
           },
         }),
@@ -316,6 +317,7 @@ function MemorizePage() {
             revision: sessionRevision,
             itemIndex: index,
             spellingEnabled: spellOn,
+            timeZone: getUserTimeZone(),
             correct: true,
             typoCount: r.typoCount,
             durationMs: r.durationMs,
@@ -333,7 +335,17 @@ function MemorizePage() {
         })
         .catch(() => setBusy(false));
     },
-    [entry, activeSession, busy, record, bookId, index, sessionRevision, spellOn, invalidate],
+    [
+      entry,
+      activeSession,
+      busy,
+      record,
+      bookId,
+      index,
+      sessionRevision,
+      spellOn,
+      invalidate,
+    ],
   );
 
   const toggleSpell = () => {
