@@ -1145,11 +1145,18 @@ test("historical state repair is a bounded one-off and normal reads do not scan 
   const snapshot = JSON.parse(snapshotText);
   const priorSnapshot = JSON.parse(priorSnapshotText);
 
-  assert.deepEqual(journal.entries.at(-1), {
+  assert.deepEqual(journal.entries.find(({ tag }) => tag === "0013_review_source_provenance"), {
     idx: 13,
     version: "7",
-    when: journal.entries.at(-1).when,
+    when: 1790660328477,
     tag: "0013_review_source_provenance",
+    breakpoints: true,
+  });
+  assert.deepEqual(journal.entries.at(-1), {
+    idx: 14,
+    version: "7",
+    when: 1790675901270,
+    tag: "0014_apply_pending_0013_marker",
     breakpoints: true,
   });
   assert.equal(snapshot.prevId, priorSnapshot.id);
