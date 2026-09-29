@@ -14,8 +14,10 @@ import {
   type ReviewSessionSource,
   type ReviewSessionResult,
 } from "@/lib/review-scheduler.shared";
+import { findMissingReviewStateIdentities } from "@/lib/review-state-repair.shared";
 
 type Client = SupabaseClient<Database>;
+// Source books partition raw sessions; projected state is shared by user, normalized word, and mode.
 type Identity = { userId: string; wordKey: string; reviewMode: ReviewMode };
 type SessionIdentity = Identity & { bookId: string; word: string };
 type SessionInput = { userId: string; bookId: string; word: string; reviewMode: ReviewMode };
@@ -259,7 +261,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
       : Promise.resolve({ data: null, error: null }),
     supabase
       .from("review_states")
-      .select("revision, source_book_id")
+      .select("revision")
       .eq("user_id", identity.userId)
       .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
@@ -391,6 +393,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
   const state: ReviewScheduleState = projection.state;
   const stateRow = {
     user_id: identity.userId,
+    // Provenance only; 0013 permits bundled and deleted source book ids.
     source_book_id: lastIncluded.session.bookId,
     word: lastIncluded.session.word,
     word_key: identity.wordKey,
@@ -487,4 +490,59 @@ export async function rebuildPendingSpellingStates(supabase: Client, userId: str
   }
 
   for (const identity of identities.values()) await rebuildReviewState(supabase, identity);
+}
+
+/** Rebuild only missing states with complete v1 session results; legacy attempts never enter this scan. */
+export async function rebuildMissingReviewStates(supabase: Client, userId: string): Promise<number> {
+  const [settingsResult, sessionRows, stateRows] = await Promise.all([
+    supabase
+      .from("user_settings")
+      .select("include_spelling_in_review_first_choice")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    readAllPages((from, to) =>
+      supabase
+        .from("review_session_results")
+        .select("word_key, review_mode, counted_for_review, outcome")
+        .eq("user_id", userId)
+        .order("word_key", { ascending: true })
+        .order("review_mode", { ascending: true })
+        .range(from, to),
+    ),
+    readAllPages((from, to) =>
+      supabase
+        .from("review_states")
+        .select("word_key, review_mode")
+        .eq("user_id", userId)
+        .order("word_key", { ascending: true })
+        .order("review_mode", { ascending: true })
+        .range(from, to),
+    ),
+  ]);
+  if (settingsResult.error) throw new Error(settingsResult.error.message);
+
+  const identities = findMissingReviewStateIdentities(
+    sessionRows,
+    stateRows.map((row) => ({ wordKey: row.word_key, reviewMode: row.review_mode as ReviewMode })),
+    settingsResult.data?.include_spelling_in_review_first_choice ?? null,
+  );
+  for (const identity of identities) {
+    await rebuildReviewState(supabase, { userId, ...identity });
+  }
+  return identities.length;
+}
+
+async function readAllPages<T>(
+  queryPage: (from: number, to: number) => PromiseLike<{
+    data: T[] | null;
+    error: { message: string } | null;
+  }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await queryPage(offset, offset + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE_SIZE) return rows;
+  }
 }

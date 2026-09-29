@@ -2,6 +2,16 @@
 
 This rollout applies migration `0011_review_system_v1_foundation.sql` before merging the application changes to `main`. No production database has been contacted as part of preparing this runbook.
 
+## Follow-up: source-book provenance migration 0013
+
+The project owner has confirmed that 0011 was applied to production and 0012 is present as its marker. The source-provenance fix requires `0013_review_source_provenance.sql` to be applied to an isolated test database, then production, before deploying the application code from this branch. Do not rerun 0011 or 0012 for this follow-up.
+
+Migration 0013 drops only the `review_states.source_book_id → word_books.id` foreign key. The source ID remains nullable text for provenance, can name bundled or deleted books, and is not used to identify or resolve due-review items. The migration is safe to repeat. The review page and due-review server function invoke an authenticated, idempotent repair that rebuilds missing states from included Review v1 session results; legacy attempts without v1 metadata are outside its scan.
+
+For the follow-up verification, run `scripts/verify-review-v1-rls.ps1` against its isolated Docker database. It applies migrations through 0013, verifies that a bundled source ID without a `word_books` row is accepted, and verifies custom-book deletion leaves its review state and source ID intact. Before any production rollout, an authorized human must confirm a restorable backup and the migration ledger, apply only 0013, then verify the foreign key is absent before deploying the application branch. Do not restore the old foreign key unless every stored source ID is known to exist in `word_books`.
+
+The remaining steps below document the original 0011 rollout and are historical for this follow-up. Their 0010 ledger checkpoint, empty-projection expectation, and `ON DELETE SET NULL` assertion do not apply after 0013.
+
 ## Migration registration and runner
 
 The migration is registered as index 11 in `drizzle/migrations/meta/_journal.json`. `drizzle.config.ts` points Drizzle Kit at `drizzle/migrations` and reads `LOVABLE_DB_MIGRATION_URL`; there is no repository `migrate` npm script. The SQL file has no explicit `BEGIN`/`COMMIT`. The installed Drizzle PostgreSQL migrator runs pending migrations in a transaction, and records them in `drizzle.__drizzle_migrations`.
