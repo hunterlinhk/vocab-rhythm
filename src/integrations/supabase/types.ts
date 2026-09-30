@@ -313,6 +313,7 @@ export type Database = {
           review_mode: string
           schedule_action: string
           scheduler_version: string
+          scope_key: string
           session_id: string
           session_outcome: string | null
           state_advanced: boolean
@@ -337,6 +338,7 @@ export type Database = {
           review_mode: string
           schedule_action: string
           scheduler_version: string
+          scope_key?: string
           session_id: string
           session_outcome?: string | null
           state_advanced: boolean
@@ -361,6 +363,7 @@ export type Database = {
           review_mode?: string
           schedule_action?: string
           scheduler_version?: string
+          scope_key?: string
           session_id?: string
           session_outcome?: string | null
           state_advanced?: boolean
@@ -481,6 +484,7 @@ export type Database = {
           revision: number
           scheduler_data: Json
           scheduler_version: string | null
+          scope_key: string
           source_book_id: string | null
           successful_growth_day: string | null
           total_wrong: number
@@ -507,6 +511,7 @@ export type Database = {
           revision?: number
           scheduler_data?: Json
           scheduler_version?: string | null
+          scope_key?: string
           source_book_id?: string | null
           successful_growth_day?: string | null
           total_wrong?: number
@@ -533,6 +538,7 @@ export type Database = {
           revision?: number
           scheduler_data?: Json
           scheduler_version?: string | null
+          scope_key?: string
           source_book_id?: string | null
           successful_growth_day?: string | null
           total_wrong?: number
@@ -558,6 +564,30 @@ export type Database = {
           },
         ]
       }
+      user_book_review_settings: {
+        Row: {
+          book_id: string
+          created_at: string
+          include_in_review: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          include_in_review?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          include_in_review?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_settings: {
         Row: {
           active_book: string
@@ -565,6 +595,7 @@ export type Database = {
           include_spelling_in_review: boolean | null
           include_spelling_in_review_first_choice: boolean | null
           memorize_spelling: boolean
+          share_review_progress: boolean
           strict_spelling: boolean
           updated_at: string
           user_id: string
@@ -575,6 +606,7 @@ export type Database = {
           include_spelling_in_review?: boolean | null
           include_spelling_in_review_first_choice?: boolean | null
           memorize_spelling?: boolean
+          share_review_progress?: boolean
           strict_spelling?: boolean
           updated_at?: string
           user_id: string
@@ -585,6 +617,7 @@ export type Database = {
           include_spelling_in_review?: boolean | null
           include_spelling_in_review_first_choice?: boolean | null
           memorize_spelling?: boolean
+          share_review_progress?: boolean
           strict_spelling?: boolean
           updated_at?: string
           user_id?: string
