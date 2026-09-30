@@ -1259,8 +1259,10 @@ test("Review scope settings migration preserves history and supports bundled or 
     functions.indexOf("export const saveSettings"),
   );
 
-  assert.equal(journal.entries.at(-1).idx, 15);
-  assert.equal(journal.entries.at(-1).tag, "0015_review_scope_settings");
+  assert.equal(journal.entries.at(-2).idx, 15);
+  assert.equal(journal.entries.at(-2).tag, "0015_review_scope_settings");
+  assert.equal(journal.entries.at(-1).idx, 16);
+  assert.equal(journal.entries.at(-1).tag, "0016_apply_pending_0015_marker");
   assert.equal(snapshot.prevId, priorSnapshot.id);
   assert.match(migrationText, /share_review_progress boolean NOT NULL DEFAULT true/);
   assert.match(migrationText, /include_in_review boolean NOT NULL DEFAULT true/);
