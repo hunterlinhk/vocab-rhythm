@@ -1,18 +1,16 @@
-# Review scope settings
+# Review scheduler v1
 
-- Current phase: 0015 database-layer verification complete on feat/review-scope-settings. The scope-settings implementation is pushed at 0bd4dafdcfb852784a5ab0ba9586997cc610504e; follow-up verification/test/comment changes are local and not yet pushed.
-- Goal: add per-book review inclusion (default on) and a global cross-book sharing switch (default on), without implementing interval scheduling or changing historical attempts/session results/decisions.
-- Existing identity is (user_id, normalized word_key, review_mode); sessions and decisions retain source-book provenance. source_book_id is no longer a live-book dependency after 0013. Bundled books are defined in code and do not require word_books rows.
-- Planned projection identity: (user_id, word_key, review_mode, scope_key), where shared is cross-book and book:<bookId> is per-book. Existing state/decision rows migrate to shared; raw attempts and session results are untouched. review_schedule_decisions remains append-only with revisions separated by scope.
-- Planned settings: user_settings.share_review_progress BOOLEAN NOT NULL DEFAULT true; a new owner-scoped user_book_review_settings table keyed by user/book, with no FK to word_books, stores explicit inclusion values (absence means enabled).
-- Setting mutations may enumerate the user's v1 session identities and rebuild only target projections. Normal review-page/due-queue reads must filter the current scope and never perform a history scan. Source book ids remain provenance, including after custom-book deletion.
-- Implemented migration 0015 + metadata/types, shared/per-book projection keys, per-book inclusion and global sharing settings, mutation-only scope rebuilds, and hover/click help affordances. Setting-triggered projection rebuilds do not refresh/delete session results; decisions remain append-only. Due reads filter the active scope and do not scan history.
-- Regression coverage added for shared vs per-book state, same-word isolation, book exclusion, scoped historical repair, migration/RLS shape, UI settings, and defaults. `npm test` passed 64/64; `npx tsc --noEmit` passed.
-- Follow-up migration verification: the repeatable `scripts/verify-review-v1-rls.ps1` now applies through 0015, seeds valid existing Review rows before 0015, checks shared-scope preservation, scoped keys/constraints, settings defaults/RLS, bundled/deleted book ids, custom-book deletion, and repeatability. It previously stopped at 0014 and expected 14 migration files. Active Review comments and the 0015 database column comments now describe configurable scope instead of unconditional sharing.
-- Actual local DB validation: Docker CLI, native `psql`/Postgres service, and WSL were unavailable. A temporary isolated PGlite 0.5.8 engine (PostgreSQL 18.3) ran all SQL blocks from the existing verifier and applied 0000–0015, including pre-0015 existing data, repeat 0011/0013/0015, constraint/scope coexistence, RLS ownership/privileges, and bundled/deleted-book scenarios; all passed. The Docker/PostgreSQL 16 runner itself was not run.
-- Validation: `npm test` passed 65/65; `npx tsc --noEmit` passed; `npm run build` passed; PowerShell script syntax parsed; `git diff --check` passed. Build shows existing Vite tsconfig-paths / TanStack `inputValidator()` / chunk-size warnings. No production SQL was executed.
-- Only 0015 comments and migration-verifier/test files changed in this follow-up; migrations 0000–0014 and OEWN files are unchanged. The feature branch remains unmerged.
-- Baseline validation: local main matched origin/main at 902771fb51e81a1a795558a7996acad337d2a217 and was clean before branch creation. Only the build-log checkpoint was modified before implementation.
+- Phase: scheduler v1 implementation and local validation complete on `feat/review-scheduler-v1`, created from clean `origin/main` at `cf5ddd4421efde3723c5328f897da2e6dccc859c`.
+- The existing session projection, scope settings, daily success limit, failure precedence, mistouch replay, and append-only decision revisions remain the authority. No schema change is needed; `interval_seconds`, `next_due_at`, and `scheduler_version` already exist.
+- New policy: first successful inclusion 24 hours; failure 10 minutes; later smooth success 2.5× with a 24-hour floor, strained success 1.5× with a 1-hour floor; cap 90 days. Due dates use the persisted session completion timestamp, so full-history replay is deterministic.
+- A separate dry-run-first CLI replays existing active-scope states still marked with the foundation scheduler version; it leaves inactive scopes for their next settings-triggered rebuild. Normal due reads do not scan history. Missing states remain covered by the existing bounded historical repair, not this recalibration.
+- Validation: `npm test` passed 70/70, `npx tsc --noEmit` passed, `npm run build` passed, CLI `--help` and `node --check` passed, `git diff --check` passed. No production database was accessed; no migration or OEWN files changed.
+- Next: commit/push this feature branch for review. Before existing foundation states can appear in due queues after deployment, run the new CLI dry-run, inspect its report, then explicitly apply it; no database operation was performed in this task.
+
+## Prior Review scope settings
+
+- Merged into main at `cf5ddd4`; migrations 0015 and the Lovable 0016 marker are present. Review identity is `(user_id, normalized word_key, review_mode, scope_key)`; bundled/deleted book ids can remain provenance.
+- Settings writes rebuild affected projections; normal due reads use the active scope and do not scan session history. The 0015 SQL was validated in isolated PGlite through the migration/RLS test runner. Older sections below describe their historical checkpoints, not the current deployment state.
 
 ## Prior Review repair and provenance work
 

@@ -347,12 +347,29 @@ function withSessionMetadata(
   };
 }
 
-/**
- * Foundation policy records state actions without choosing interval durations.
- * A later scheduler can replace this implementation and fill nextDueAt/intervalSeconds.
- */
-export const eventOnlyReviewScheduler: ReviewScheduler = {
-  version: "review-foundation-v3",
+const MINUTE = 60;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+const INITIAL_INTERVAL = DAY;
+const FAILURE_INTERVAL = 10 * MINUTE;
+const MAX_INTERVAL = 90 * DAY;
+
+function dueAfter(session: ReviewSessionResult, intervalSeconds: number): string {
+  const completedAt = Date.parse(session.completedAt);
+  if (!Number.isFinite(completedAt)) throw new Error("Invalid review session completion timestamp");
+  return new Date(completedAt + intervalSeconds * 1000).toISOString();
+}
+
+function growthInterval(state: ReviewScheduleState, outcome: "smooth" | "strained"): number {
+  const previous = state.intervalSeconds ?? INITIAL_INTERVAL;
+  const factor = outcome === "smooth" ? 2.5 : 1.5;
+  const minimum = outcome === "smooth" ? DAY : HOUR;
+  return Math.min(MAX_INTERVAL, Math.max(minimum, Math.round(previous * factor)));
+}
+
+/** Deterministic intervals; replaying the same ordered sessions yields the same state and decisions. */
+export const reviewSchedulerV1: ReviewScheduler = {
+  version: "review-interval-v1",
   applySession(state, session, context) {
     let reason: ScheduleReason;
     let action: ScheduleAction = "none";
@@ -371,8 +388,8 @@ export const eventOnlyReviewScheduler: ReviewScheduler = {
       afterState = {
         ...withSessionMetadata(state, session, action, reason, this.version),
         consecutiveCorrect: 0,
-        intervalSeconds: null,
-        nextDueAt: null,
+        intervalSeconds: FAILURE_INTERVAL,
+        nextDueAt: dueAfter(session, FAILURE_INTERVAL),
       };
       stateAdvanced = true;
     } else if (context.isInitialLearning) {
@@ -381,6 +398,8 @@ export const eventOnlyReviewScheduler: ReviewScheduler = {
       afterState = {
         ...withSessionMetadata(state, session, action, reason, this.version),
         consecutiveCorrect: 0,
+        intervalSeconds: INITIAL_INTERVAL,
+        nextDueAt: dueAfter(session, INITIAL_INTERVAL),
       };
       stateAdvanced = true;
     } else if (context.successAlreadyAdvancedToday) {
@@ -400,12 +419,16 @@ export const eventOnlyReviewScheduler: ReviewScheduler = {
     } else {
       reason = "normal_growth";
       action = "grow";
+      const intervalSeconds = growthInterval(state, session.outcome);
       afterState = {
         ...withSessionMetadata(state, session, action, reason, this.version),
         consecutiveCorrect: state.consecutiveCorrect + 1,
+        intervalSeconds,
+        nextDueAt: dueAfter(session, intervalSeconds),
         successfulGrowthDay: session.learningDay,
       };
       stateAdvanced = true;
+      // At the cap, the due date advances even though the interval length stays fixed.
       intervalAdvanced = true;
     }
 
@@ -424,7 +447,7 @@ export function projectReviewScheduleState(
   reviewMode: ReviewMode,
   sessions: ReviewSessionResult[],
   firstSpellingChoice: boolean | null,
-  scheduler: ReviewScheduler = eventOnlyReviewScheduler,
+  scheduler: ReviewScheduler = reviewSchedulerV1,
   options: ReviewProjectionOptions = {},
 ): { state: ReviewScheduleState; decisions: ReviewDecision[] } {
   const initialState = emptyReviewScheduleState(reviewMode);
@@ -444,6 +467,7 @@ export function projectReviewScheduleState(
     throw new Error("Review state projection cannot combine different normalized words");
   let state = initialState;
   let hasPriorIncludedSession = false;
+  const successfulGrowthDays = new Set<string>();
   const decisions: ReviewDecision[] = [];
 
   for (const session of ordered) {
@@ -453,7 +477,7 @@ export function projectReviewScheduleState(
       : (session.countedForReview ??
         (reviewMode === "spelling" ? firstSpellingChoice : null));
     const isInitialLearning = effectiveInclusion === true && !hasPriorIncludedSession;
-    const successAlreadyAdvancedToday = state.successfulGrowthDay === session.learningDay;
+    const successAlreadyAdvancedToday = successfulGrowthDays.has(session.learningDay);
     const beforeState = state;
     const transition = scheduler.applySession(state, session, {
       isInitialLearning,
@@ -486,6 +510,7 @@ export function projectReviewScheduleState(
     };
     decisions.push(decision);
     state = transition.afterState;
+    if (transition.intervalAdvanced) successfulGrowthDays.add(session.learningDay);
     if (effectiveInclusion === true && session.outcome) hasPriorIncludedSession = true;
   }
 

@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
   aggregateReviewSession,
   normalizeReviewWord,
-  eventOnlyReviewScheduler,
+  reviewSchedulerV1,
   reviewSessionSource,
   projectReviewScheduleState,
   type ReviewAttemptEvent,
@@ -392,7 +392,7 @@ async function rebuildReviewStateOnce(
     identity.reviewMode,
     sessions.map(sessionFromRow),
     firstSpellingPreference,
-    eventOnlyReviewScheduler,
+    reviewSchedulerV1,
     { scopeKey: identity.scopeKey, bookInclusionById },
   );
   const decisionIds = new Map(previousDecisions);
@@ -438,7 +438,7 @@ async function rebuildReviewStateOnce(
     });
   }
 
-  const schedulerVersion = eventOnlyReviewScheduler.version;
+  const schedulerVersion = reviewSchedulerV1.version;
   for (const invalidated of invalidatedSessions) {
     const decisionKey = sessionIdentityKey(invalidated.bookId, invalidated.sessionId);
     const prior = previousDecisions.get(decisionKey);
