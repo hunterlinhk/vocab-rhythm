@@ -14,8 +14,13 @@ import {
   type ReviewSessionSource,
   type ReviewSessionResult,
 } from "@/lib/review-scheduler.shared";
+import {
+  findMissingHistoricalReviewStateIdentities,
+  type HistoricalReviewStateRepairIdentity,
+} from "@/lib/review-state-repair.shared";
 
 type Client = SupabaseClient<Database>;
+// Source books partition raw sessions; projected state is shared by user, normalized word, and mode.
 type Identity = { userId: string; wordKey: string; reviewMode: ReviewMode };
 type SessionIdentity = Identity & { bookId: string; word: string };
 type SessionInput = { userId: string; bookId: string; word: string; reviewMode: ReviewMode };
@@ -259,7 +264,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
       : Promise.resolve({ data: null, error: null }),
     supabase
       .from("review_states")
-      .select("revision, source_book_id")
+      .select("revision")
       .eq("user_id", identity.userId)
       .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
@@ -391,6 +396,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
   const state: ReviewScheduleState = projection.state;
   const stateRow = {
     user_id: identity.userId,
+    // Provenance only; 0013 permits bundled and deleted source book ids.
     source_book_id: lastIncluded.session.bookId,
     word: lastIncluded.session.word,
     word_key: identity.wordKey,
@@ -460,6 +466,7 @@ export async function finalizeReviewSession(
     { ...identity, bookId: source.bookId, word: source.word },
     sessionId,
   );
+  // Retrying the current session replays only this normalized word and mode, without a user-wide scan.
   await rebuildReviewState(supabase, identity);
 }
 
@@ -487,4 +494,141 @@ export async function rebuildPendingSpellingStates(supabase: Client, userId: str
   }
 
   for (const identity of identities.values()) await rebuildReviewState(supabase, identity);
+}
+
+export type HistoricalReviewStateRepairPlan = {
+  fromInclusive: string;
+  untilExclusive: string;
+  scannedSessionResults: number;
+  affectedUsers: number;
+  missingStates: HistoricalReviewStateRepairIdentity[];
+};
+
+function normalizeRepairBoundary(value: string, label: string): string {
+  if (!/(?:Z|[+-]\d{2}:\d{2})$/i.test(value)) {
+    throw new Error(`${label} must be an ISO timestamp with a timezone`);
+  }
+  const milliseconds = Date.parse(value);
+  if (!Number.isFinite(milliseconds)) throw new Error(`${label} is not a valid timestamp`);
+  return new Date(milliseconds).toISOString();
+}
+
+/**
+ * One-off repair for sessions completed inside the explicit 0011-to-0013 incident window.
+ * Normal reads never call this; each selected identity is replayed across its complete history.
+ */
+export async function planMissingReviewStatesInWindow(
+  supabase: Client,
+  fromInclusive: string,
+  untilExclusive: string,
+): Promise<HistoricalReviewStateRepairPlan> {
+  const from = normalizeRepairBoundary(fromInclusive, "fromInclusive");
+  const until = normalizeRepairBoundary(untilExclusive, "untilExclusive");
+  if (Date.parse(from) >= Date.parse(until)) {
+    throw new Error("fromInclusive must be earlier than untilExclusive");
+  }
+
+  const sessions = await readAllPages((fromRow, toRow) =>
+    supabase
+      .from("review_session_results")
+      .select("user_id, word_key, review_mode, counted_for_review, outcome, completed_at, book_id, session_id")
+      .gte("completed_at", from)
+      .lt("completed_at", until)
+      .order("completed_at", { ascending: true })
+      .order("user_id", { ascending: true })
+      .order("word_key", { ascending: true })
+      .order("review_mode", { ascending: true })
+      .order("book_id", { ascending: true })
+      .order("session_id", { ascending: true })
+      .range(fromRow, toRow),
+  );
+  const candidateSessions = sessions.filter(
+    (session) =>
+      session.outcome !== null &&
+      (session.counted_for_review === true ||
+        (session.review_mode === "spelling" && session.counted_for_review === null)),
+  );
+
+  const pendingSpellingUsers = [
+    ...new Set(
+      candidateSessions
+        .filter((session) => session.review_mode === "spelling" && session.counted_for_review === null)
+        .map((session) => session.user_id),
+    ),
+  ];
+  const spellingPreferences: Array<{
+    user_id: string;
+    include_spelling_in_review_first_choice: boolean | null;
+  }> = [];
+  for (let offset = 0; offset < pendingSpellingUsers.length; offset += 100) {
+    const userIds = pendingSpellingUsers.slice(offset, offset + 100);
+    const { data, error } = await supabase
+      .from("user_settings")
+      .select("user_id, include_spelling_in_review_first_choice")
+      .in("user_id", userIds);
+    if (error) throw new Error(error.message);
+    spellingPreferences.push(...(data ?? []));
+  }
+
+  const wordKeysByUser = new Map<string, Set<string>>();
+  for (const session of candidateSessions) {
+    if (session.review_mode !== "recognition" && session.review_mode !== "spelling") continue;
+    const keys = wordKeysByUser.get(session.user_id) ?? new Set<string>();
+    keys.add(session.word_key);
+    wordKeysByUser.set(session.user_id, keys);
+  }
+
+  const existingStates: Array<{ user_id: string; word_key: string; review_mode: string }> = [];
+  for (const [userId, wordKeys] of wordKeysByUser) {
+    const keys = [...wordKeys];
+    for (let offset = 0; offset < keys.length; offset += 100) {
+      const { data, error } = await supabase
+        .from("review_states")
+        .select("user_id, word_key, review_mode")
+        .eq("user_id", userId)
+        .in("word_key", keys.slice(offset, offset + 100));
+      if (error) throw new Error(error.message);
+      existingStates.push(...(data ?? []));
+    }
+  }
+
+  const missingStates = findMissingHistoricalReviewStateIdentities(
+    candidateSessions,
+    existingStates,
+    spellingPreferences,
+  );
+  return {
+    fromInclusive: from,
+    untilExclusive: until,
+    scannedSessionResults: sessions.length,
+    affectedUsers: new Set(missingStates.map((identity) => identity.userId)).size,
+    missingStates,
+  };
+}
+
+export async function applyMissingReviewStateRepairs(
+  supabase: Client,
+  identities: HistoricalReviewStateRepairIdentity[],
+): Promise<number> {
+  let repaired = 0;
+  for (const identity of identities) {
+    await rebuildReviewState(supabase, identity);
+    repaired += 1;
+  }
+  return repaired;
+}
+
+async function readAllPages<T>(
+  queryPage: (from: number, to: number) => PromiseLike<{
+    data: T[] | null;
+    error: { message: string } | null;
+  }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await queryPage(offset, offset + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE_SIZE) return rows;
+  }
 }

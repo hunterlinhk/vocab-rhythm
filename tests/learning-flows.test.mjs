@@ -27,6 +27,10 @@ const {
   projectReviewScheduleState,
   reviewSessionSource,
 } = await vite.ssrLoadModule("/src/lib/review-scheduler.shared.ts");
+const {
+  findMissingHistoricalReviewStateIdentities,
+  findMissingReviewStateIdentities,
+} = await vite.ssrLoadModule("/src/lib/review-state-repair.shared.ts");
 
 const now = new Date("2026-09-27T12:00:00.000Z");
 const today = now.toISOString();
@@ -729,6 +733,80 @@ test("review state is shared across source books but remains independent by mode
   assert.equal(independentMode.decisions[0].reason, "first_learning");
 });
 
+test("missing review states are repairable once per included word and mode from v1 session results", () => {
+  const sessions = [
+    {
+      book_id: "book-a",
+      word_key: "apple",
+      review_mode: "recognition",
+      counted_for_review: true,
+      outcome: "smooth",
+    },
+    {
+      book_id: "book-b",
+      word_key: "apple",
+      review_mode: "recognition",
+      counted_for_review: true,
+      outcome: "strained",
+    },
+    {
+      book_id: "bundled-ngsl",
+      word_key: "apple",
+      review_mode: "spelling",
+      counted_for_review: true,
+      outcome: "smooth",
+    },
+    { word_key: "banana", review_mode: "spelling", counted_for_review: null, outcome: "failed" },
+    { word_key: "grape", review_mode: "spelling", counted_for_review: false, outcome: "failed" },
+    { word_key: "pear", review_mode: "recognition", counted_for_review: null, outcome: "smooth" },
+    { word_key: "plum", review_mode: "recognition", counted_for_review: true, outcome: null },
+  ];
+  const existingStates = [{ wordKey: "apple", reviewMode: "recognition" }];
+
+  const missing = findMissingReviewStateIdentities(sessions, existingStates, true);
+  assert.deepEqual(missing, [
+    { wordKey: "apple", reviewMode: "spelling" },
+    { wordKey: "banana", reviewMode: "spelling" },
+  ]);
+  assert.deepEqual(findMissingReviewStateIdentities(sessions, [...existingStates, ...missing], true), []);
+  assert.deepEqual(findMissingReviewStateIdentities(sessions, existingStates, false), [
+    { wordKey: "apple", reviewMode: "spelling" },
+  ]);
+});
+
+test("historical repair planning is bounded by user, word, mode, and first spelling choice", () => {
+  const sessions = [
+    { user_id: "user-a", word_key: "apple", review_mode: "recognition", counted_for_review: true, outcome: "smooth" },
+    { user_id: "user-a", word_key: "apple", review_mode: "spelling", counted_for_review: true, outcome: "strained" },
+    { user_id: "user-b", book_id: "book-a", word_key: "apple", review_mode: "recognition", counted_for_review: true, outcome: "failed" },
+    { user_id: "user-b", book_id: "book-b", word_key: "apple", review_mode: "recognition", counted_for_review: true, outcome: "strained" },
+    { user_id: "user-b", word_key: "pear", review_mode: "spelling", counted_for_review: null, outcome: "failed" },
+    { user_id: "user-c", word_key: "plum", review_mode: "spelling", counted_for_review: null, outcome: "failed" },
+    { user_id: "user-c", word_key: "grape", review_mode: "spelling", counted_for_review: false, outcome: "failed" },
+    { user_id: "user-a", word_key: "banana", review_mode: "recognition", counted_for_review: true, outcome: null },
+  ];
+  const existingStates = [{ user_id: "user-a", word_key: "apple", review_mode: "recognition" }];
+  const preferences = [
+    { user_id: "user-b", include_spelling_in_review_first_choice: false },
+    { user_id: "user-c", include_spelling_in_review_first_choice: true },
+  ];
+
+  const missing = findMissingHistoricalReviewStateIdentities(sessions, existingStates, preferences);
+  assert.deepEqual(missing, [
+    { userId: "user-a", wordKey: "apple", reviewMode: "spelling" },
+    { userId: "user-b", wordKey: "apple", reviewMode: "recognition" },
+    { userId: "user-c", wordKey: "plum", reviewMode: "spelling" },
+  ]);
+  assert.deepEqual(
+    findMissingHistoricalReviewStateIdentities(
+      sessions,
+      [...existingStates, ...missing.map(({ userId, wordKey, reviewMode }) => ({ user_id: userId, word_key: wordKey, review_mode: reviewMode }))],
+      preferences,
+    ),
+    [],
+  );
+});
+
 test("changing an earlier session recalculates later decisions during full-history replay", async () => {
   const sessions = [
     reviewSession("early", {
@@ -981,8 +1059,8 @@ test("review integration separates raw attempts, session results, and append-onl
   assert.match(persistence, /export async function rebuildPendingSpellingStates\(supabase: Client, userId:/);
   assert.match(functions, /finalizeReviewSession\(context\.supabase,/);
   assert.match(functions, /rebuildPendingSpellingStates\(context\.supabase, context\.userId\)/);
-  assert.match(dueQuery, /"source_book_id, word, word_key, review_mode/);
-  assert.doesNotMatch(dueQuery, /bookId|\.eq\("book_id"/);
+  assert.match(dueQuery, /"word, word_key, review_mode/);
+  assert.doesNotMatch(dueQuery, /source_book_id|bookId|\.eq\("book_id"/);
   assert.doesNotMatch(migration, /UPDATE public\.attempts/);
   assert.match(migration, /review_session_id uuid,/);
   assert.match(migration, /counted_for_review boolean,/);
@@ -1030,6 +1108,81 @@ test("review tables have owner-scoped RLS and immutable decision history", async
     /CREATE POLICY "own attempts update" ON public\.attempts FOR UPDATE TO authenticated\n  USING \(auth\.uid\(\) = user_id\) WITH CHECK \(auth\.uid\(\) = user_id\)/,
   );
   assert.match(migration, /GRANT ALL ON public\.review_session_results, public\.review_schedule_decisions, public\.review_states TO service_role/);
+});
+
+test("historical state repair is a bounded one-off and normal reads do not scan history", async () => {
+  const [
+    migration,
+    persistence,
+    functions,
+    reviewRoute,
+    repairScript,
+    types,
+    journalText,
+    snapshotText,
+    priorSnapshotText,
+  ] = await Promise.all([
+    readFile(new URL("../drizzle/migrations/0013_review_source_provenance.sql", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/review.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/repair-review-state-projections.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../src/integrations/supabase/types.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/migrations/meta/_journal.json", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/migrations/meta/0013_snapshot.json", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/migrations/meta/0012_snapshot.json", import.meta.url), "utf8"),
+  ]);
+  const recovery = persistence.slice(
+    persistence.indexOf("export async function planMissingReviewStatesInWindow"),
+    persistence.indexOf("async function readAllPages"),
+  );
+  const dueQuery = functions.slice(
+    functions.indexOf("export const getDueReviewItems"),
+    functions.indexOf("export const saveSettings"),
+  );
+  const reviewStateTypes = types.slice(types.indexOf("review_states:"), types.indexOf("user_settings:"));
+  const journal = JSON.parse(journalText);
+  const snapshot = JSON.parse(snapshotText);
+  const priorSnapshot = JSON.parse(priorSnapshotText);
+
+  assert.deepEqual(journal.entries.find(({ tag }) => tag === "0013_review_source_provenance"), {
+    idx: 13,
+    version: "7",
+    when: 1790660328477,
+    tag: "0013_review_source_provenance",
+    breakpoints: true,
+  });
+  assert.deepEqual(journal.entries.at(-1), {
+    idx: 14,
+    version: "7",
+    when: 1790675901270,
+    tag: "0014_apply_pending_0013_marker",
+    breakpoints: true,
+  });
+  assert.equal(snapshot.prevId, priorSnapshot.id);
+  assert.match(migration, /DROP CONSTRAINT IF EXISTS review_states_source_book_id_fkey/);
+  assert.match(migration, /provenance only, may identify a bundled or deleted book/);
+  assert.doesNotMatch(migration, /REFERENCES public\.word_books/);
+  assert.match(recovery, /\.from\("review_session_results"\)/);
+  assert.match(recovery, /\.gte\("completed_at", from\)/);
+  assert.match(recovery, /\.lt\("completed_at", until\)/);
+  assert.match(recovery, /\.from\("review_states"\)[\s\S]*\.eq\("user_id", userId\)[\s\S]*\.in\("word_key"/);
+  assert.match(recovery, /findMissingHistoricalReviewStateIdentities\(/);
+  assert.match(persistence, /export async function applyMissingReviewStateRepairs[\s\S]*await rebuildReviewState\(supabase, identity\)/);
+  assert.match(persistence, /export async function finalizeReviewSession[\s\S]*await rebuildReviewState\(supabase, identity\)/);
+  assert.match(persistence, /if \(prior\?\.fingerprint === decision\.inputFingerprint\) continue/);
+  assert.doesNotMatch(functions, /repairMissingReviewStates|rebuildMissingReviewStates/);
+  assert.doesNotMatch(reviewRoute, /repairMissingReviewStates|recoverReviewStates|useMutation|useEffect/);
+  assert.match(dueQuery, /"word, word_key, review_mode/);
+  assert.doesNotMatch(dueQuery, /repairMissingReviewStates|rebuildMissingReviewStates/);
+  assert.doesNotMatch(dueQuery, /source_book_id|\.eq\("book_id"/);
+  assert.match(repairScript, /--from/);
+  assert.match(repairScript, /--until/);
+  assert.match(repairScript, /--confirm-0013-applied/);
+  assert.match(repairScript, /options\.apply \? "applying" : "dry-run"/);
+  assert.match(repairScript, /status: "failed"[\s\S]*partialProgressUnknown: true/);
+  assert.match(repairScript, /flag: "wx"/);
+  assert.doesNotMatch(reviewStateTypes, /review_states_source_book_id_fkey/);
 });
 
 test("local review RLS runner uses only an isolated disposable PostgreSQL container", async () => {

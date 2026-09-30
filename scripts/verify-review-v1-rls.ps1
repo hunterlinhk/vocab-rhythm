@@ -107,6 +107,16 @@ VALUES
    '44444444-4444-4444-8444-444444444441'),
   ('11111111-1111-4111-8111-111111111112', NULL, 'shared word', 'shared word', 'recognition',
    '44444444-4444-4444-8444-444444444442');
+
+-- A bundled source need not have a word_books row; this remains provenance only.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.word_books WHERE id = 'ngsl-1.2') THEN
+    RAISE EXCEPTION 'RLS fixture unexpectedly registered the bundled NGSL id';
+  END IF;
+END $$;
+INSERT INTO public.review_states (user_id, source_book_id, word, word_key, review_mode)
+VALUES ('11111111-1111-4111-8111-111111111111', 'ngsl-1.2', 'bundled word', 'bundled word', 'spelling');
 RESET ROLE;
 
 -- Authenticated user A can see its own row in each table, but none of B's rows.
@@ -117,7 +127,7 @@ BEGIN
   IF (SELECT count(*) FROM public.attempts) <> 1 THEN RAISE EXCEPTION 'attempts RLS isolation failed'; END IF;
   IF (SELECT count(*) FROM public.review_session_results) <> 1 THEN RAISE EXCEPTION 'session-result RLS isolation failed'; END IF;
   IF (SELECT count(*) FROM public.review_schedule_decisions) <> 1 THEN RAISE EXCEPTION 'decision RLS isolation failed'; END IF;
-  IF (SELECT count(*) FROM public.review_states) <> 1 THEN RAISE EXCEPTION 'review-state RLS isolation failed'; END IF;
+  IF (SELECT count(*) FROM public.review_states) <> 2 THEN RAISE EXCEPTION 'review-state RLS isolation failed'; END IF;
   RAISE NOTICE 'PASS: user A reads its own rows and cannot read user B rows';
 END $$;
 
@@ -214,7 +224,7 @@ BEGIN
   RAISE NOTICE 'PASS: service_role retains full projection-table privileges';
 END $$;
 
--- Deleting an owned custom book sets only the nullable provenance FK to NULL.
+-- Deleting an owned custom book retains source provenance without affecting the review state.
 SET ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '11111111-1111-4111-8111-111111111111', false);
 DELETE FROM public.word_books WHERE id = 'rls-test-book';
@@ -227,8 +237,13 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.review_states
     WHERE user_id = '11111111-1111-4111-8111-111111111111'
-      AND word_key = 'shared word' AND source_book_id IS NULL
-  ) THEN RAISE EXCEPTION 'review state was deleted instead of clearing source_book_id'; END IF;
+      AND word_key = 'shared word' AND source_book_id = 'rls-test-book'
+  ) THEN RAISE EXCEPTION 'review state or its source provenance was lost'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM public.review_states
+    WHERE user_id = '11111111-1111-4111-8111-111111111111'
+      AND word_key = 'bundled word' AND source_book_id = 'ngsl-1.2'
+  ) THEN RAISE EXCEPTION 'bundled source without a word_books row was not retained'; END IF;
   IF NOT EXISTS (
     SELECT 1 FROM public.review_session_results
     WHERE user_id = '11111111-1111-4111-8111-111111111111' AND book_id = 'rls-test-book'
@@ -237,7 +252,7 @@ BEGIN
     SELECT 1 FROM public.review_schedule_decisions
     WHERE user_id = '11111111-1111-4111-8111-111111111111' AND book_id = 'rls-test-book'
   ) THEN RAISE EXCEPTION 'decision book_id was not preserved'; END IF;
-  RAISE NOTICE 'PASS: deleting the custom book preserves review rows and clears source_book_id';
+  RAISE NOTICE 'PASS: deleted and bundled source ids remain provenance and do not block review states';
 END $$;
 SELECT 'PASS: local review v1 RLS verification complete' AS result;
 '@
@@ -265,8 +280,8 @@ try {
   $migrations = Get-ChildItem -Path $migrationDir -Filter '*.sql' |
     Where-Object { $_.Name -match '^\d{4}_.*\.sql$' } |
     Sort-Object Name
-  if ($migrations.Count -ne 12) {
-    throw "Expected migrations 0000–0011 (12 files); found $($migrations.Count)."
+  if ($migrations.Count -ne 14) {
+    throw "Expected migrations 0000–0013 (14 files); found $($migrations.Count)."
   }
   foreach ($migration in $migrations) {
     Write-Host ("Applying " + $migration.Name)
@@ -275,6 +290,8 @@ try {
 
   Write-Host 'Reapplying 0011 to verify repeatability'
   Invoke-PostgresFile -Path (Join-Path $migrationDir '0011_review_system_v1_foundation.sql') -Container $containerName -SingleTransaction
+  Write-Host 'Reapplying 0013 to verify repeatability'
+  Invoke-PostgresFile -Path (Join-Path $migrationDir '0013_review_source_provenance.sql') -Container $containerName -SingleTransaction
 
   $checksFile = Write-TempSql -Content $rlsChecks
   Invoke-PostgresFile -Path $checksFile -Container $containerName -SingleTransaction
