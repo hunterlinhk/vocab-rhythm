@@ -639,14 +639,21 @@ test("daily scheduler permits one success growth, but every failure resets immed
   const decisions = projected.decisions;
   assert.equal(decisions[0].reason, "first_learning");
   assert.equal(decisions[0].intervalAdvanced, false);
+  assert.equal(decisions[0].afterState.intervalSeconds, 86_400);
   assert.equal(decisions[1].reason, "normal_growth");
   assert.equal(decisions[1].intervalAdvanced, true);
+  assert.equal(decisions[1].afterState.intervalSeconds, 216_000);
   assert.equal(decisions[2].reason, "same_day_repeat");
   assert.equal(decisions[2].intervalAdvanced, false);
+  assert.equal(decisions[2].afterState.nextDueAt, decisions[1].afterState.nextDueAt);
   assert.equal(decisions[3].reason, "failure_reset");
+  assert.equal(decisions[3].afterState.intervalSeconds, 600);
+  assert.equal(decisions[3].afterState.nextDueAt, "2026-09-28T21:10:00.000Z");
   assert.equal(decisions[4].reason, "same_day_repeat");
   assert.equal(decisions[4].afterState.pendingAction, "failure_reset_short");
+  assert.equal(decisions[4].afterState.nextDueAt, decisions[3].afterState.nextDueAt);
   assert.equal(decisions[5].reason, "failure_reset");
+  assert.equal(decisions[5].afterState.nextDueAt, "2026-09-28T23:10:00.000Z");
   assert.equal(projected.state.totalWrong, 2);
   assert.equal(projected.state.consecutiveCorrect, 0);
   assert.equal(projected.state.successfulGrowthDay, day);
@@ -664,9 +671,103 @@ test("a success after failure can grow if the learning day has no earlier growth
   ];
   const projected = projectReviewScheduleState("recognition", sessions, null);
   assert.equal(projected.decisions[0].reason, "failure_reset");
+  assert.equal(projected.decisions[0].afterState.intervalSeconds, 600);
   assert.equal(projected.decisions[1].reason, "normal_growth");
+  assert.equal(projected.state.intervalSeconds, 86_400);
+  assert.equal(projected.state.nextDueAt, "2026-09-29T19:00:00.000Z");
   assert.equal(projected.state.successfulGrowthDay, "2026-09-28");
   assert.equal(projected.state.pendingAction, "grow");
+});
+
+test("a timezone change cannot grant a second growth for an earlier learning day", () => {
+  const projection = projectReviewScheduleState("recognition", [
+    reviewSession("initial", {
+      completedAt: "2026-09-27T18:00:00.000Z",
+      learningDay: "2026-09-27",
+    }),
+    reviewSession("day-28", {
+      completedAt: "2026-09-28T18:00:00.000Z",
+      learningDay: "2026-09-28",
+    }),
+    reviewSession("day-29", {
+      completedAt: "2026-09-29T00:00:00.000Z",
+      timeZone: "Pacific/Kiritimati",
+      learningDay: "2026-09-29",
+    }),
+    reviewSession("back-to-day-28", {
+      completedAt: "2026-09-29T01:00:00.000Z",
+      timeZone: "Pacific/Honolulu",
+      learningDay: "2026-09-28",
+    }),
+  ], null);
+  assert.deepEqual(projection.decisions.map(({ reason }) => reason), [
+    "first_learning", "normal_growth", "normal_growth", "same_day_repeat",
+  ]);
+  assert.equal(projection.decisions[3].afterState.nextDueAt, projection.decisions[2].afterState.nextDueAt);
+  assert.equal(projection.state.successfulGrowthDay, "2026-09-29");
+});
+
+test("scheduler v1 sets due dates for first learning and grows smooth faster than strained", () => {
+  const sessions = [
+    reviewSession("initial", {
+      completedAt: "2026-09-27T18:00:00.000Z",
+      learningDay: "2026-09-27",
+    }),
+    reviewSession("smooth", {
+      completedAt: "2026-09-28T18:00:00.000Z",
+      learningDay: "2026-09-28",
+    }),
+    reviewSession("strained", {
+      completedAt: "2026-09-29T18:00:00.000Z",
+      learningDay: "2026-09-29",
+      outcome: "strained",
+      hadRealError: true,
+      realWrongCount: 1,
+    }),
+  ];
+  const { state, decisions } = projectReviewScheduleState("recognition", sessions, null);
+  assert.deepEqual(decisions.map(({ action, reason, schedulerVersion }) => [action, reason, schedulerVersion]), [
+    ["initialize", "first_learning", "review-interval-v1"],
+    ["grow", "normal_growth", "review-interval-v1"],
+    ["grow", "normal_growth", "review-interval-v1"],
+  ]);
+  assert.equal(decisions[0].afterState.nextDueAt, "2026-09-28T18:00:00.000Z");
+  assert.equal(decisions[1].afterState.intervalSeconds, 216_000);
+  assert.equal(decisions[1].afterState.nextDueAt, "2026-10-01T06:00:00.000Z");
+  assert.equal(state.intervalSeconds, 324_000);
+  assert.equal(state.nextDueAt, "2026-10-03T12:00:00.000Z");
+  assert.equal(state.consecutiveCorrect, 2);
+  assert.equal(state.totalWrong, 1);
+});
+
+test("strained recovery stays short after failure and all intervals cap at 90 days", () => {
+  const recovered = projectReviewScheduleState("recognition", [
+    reviewSession("failed", {
+      outcome: "failed",
+      finalCorrect: false,
+      hadRealError: true,
+      realWrongCount: 1,
+    }),
+    reviewSession("strained", {
+      completedAt: "2026-09-28T19:00:00.000Z",
+      outcome: "strained",
+      hadRealError: true,
+      realWrongCount: 1,
+    }),
+  ], null);
+  assert.equal(recovered.state.intervalSeconds, 3_600);
+  assert.equal(recovered.state.nextDueAt, "2026-09-28T20:00:00.000Z");
+
+  const sessions = Array.from({ length: 8 }, (_, index) => {
+    const completedAt = new Date(Date.parse("2026-09-25T18:00:00.000Z") + index * 86_400_000).toISOString();
+    return reviewSession(`cap-${index}`, { completedAt, learningDay: completedAt.slice(0, 10) });
+  });
+  const capped = projectReviewScheduleState("recognition", sessions, null);
+  assert.equal(capped.state.intervalSeconds, 90 * 86_400);
+  assert.equal(capped.decisions.at(-1).afterState.intervalSeconds, capped.decisions.at(-2).afterState.intervalSeconds);
+  assert.equal(capped.decisions.at(-1).reason, "normal_growth");
+  assert.equal(capped.decisions.at(-1).intervalAdvanced, true);
+  assert.equal(capped.state.nextDueAt, "2026-12-31T18:00:00.000Z");
 });
 
 test("review state is shared across source books but remains independent by mode", () => {
@@ -742,6 +843,7 @@ test("review scope switch shares histories by default and isolates the same word
   ];
   const shared = projectReviewScheduleState("recognition", sessions, null, undefined, { scopeKey: "shared" });
   assert.deepEqual(shared.decisions.map(({ reason }) => reason), ["first_learning", "normal_growth", "same_day_repeat"]);
+  assert.equal(shared.state.intervalSeconds, 216_000);
   assert.equal(reviewScopeForBook("book-a", true), "shared");
 
   const bookA = projectReviewScheduleState("recognition", sessions, null, undefined, { scopeKey: "book:book-a" });
@@ -752,6 +854,8 @@ test("review scope switch shares histories by default and isolates the same word
   assert.equal(bookB.decisions[0].reason, "first_learning");
   assert.equal(bookA.state.lastSessionId, "book-a-growth");
   assert.equal(bookB.state.lastSessionId, "book-b-first");
+  assert.equal(bookA.state.intervalSeconds, 216_000);
+  assert.equal(bookB.state.intervalSeconds, 86_400);
   assert.equal(reviewScopeForBook("book-b", false), "book:book-b");
   assert.equal(bookIdForReviewScope("book:book-b"), "book-b");
 });
@@ -764,9 +868,36 @@ test("per-book review exclusion overrides session inclusion without changing its
   });
   assert.equal(projection.decisions[0].effectiveInclusion, false);
   assert.equal(projection.decisions[0].reason, "excluded_by_book_setting");
-  assert.equal(projection.decisions[0].schedulerVersion, "review-foundation-v3");
+  assert.equal(projection.decisions[0].schedulerVersion, "review-interval-v1");
   assert.equal(projection.decisions[0].intervalAdvanced, false);
   assert.equal(projection.state.lastSessionId, null);
+  assert.equal(projection.state.nextDueAt, null);
+});
+
+test("excluded book sessions cannot initialize or grow a shared review schedule", () => {
+  const sessions = [
+    reviewSession("excluded", {
+      bookId: "bundled-ngsl",
+      completedAt: "2026-09-27T18:00:00.000Z",
+      learningDay: "2026-09-27",
+    }),
+    reviewSession("included-first", { bookId: "custom-book" }),
+    reviewSession("included-review", {
+      bookId: "custom-book",
+      completedAt: "2026-09-29T18:00:00.000Z",
+      learningDay: "2026-09-29",
+    }),
+  ];
+  const projection = projectReviewScheduleState("recognition", sessions, null, undefined, {
+    scopeKey: "shared",
+    bookInclusionById: { "bundled-ngsl": false },
+  });
+  assert.deepEqual(projection.decisions.map(({ reason }) => reason), [
+    "excluded_by_book_setting", "first_learning", "normal_growth",
+  ]);
+  assert.equal(projection.decisions[0].stateAdvanced, false);
+  assert.equal(projection.state.intervalSeconds, 216_000);
+  assert.equal(projection.state.nextDueAt, "2026-10-02T06:00:00.000Z");
 });
 
 test("missing review states are repairable once per included word and mode from v1 session results", () => {
@@ -875,6 +1006,7 @@ test("changing an earlier session recalculates later decisions during full-histo
     }),
   ];
   const before = projectReviewScheduleState("recognition", sessions, null);
+  assert.deepEqual(before, projectReviewScheduleState("recognition", [...sessions].reverse(), null));
   const after = projectReviewScheduleState(
     "recognition",
     [
@@ -885,6 +1017,8 @@ test("changing an earlier session recalculates later decisions during full-histo
   );
   assert.notEqual(before.decisions[1].inputFingerprint, after.decisions[1].inputFingerprint);
   assert.notEqual(before.decisions[2].inputFingerprint, after.decisions[2].inputFingerprint);
+  assert.equal(before.state.intervalSeconds, 540_000);
+  assert.equal(after.state.intervalSeconds, 216_000);
 
   const persistence = await readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8");
   assert.match(persistence, /const attempts = await fetchAttempts\(supabase, identity\)/);
@@ -936,6 +1070,34 @@ test("a post-hoc mistouch replays later sessions and supersedes changed decision
   const persistence = await readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8");
   assert.match(persistence, /const attempts = await fetchAttempts\(supabase, identity\)/);
   assert.match(persistence, /supersedes_decision_id: prior\?\.decisionId/);
+});
+
+test("voiding a real error changes that review interval and every later replayed interval", () => {
+  const wrong = rawReviewAttempt("wrong", {
+    review_session_id: "corrected",
+    correct: false,
+    created_at: "2026-09-27T17:00:00.000Z",
+  });
+  const final = rawReviewAttempt("final", {
+    review_session_id: "corrected",
+    created_at: "2026-09-27T17:02:00.000Z",
+  });
+  const beforeCorrection = aggregateReviewSession("recognition", [wrong, final]);
+  const afterCorrection = aggregateReviewSession("recognition", [{ ...wrong, mistouch: true }, final]);
+  const history = [
+    reviewSession("initial", { completedAt: "2026-09-26T18:00:00.000Z", learningDay: "2026-09-26" }),
+    beforeCorrection,
+    reviewSession("later", { completedAt: "2026-09-28T18:00:00.000Z", learningDay: "2026-09-28" }),
+  ];
+  const before = projectReviewScheduleState("recognition", history, null);
+  const after = projectReviewScheduleState("recognition", [history[0], afterCorrection, history[2]], null);
+  assert.equal(beforeCorrection.outcome, "strained");
+  assert.equal(afterCorrection.outcome, "smooth");
+  assert.equal(before.decisions[1].afterState.intervalSeconds, 129_600);
+  assert.equal(after.decisions[1].afterState.intervalSeconds, 216_000);
+  assert.equal(before.state.intervalSeconds, 324_000);
+  assert.equal(after.state.intervalSeconds, 540_000);
+  assert.notEqual(before.decisions[2].inputFingerprint, after.decisions[2].inputFingerprint);
 });
 
 test("pending spelling inclusion stays replayable and review modes keep independent day limits", () => {

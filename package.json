@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
     "repair:review-state-projections": "node scripts/repair-review-state-projections.mjs",
+    "rebuild:review-scheduler-v1": "node scripts/rebuild-review-scheduler-v1.mjs",
     "format": "prettier --write ."
   },
   "overrides": {
