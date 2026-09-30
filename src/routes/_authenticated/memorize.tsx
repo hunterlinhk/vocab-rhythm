@@ -6,7 +6,7 @@ import { CheckCircle2, PenLine, Sparkles, Volume2 } from "lucide-react";
 import { BookPicker } from "@/components/BookPicker";
 import { RecognitionReview } from "@/components/RecognitionReview";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
-import { ALL_WORDS, hasMeaning, type MeaningfulEntry, type WordEntry } from "@/data/words";
+import { hasMeaning, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
 import {
@@ -16,6 +16,7 @@ import {
 } from "@/lib/learning.functions";
 import { attemptIdForStage, type MemorizeSession } from "@/lib/learning-session.shared";
 import { getUserTimeZone, queueLearningStateWrite } from "@/lib/learning-state.runtime";
+import { recognitionOptions } from "@/lib/review-queue.shared";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
@@ -43,18 +44,6 @@ function MemorizePage() {
 }
 
 type Phase = "context" | "recall" | "spell" | "done";
-
-function pickOptions(entry: MeaningfulEntry, extra: MeaningfulEntry[]): string[] {
-  const seed = [...entry.word].reduce((n, c) => n + c.charCodeAt(0), 0);
-  const pool = [...extra, ...ALL_WORDS].filter(hasMeaning).filter((w) => w.cn !== entry.cn);
-  const a = pool[seed % pool.length]!;
-  const b = pool[(seed * 7 + 11) % pool.length]!;
-  const distractors = [a.cn, b.cn === a.cn ? pool[(seed * 13 + 5) % pool.length]!.cn : b.cn];
-  const all = [entry.cn, ...distractors];
-  // deterministic rotation so the answer is not always first
-  const shift = seed % 3;
-  return [...all.slice(shift), ...all.slice(0, shift)];
-}
 
 function BoldSentence({ entry }: { entry: WordEntry }) {
   if (!entry.sentence) {
@@ -120,7 +109,7 @@ function NormalMemorizePage() {
   const index = activeSession?.itemIndex ?? 0;
   const entry = batch[index];
   const options = useMemo(
-    () => (entry && hasMeaning(entry) ? pickOptions(entry, meaningful) : []),
+    () => (entry ? recognitionOptions(entry, meaningful) : []),
     [entry, meaningful],
   );
 

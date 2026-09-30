@@ -3,7 +3,7 @@
 - Phase: implementation on `feat/scheduler-due-review-queue` from `origin/main` at `3c00d4bd1655c24efce829ebf7f11851b8ef4ba5`. No migration or production database operation.
 - 今日复习 reads due recognition and spelling states from the scheduler, freezes each visit's queue, and routes to recognition or standalone spelling. Recognition records context and recall under one stable review session without advancing normal memorize progress; spelling explicitly counts the due attempt. The existing wrong/trouble queues are unchanged.
 - The due query exposes source-book provenance without requiring a live book row. Missing book entries fall back to a bare entry that Shared Lexicon can hydrate. Active scope and per-book inclusion remain governed by the existing Review projections.
-- Validation: `npm test` 71/71, `npx tsc --noEmit`, `npm run build`, and `git diff --check` passed after the final changes. Next: commit and push this branch; no production database was accessed.
+- Follow-up on this branch: removed the outdated Review-page subtitle and use one deterministic option selector for both due recognition and ordinary memorize. When two distinct distractor meanings exist, it returns exactly three distinct options; fewer available meanings remain fewer options. `npm test` passed 72/72, `npx tsc --noEmit` and `npm run build` passed. Next: commit and push; no production database was accessed.
 
 # Review scheduler v1
 

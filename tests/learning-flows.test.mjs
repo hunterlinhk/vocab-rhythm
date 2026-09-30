@@ -1729,3 +1729,25 @@ test("today review reads due scheduler states and routes each mode independently
   assert.equal(options.filter((meaning) => meaning === "增长").length, 1);
   assert.ok(options.length >= 2);
 });
+
+test("recognition review and memorize share three stable distinct meanings when available", async () => {
+  const [review, memorize] = await Promise.all([
+    readFile(new URL("../src/routes/_authenticated/review.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/memorize.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(review, /复习内容由你的错误、频率和近期学习自动整理/);
+  assert.match(memorize, /recognitionOptions\(entry, meaningful\)/);
+  const entry = { word: "growth", cn: "增长" };
+  const pool = [
+    { word: "a", cn: "释义甲" },
+    { word: "b", cn: "释义甲" },
+    { word: "c", cn: "释义乙" },
+  ];
+  const options = recognitionOptions(entry, pool, []);
+  assert.equal(options.length, 3);
+  assert.equal(new Set(options).size, 3);
+  assert.deepEqual(options, recognitionOptions(entry, pool, []));
+  const limited = recognitionOptions(entry, pool.slice(0, 2), []);
+  assert.equal(limited.length, 2);
+  assert.deepEqual(new Set(limited), new Set(["增长", "释义甲"]));
+});

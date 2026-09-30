@@ -95,7 +95,6 @@ function ReviewPage() {
       <div>
         <p className="text-sm font-medium text-primary">让记忆更牢固</p>
         <h1 className="mt-2 font-display text-4xl">复习</h1>
-        <p className="mt-2 text-sm text-muted-foreground">复习内容由你的错误、频率和近期学习自动整理。</p>
       </div>
 
       <div className="glass-tabs flex gap-1 overflow-x-auto p-1.5">
