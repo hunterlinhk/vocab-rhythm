@@ -3,7 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { z } from "zod";
 import { ENTRY_COLS, EntryInput, rowToEntry, type BookMeta, type EntryRow } from "./library.shared";
 import type { WordEntry } from "@/data/words";
-import { findInBundledBook, getBook, isBundledBook } from "@/data/words";
+import { bareEntry, findInBundledBook, getBook, isBundledBook } from "@/data/words";
 
 /** 官方词库（数据库中的正式词库）+ 当前用户的自定义词库 */
 export const listLibrary = createServerFn({ method: "GET" })
@@ -73,6 +73,11 @@ export const resolveEntries = createServerFn({ method: "POST" })
         .in("word", words);
       if (error) throw new Error(error.message);
       out.push(...((rows ?? []) as EntryRow[]).map(rowToEntry));
+    }
+    // A deleted source book can still have a due Review state; Shared Lexicon remains readable.
+    for (const item of data.items) {
+      if (!out.some((entry) => entry.bookId === item.bookId && entry.word === item.word))
+        out.push(bareEntry(item.word, item.bookId));
     }
     const { hydrateEntries } = await import("./lexicon.server");
     return hydrateEntries(context.supabase, out);

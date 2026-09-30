@@ -1,11 +1,18 @@
+# Scheduler-backed 今日复习
+
+- Phase: implementation on `feat/scheduler-due-review-queue` from `origin/main` at `3c00d4bd1655c24efce829ebf7f11851b8ef4ba5`. No migration or production database operation.
+- 今日复习 reads due recognition and spelling states from the scheduler, freezes each visit's queue, and routes to recognition or standalone spelling. Recognition records context and recall under one stable review session without advancing normal memorize progress; spelling explicitly counts the due attempt. The existing wrong/trouble queues are unchanged.
+- The due query exposes source-book provenance without requiring a live book row. Missing book entries fall back to a bare entry that Shared Lexicon can hydrate. Active scope and per-book inclusion remain governed by the existing Review projections.
+- Follow-up on this branch: removed the outdated Review-page subtitle and use one deterministic option selector for both due recognition and ordinary memorize. When two distinct distractor meanings exist, it returns exactly three distinct options; fewer available meanings remain fewer options. `npm test` passed 72/72, `npx tsc --noEmit` and `npm run build` passed. Next: commit and push; no production database was accessed.
+
 # Review scheduler v1
 
-- Phase: scheduler v1 implementation and local validation complete on `feat/review-scheduler-v1`, created from clean `origin/main` at `cf5ddd4421efde3723c5328f897da2e6dccc859c`.
+- Scheduler v1 was merged to `main` at `3c00d4bd1655c24efce829ebf7f11851b8ef4ba5`.
 - The existing session projection, scope settings, daily success limit, failure precedence, mistouch replay, and append-only decision revisions remain the authority. No schema change is needed; `interval_seconds`, `next_due_at`, and `scheduler_version` already exist.
 - New policy: first successful inclusion 24 hours; failure 10 minutes; later smooth success 2.5× with a 24-hour floor, strained success 1.5× with a 1-hour floor; cap 90 days. Due dates use the persisted session completion timestamp, so full-history replay is deterministic.
 - A separate dry-run-first CLI replays existing active-scope states still marked with the foundation scheduler version; it leaves inactive scopes for their next settings-triggered rebuild. Normal due reads do not scan history. Missing states remain covered by the existing bounded historical repair, not this recalibration.
 - Validation: `npm test` passed 70/70, `npx tsc --noEmit` passed, `npm run build` passed, CLI `--help` and `node --check` passed, `git diff --check` passed. No production database was accessed; no migration or OEWN files changed.
-- Next: commit/push this feature branch for review. Before existing foundation states can appear in due queues after deployment, run the new CLI dry-run, inspect its report, then explicitly apply it; no database operation was performed in this task.
+- Existing foundation states may need the scheduler recalibration CLI before they become due; no database operation was performed in this task.
 
 ## Prior Review scope settings
 
