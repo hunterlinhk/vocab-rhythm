@@ -10,6 +10,7 @@ import { useLearningState } from "@/hooks/use-learning-state";
 import { useDueReview } from "@/hooks/use-due-review";
 import { resolveEntries } from "@/lib/library.functions";
 import { entryKey, parseFavorites, type EntryIdentity } from "@/lib/entry-identity";
+import { learningProblemKey } from "@/lib/learning-state.shared";
 import {
   markAttemptMistouch,
   recordAttempt,
@@ -307,8 +308,12 @@ function LearnPage() {
   }, [includeSpellingInReview, persistSettings, qc, state?.includeSpellingInReview]);
   const [locallySavedToMistakes, setLocallySavedToMistakes] = useState<Set<string>>(new Set());
   const savedToMistakes = useMemo(
-    () => new Set([...(state?.wrongWords.map(entryKey) ?? []), ...locallySavedToMistakes]),
-    [state?.wrongWords, locallySavedToMistakes],
+    () => new Set([
+      ...(state?.wrongWords.map((item) =>
+        learningProblemKey(item.bookId, item.word, state.shareReviewProgress)) ?? []),
+      ...locallySavedToMistakes,
+    ]),
+    [state?.wrongWords, state?.shareReviewProgress, locallySavedToMistakes],
   );
   const [locallyMistouched, setLocallyMistouched] = useState<Set<string>>(new Set());
   const mistouched = useMemo(
@@ -422,6 +427,9 @@ function LearnPage() {
     (done && entry && doneAttemptId ? { entry, result: done, attemptId: doneAttemptId } : undefined);
   const resultBookId = resultItem?.entry.bookId ?? bookId ?? "core";
   const resultKey = resultItem ? entryKey({ bookId: resultBookId, word: resultItem.entry.word }) : "";
+  const resultProblemKey = resultItem
+    ? learningProblemKey(resultBookId, resultItem.entry.word, state?.shareReviewProgress ?? true)
+    : "";
 
   const persistCompletion = useCallback(
     (completion: PendingWordCompletion) => {
@@ -716,7 +724,7 @@ function LearnPage() {
   const addToMistakes = useCallback(
     (item: HistoryItem) => {
       const itemBookId = item.entry.bookId ?? bookId ?? "core";
-      const key = entryKey({ bookId: itemBookId, word: item.entry.word });
+      const key = learningProblemKey(itemBookId, item.entry.word, state?.shareReviewProgress ?? true);
       if (savedToMistakes.has(key)) return;
       setLocallySavedToMistakes((s) => new Set(s).add(key));
       void queueLearningStateWrite(() =>
@@ -736,7 +744,7 @@ function LearnPage() {
         .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
         .catch(() => undefined);
     },
-    [bookId, save, savedToMistakes, qc],
+    [bookId, save, savedToMistakes, qc, state?.shareReviewProgress],
   );
 
   const progress = queue.length ? (index / queue.length) * 100 : 0;
@@ -898,7 +906,7 @@ function LearnPage() {
                 item={resultItem}
                 sweeping={!reviewing}
                 isFav={favorites.has(resultKey)}
-                isSaved={savedToMistakes.has(resultKey)}
+                isSaved={savedToMistakes.has(resultProblemKey)}
                 onFav={() => toggleFavorite({ bookId: resultBookId, word: resultItem.entry.word })}
                 onSave={() => addToMistakes(resultItem)}
                 onListen={() => speak(resultItem.entry.word)}

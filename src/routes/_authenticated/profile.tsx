@@ -55,10 +55,14 @@ function ProfilePage() {
   const toggleReviewSharing = (on: boolean) => {
     setShareReviewProgress(on);
     void queueLearningStateWrite(() => persistSettings({ data: { shareReviewProgress: on } }))
-      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        void qc.invalidateQueries({ queryKey: ["stats"] });
+      })
       .catch(() => {
         setShareReviewProgress(state?.shareReviewProgress ?? true);
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        void qc.invalidateQueries({ queryKey: ["stats"] });
         toast.error("保存复习设置失败，请重试");
       });
   };

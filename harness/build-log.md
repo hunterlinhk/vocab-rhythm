@@ -1,3 +1,10 @@
+# Review problem scope
+
+- Phase: implementation on `feat/review-problem-scope` from clean `origin/main` at `488dd9e457312e42edd34cb1b5acbb69e3a6aed8`.
+- Wrong/trouble words and the stats trouble list now group by Review's normalized word and active shared/book scope, without splitting recognition from spelling. A group retains its first real-error book/word/translation as the existing queue entry. Distinct attempt IDs each contribute at most one error; skip and mistouch remain excluded. Book review exclusion does not erase learning-problem history.
+- The spelling result's mistake badge uses the same problem key; changing global sharing invalidates both learning-state and stats queries. No schema or scheduler change.
+- Validation: `npm test` 75/75, `npx tsc --noEmit`, `npm run build`, and `git diff --check` passed. Diff is scoped to problem aggregation, the settings-dependent stats read/cache, corresponding UI badge, tests, and this log. Next: commit and push. No production database was accessed.
+
 # Scheduler-backed 今日复习
 
 - Phase: implementation on `feat/scheduler-due-review-queue` from `origin/main` at `3c00d4bd1655c24efce829ebf7f11851b8ef4ba5`. No migration or production database operation.

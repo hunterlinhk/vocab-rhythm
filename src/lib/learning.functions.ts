@@ -1030,16 +1030,28 @@ export const saveBookCursor = createServerFn({ method: "POST" })
 export const getStats = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<LearningStats> => {
-    const { data, error } = await context.supabase
-      .from("attempts")
-      .select(
-        "id, word, book_id, translation, mode, typo_count, mistouch, correct, skipped, created_at",
-      )
-      .eq("user_id", context.userId)
-      .order("created_at", { ascending: false })
-      .limit(1000);
-    if (error) throw new Error(error.message);
-    return buildLearningStats((data ?? []) as LearningAttemptRow[]);
+    const [attempts, settings] = await Promise.all([
+      context.supabase
+        .from("attempts")
+        .select(
+          "id, word, book_id, translation, mode, typo_count, mistouch, correct, skipped, created_at",
+        )
+        .eq("user_id", context.userId)
+        .order("created_at", { ascending: false })
+        .limit(1000),
+      context.supabase
+        .from("user_settings")
+        .select("share_review_progress")
+        .eq("user_id", context.userId)
+        .maybeSingle(),
+    ]);
+    if (attempts.error || settings.error)
+      throw new Error(attempts.error?.message ?? settings.error!.message);
+    return buildLearningStats(
+      (attempts.data ?? []) as LearningAttemptRow[],
+      new Date(),
+      settings.data?.share_review_progress ?? true,
+    );
   });
 
 export const getMessages = createServerFn({ method: "GET" })
