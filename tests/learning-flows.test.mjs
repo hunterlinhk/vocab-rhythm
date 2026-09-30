@@ -1273,6 +1273,8 @@ test("Review scope settings migration preserves history and supports bundled or 
   assert.match(migrationText, /PRIMARY KEY \(user_id, word_key, review_mode, scope_key\)/);
   assert.match(migrationText, /UNIQUE \(user_id, scope_key, book_id, word_key, review_mode, session_id, decision_revision\)/);
   assert.match(migrationText, /excluded_by_book_setting/);
+  assert.match(migrationText, /COMMENT ON COLUMN public\.review_states\.word_key IS[\s\S]*review_mode \+ scope_key/);
+  assert.match(migrationText, /COMMENT ON COLUMN public\.review_session_results\.book_id IS[\s\S]*shared or book-local/);
   assert.doesNotMatch(migrationText, /DELETE FROM public\.(attempts|review_session_results|review_schedule_decisions)/);
   assert.match(persistence, /export async function rebuildReviewProjectionsForUser/);
   assert.match(persistence, /export async function rebuildReviewProjectionsForBook/);
@@ -1301,7 +1303,26 @@ test("local review RLS runner uses only an isolated disposable PostgreSQL contai
   assert.match(runner, /--rm --name \$containerName/);
   assert.match(runner, /POSTGRES_DB=review_test/);
   assert.match(runner, /Invoke-PostgresFile[\s\S]*?-SingleTransaction/);
+  assert.match(runner, /Expected migrations 0000–0015 \(16 files\)/);
+  assert.match(runner, /preScopeFixture[\s\S]*?0015_review_scope_settings\.sql[\s\S]*?scopeChecks/);
+  assert.match(runner, /Reapplying 0015 to verify repeatability/);
+  assert.match(runner, /0015 preserves pre-existing Review rows/);
+  assert.match(runner, /scope_key = 'shared' AND source_book_id = 'deleted-custom-book'/);
+  assert.match(runner, /book review settings enforce owner INSERT\/UPDATE checks and deny DELETE/);
   assert.doesNotMatch(runner, /LOVABLE_DB_MIGRATION_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_URL/);
+});
+
+test("Review architecture comments describe the configurable projection scope", async () => {
+  const [scheduler, persistence, migration] = await Promise.all([
+    readFile(new URL("../src/lib/review-scheduler.shared.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/migrations/0015_review_scope_settings.sql", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(scheduler, /Review identity is shared across books/);
+  assert.doesNotMatch(scheduler, /review state itself is shared across books/);
+  assert.match(scheduler, /selected Review scope decides whether state is shared or book-local/);
+  assert.match(persistence, /selected scope; book id is scope input or source provenance/);
+  assert.match(migration, /review identity is user_id \+ word_key \+ review_mode \+ scope_key/);
 });
 
 test("spelling review inclusion keeps the tri-state setting", () => {

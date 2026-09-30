@@ -129,8 +129,14 @@ END $$;
 
 COMMENT ON COLUMN public.review_states.scope_key IS
   'Review identity scope: shared across books or book:<id>. Recognition and spelling remain separate modes.';
+COMMENT ON COLUMN public.review_states.word_key IS
+  'Normalized word key; review identity is user_id + word_key + review_mode + scope_key.';
 COMMENT ON COLUMN public.review_schedule_decisions.scope_key IS
   'Projection scope for this immutable decision revision; source book remains provenance.';
+COMMENT ON COLUMN public.review_schedule_decisions.word_key IS
+  'Normalized word key; combine with user_id, review_mode, and scope_key for projection identity.';
+COMMENT ON COLUMN public.review_session_results.book_id IS
+  'Source book for this session; it is provenance and may feed shared or book-local review state.';
 
 CREATE INDEX IF NOT EXISTS review_states_scoped_due_idx
   ON public.review_states (user_id, review_mode, scope_key, next_due_at)

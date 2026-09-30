@@ -15,7 +15,7 @@ export type ScheduleReason =
   | "excluded_by_book_setting"
   | "no_valid_attempts";
 
-/** Review identity is shared across books; trim edge whitespace and preserve display spelling. */
+/** Normalize the word key; the selected Review scope decides whether state is shared or book-local. */
 export function normalizeReviewWord(word: string): string {
   return word.replace(/[\u2018\u2019]/gu, "'").trim().replace(/\s+/gu, " ").toLowerCase();
 }
@@ -49,7 +49,7 @@ export type ReviewAttemptEvent = {
 
 export type ReviewSessionResult = {
   sessionId: string;
-  /** Source book for this session; review state itself is shared across books. */
+  /** Source book for this session; its state scope may be shared or book-local per user preference. */
   bookId: string;
   /** Original spelling is retained for display/provenance; wordKey is canonical. */
   word: string;

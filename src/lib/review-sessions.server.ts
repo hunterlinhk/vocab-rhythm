@@ -26,7 +26,7 @@ import {
 
 type Client = SupabaseClient<Database>;
 type WordIdentity = { userId: string; wordKey: string; reviewMode: ReviewMode };
-// Review state is keyed by normalized word + mode + selected scope; book id remains provenance in shared mode.
+// Review state is keyed by normalized word + mode + selected scope; book id is scope input or source provenance.
 type Identity = WordIdentity & { scopeKey: ReviewScopeKey };
 type RebuildIdentity = WordIdentity & { scopeKey?: ReviewScopeKey };
 type SessionIdentity = WordIdentity & { bookId: string; word: string };
