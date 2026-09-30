@@ -15,6 +15,8 @@ export type LearningState = {
   memorizeSpelling: boolean;
   strictSpelling: boolean;
   includeSpellingInReview: boolean | null;
+  shareReviewProgress: boolean;
+  reviewInclusionByBook: Record<string, boolean>;
   masteredByBook: Record<string, string[]>;
   cursors: BookProgressMap;
   progressRevisions: BookRevisionMap;
@@ -126,6 +128,7 @@ export function buildLearningState(input: {
     memorize_spelling: boolean | null;
     strict_spelling: boolean | null;
     include_spelling_in_review?: boolean | null;
+    share_review_progress?: boolean | null;
   } | null;
   progress: {
     book_id: string;
@@ -136,6 +139,7 @@ export function buildLearningState(input: {
   }[];
   attempts: LearningAttemptRow[];
   mastery: { book_id: string; word: string }[];
+  bookReviewSettings?: { book_id: string; include_in_review: boolean }[];
   now?: Date;
 }): LearningState {
   const rows = input.attempts;
@@ -206,6 +210,10 @@ export function buildLearningState(input: {
     memorizeSpelling: input.settings?.memorize_spelling ?? true,
     strictSpelling: input.settings?.strict_spelling ?? false,
     includeSpellingInReview: input.settings?.include_spelling_in_review ?? null,
+    shareReviewProgress: input.settings?.share_review_progress ?? true,
+    reviewInclusionByBook: Object.fromEntries(
+      (input.bookReviewSettings ?? []).map(({ book_id, include_in_review }) => [book_id, include_in_review]),
+    ),
     masteredByBook,
     cursors,
     progressRevisions,

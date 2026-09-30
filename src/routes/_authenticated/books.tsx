@@ -24,12 +24,15 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import { SettingInfo } from "@/components/setting-info";
 import { useLibrary, type BookSummary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
-import { saveSettings } from "@/lib/learning.functions";
+import { saveBookReviewSetting, saveSettings } from "@/lib/learning.functions";
 import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import { createCustomBook, deleteCustomBook } from "@/lib/library.functions";
 import { parsePastedWords, type EntryInputT } from "@/lib/library.shared";
+import { toast } from "sonner";
 
 const tabs = ["官方词库", "我的词库"] as const;
 type Tab = (typeof tabs)[number];
@@ -57,12 +60,14 @@ function BooksPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const persist = useServerFn(saveSettings);
+  const persistBookReviewSetting = useServerFn(saveBookReviewSetting);
   const remove = useServerFn(deleteCustomBook);
   const { data: state } = useLearningState();
   const { official, custom } = useLibrary();
   const activeBook = state?.activeBook ?? "core";
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState<BookSummary | null>(null);
+  const [savingReviewBook, setSavingReviewBook] = useState<string | null>(null);
 
   const choose = (id: string) => {
     void queueLearningStateWrite(() => persist({ data: { activeBook: id } }))
@@ -83,6 +88,18 @@ function BooksPage() {
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
       })
       .catch(() => undefined);
+  };
+
+  const toggleBookReview = (bookId: string, includeInReview: boolean) => {
+    if (savingReviewBook) return;
+    setSavingReviewBook(bookId);
+    void persistBookReviewSetting({ data: { bookId, includeInReview } })
+      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .catch(() => {
+        void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        toast.error("保存复习设置失败，请重试");
+      })
+      .finally(() => setSavingReviewBook(null));
   };
 
   const list = tab === "官方词库" ? official : custom;
@@ -123,6 +140,7 @@ function BooksPage() {
             const cursor = state?.cursors[b.id]?.word ?? 0;
             const pct = Math.round((learned / Math.max(1, b.wordCount)) * 100);
             const active = b.id === activeBook;
+            const includedInReview = state?.reviewInclusionByBook?.[b.id] ?? true;
             return (
               <div key={b.id} className={cn("glass-panel glass-lift p-6", active && "ring-1 ring-primary/25")}>
                 <div className="flex items-start justify-between gap-2">
@@ -146,6 +164,18 @@ function BooksPage() {
                 <p className="mt-2 font-mono text-xs text-muted-foreground">
                   已学 {learned} / {b.wordCount} · 位置 {b.wordCount ? (cursor % b.wordCount) + 1 : 0}
                 </p>
+                <div className="mt-4 flex items-center justify-between border-t border-border/50 pt-4">
+                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                    <span>纳入复习计划</span>
+                    <SettingInfo text="关闭后，这本词书的学习历史会保留，但不参与当前复习计划。" />
+                  </div>
+                  <Switch
+                    aria-label={`纳入${b.name}复习计划`}
+                    checked={includedInReview}
+                    disabled={savingReviewBook !== null}
+                    onCheckedChange={(checked) => toggleBookReview(b.id, checked)}
+                  />
+                </div>
                 <div className="mt-5 flex flex-wrap gap-2">
                   <Button type="button" className="rounded-full" onClick={() => choose(b.id)}>
                     {active ? "继续学习" : "切换并学习"}

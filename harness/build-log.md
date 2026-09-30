@@ -1,13 +1,21 @@
-# Review source provenance and historical repair
+# Review scope settings
 
-- Current phase: implementation complete on `bugfix/review-source-book-independence`, based on `origin/main` at `9ed7a65bcaa7887efc4efeffb31afb6e6d907915`.
-- Root cause: migration 0011 gave `review_states.source_book_id` a foreign key to `word_books`, although review identity is `(user, normalized word, mode)` and bundled books have no registry rows. Attempt, session-result, and decision writes could persist before the final state insert failed.
-- Migration 0013 drops only that foreign key. `source_book_id` remains nullable historical provenance and may refer to bundled or deleted books; due-review selection does not depend on it.
-- Historical repair is an operator-run, idempotent one-off CLI task, not part of review-page or due-queue reads. It requires an explicit `completed_at` window, reports only included v1 identities missing state, checks existing states only for those users/words, and replays full history only for each selected `(user, word, mode)`. Legacy attempts are excluded. Dry-run is the default; apply requires explicit confirmation that 0013 is deployed and a new local audit report path.
-- Normal `finalizeReviewSession` still replays the current word/mode identity after writing a session result, preserving retry recovery for the active session. No production/shared database was contacted and no SQL was executed.
-- Validation: `npm test` 60/60 passed; `npx tsc --noEmit` passed; `npm run build` passed; scoped ESLint passed with the repository Prettier rule disabled; CLI `--help` and `git diff --check` passed. Build reports existing Vite path-plugin and TanStack `inputValidator()` deprecation warnings. No migration files, OEWN files, or UI visuals were changed.
-- The feature branch remains unmerged. The historical repair has not been run; when authorized operationally, use the exact production 0011-to-0013 rollout timestamps and inspect the dry-run report before applying.
+- Current phase: implementation and local validation complete on feat/review-scope-settings, based on latest origin/main at 902771fb51e81a1a795558a7996acad337d2a217; changes remain uncommitted and unpushed.
+- Goal: add per-book review inclusion (default on) and a global cross-book sharing switch (default on), without implementing interval scheduling or changing historical attempts/session results/decisions.
+- Existing identity is (user_id, normalized word_key, review_mode); sessions and decisions retain source-book provenance. source_book_id is no longer a live-book dependency after 0013. Bundled books are defined in code and do not require word_books rows.
+- Planned projection identity: (user_id, word_key, review_mode, scope_key), where shared is cross-book and book:<bookId> is per-book. Existing state/decision rows migrate to shared; raw attempts and session results are untouched. review_schedule_decisions remains append-only with revisions separated by scope.
+- Planned settings: user_settings.share_review_progress BOOLEAN NOT NULL DEFAULT true; a new owner-scoped user_book_review_settings table keyed by user/book, with no FK to word_books, stores explicit inclusion values (absence means enabled).
+- Setting mutations may enumerate the user's v1 session identities and rebuild only target projections. Normal review-page/due-queue reads must filter the current scope and never perform a history scan. Source book ids remain provenance, including after custom-book deletion.
+- Implemented migration 0015 + metadata/types, shared/per-book projection keys, per-book inclusion and global sharing settings, mutation-only scope rebuilds, and hover/click help affordances. Setting-triggered projection rebuilds do not refresh/delete session results; decisions remain append-only. Due reads filter the active scope and do not scan history.
+- Regression coverage added for shared vs per-book state, same-word isolation, book exclusion, scoped historical repair, migration/RLS shape, UI settings, and defaults. `npm test` passed 64/64; `npx tsc --noEmit` passed.
+- Validation: `npm test` passed 64/64; `npx tsc --noEmit` passed; `npm run build` passed. Scoped ESLint passed with the repo Prettier rule disabled; default Prettier checks report CRLF-only differences, so files were not reformatted. Build shows existing Vite tsconfig-paths / TanStack `inputValidator()` / chunk-size warnings. `git diff --check` passed.
+- Final review: only new migration 0015 and its Drizzle journal/snapshot metadata were added; 0000–0014 are unchanged. No production SQL was executed. The feature branch remains unmerged and changes are uncommitted.
+- Baseline validation: local main matched origin/main at 902771fb51e81a1a795558a7996acad337d2a217 and was clean before branch creation. Only the build-log checkpoint was modified before implementation.
 
+## Prior Review repair and provenance work
+
+- bugfix/review-source-book-independence fixed the source-book FK assumption, added one-off historical repair and a regression test adapted to 0014. It is now merged into main. The production dry-run was not run because the local environment lacked SUPABASE_SERVICE_ROLE_KEY; no production data was accessed.
+- Migration 0013 removes only review_states.source_book_id FK and preserves provenance. Migration 0014 is the Lovable marker. Both remain unchanged.
 # Review system v1 foundation
 
 - Branch: `feat/review-system-v1-foundation`, based on fetched `origin/main` at `e01ef2edcefef861ab73f62be6bca060a3795a84`.

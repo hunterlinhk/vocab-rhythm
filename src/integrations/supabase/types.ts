@@ -311,6 +311,7 @@ export type Database = {
           is_initial_learning: boolean
           learning_day: string
           review_mode: string
+          scope_key: string
           schedule_action: string
           scheduler_version: string
           session_id: string
@@ -335,6 +336,7 @@ export type Database = {
           is_initial_learning?: boolean
           learning_day: string
           review_mode: string
+          scope_key?: string
           schedule_action: string
           scheduler_version: string
           session_id: string
@@ -359,6 +361,7 @@ export type Database = {
           is_initial_learning?: boolean
           learning_day?: string
           review_mode?: string
+          scope_key?: string
           schedule_action?: string
           scheduler_version?: string
           session_id?: string
@@ -478,6 +481,7 @@ export type Database = {
           next_due_at: string | null
           pending_action: string
           review_mode: string
+          scope_key: string
           revision: number
           scheduler_data: Json
           scheduler_version: string | null
@@ -504,6 +508,7 @@ export type Database = {
           next_due_at?: string | null
           pending_action?: string
           review_mode: string
+          scope_key?: string
           revision?: number
           scheduler_data?: Json
           scheduler_version?: string | null
@@ -530,6 +535,7 @@ export type Database = {
           next_due_at?: string | null
           pending_action?: string
           review_mode?: string
+          scope_key?: string
           revision?: number
           scheduler_data?: Json
           scheduler_version?: string | null
@@ -565,6 +571,7 @@ export type Database = {
           include_spelling_in_review: boolean | null
           include_spelling_in_review_first_choice: boolean | null
           memorize_spelling: boolean
+          share_review_progress: boolean
           strict_spelling: boolean
           updated_at: string
           user_id: string
@@ -575,6 +582,7 @@ export type Database = {
           include_spelling_in_review?: boolean | null
           include_spelling_in_review_first_choice?: boolean | null
           memorize_spelling?: boolean
+          share_review_progress?: boolean
           strict_spelling?: boolean
           updated_at?: string
           user_id: string
@@ -585,7 +593,32 @@ export type Database = {
           include_spelling_in_review?: boolean | null
           include_spelling_in_review_first_choice?: boolean | null
           memorize_spelling?: boolean
+          share_review_progress?: boolean
           strict_spelling?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_book_review_settings: {
+        Row: {
+          book_id: string
+          created_at: string
+          include_in_review: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          include_in_review?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          include_in_review?: boolean
           updated_at?: string
           user_id?: string
         }
