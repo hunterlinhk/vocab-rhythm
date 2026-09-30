@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, PenLine, Sparkles, Volume2 } from "lucide-react";
 import { BookPicker } from "@/components/BookPicker";
+import { RecognitionReview } from "@/components/RecognitionReview";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { ALL_WORDS, hasMeaning, type MeaningfulEntry, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
@@ -21,6 +22,8 @@ import { cn } from "@/lib/utils";
 const BATCH = 8;
 
 export const Route = createFileRoute("/_authenticated/memorize")({
+  validateSearch: (search: Record<string, unknown>): { queue?: "today" } =>
+    search["queue"] === "today" ? { queue: "today" } : {},
   head: () => ({
     meta: [
       { title: "背单词 · 韵词 Cadence" },
@@ -33,6 +36,11 @@ export const Route = createFileRoute("/_authenticated/memorize")({
   }),
   component: MemorizePage,
 });
+
+function MemorizePage() {
+  const { queue } = Route.useSearch();
+  return queue === "today" ? <RecognitionReview /> : <NormalMemorizePage />;
+}
 
 type Phase = "context" | "recall" | "spell" | "done";
 
@@ -72,7 +80,7 @@ function BoldSentence({ entry }: { entry: WordEntry }) {
   );
 }
 
-function MemorizePage() {
+function NormalMemorizePage() {
   const qc = useQueryClient();
   const record = useServerFn(recordMemorizeStage);
   const start = useServerFn(startMemorizeSession);

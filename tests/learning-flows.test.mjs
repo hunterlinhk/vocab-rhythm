@@ -28,6 +28,9 @@ const {
   reviewSessionSource,
 } = await vite.ssrLoadModule("/src/lib/review-scheduler.shared.ts");
 const { bookIdForReviewScope, reviewScopeForBook } = await vite.ssrLoadModule("/src/lib/review-scope.shared.ts");
+const { recognitionOptions } = await vite.ssrLoadModule("/src/lib/review-queue.shared.ts");
+
+
 const {
   findMissingHistoricalReviewStateIdentities,
   findMissingReviewStateIdentities,
@@ -1210,7 +1213,7 @@ test("review integration separates raw attempts, session results, and append-onl
   );
 
   assert.match(learn, /sessionId: nextCompletion\.attemptId/);
-  assert.match(learn, /includeInReview: includeSpellingInReview/);
+  assert.match(learn, /includeInReview: queueKind === "today" \? true : includeSpellingInReview/);
   assert.match(memorize, /stage: "spell" as const/);
   assert.match(memorize, /timeZone: getUserTimeZone\(\)/);
   assert.match(functions, /review_mode: data\.stage === "spell" \? null : "recognition"/);
@@ -1275,7 +1278,8 @@ test("review integration separates raw attempts, session results, and append-onl
   assert.match(functions, /finalizeReviewSession\(context\.supabase,/);
   assert.match(functions, /rebuildPendingSpellingStates\(context\.supabase, context\.userId\)/);
   assert.match(dueQuery, /"word, word_key, review_mode/);
-  assert.doesNotMatch(dueQuery, /source_book_id|bookId|\.eq\("book_id"/);
+  assert.match(dueQuery, /source_book_id/);
+  assert.doesNotMatch(dueQuery, /\.eq\("book_id"/);
   assert.doesNotMatch(migration, /UPDATE public\.attempts/);
   assert.match(migration, /review_session_id uuid,/);
   assert.match(migration, /counted_for_review boolean,/);
@@ -1390,7 +1394,8 @@ test("historical state repair is a bounded one-off and normal reads do not scan 
   assert.doesNotMatch(reviewRoute, /repairMissingReviewStates|recoverReviewStates|useMutation|useEffect/);
   assert.match(dueQuery, /"word, word_key, review_mode/);
   assert.doesNotMatch(dueQuery, /repairMissingReviewStates|rebuildMissingReviewStates/);
-  assert.doesNotMatch(dueQuery, /source_book_id|\.eq\("book_id"/);
+  assert.match(dueQuery, /source_book_id/);
+  assert.doesNotMatch(dueQuery, /\.eq\("book_id"/);
   assert.match(repairScript, /--from/);
   assert.match(repairScript, /--until/);
   assert.match(repairScript, /--confirm-0013-applied/);
@@ -1693,4 +1698,34 @@ test("sentence cursors persist independently for each selected book and wrap to 
   assert.equal(nextSentenceCursor(3, 4), 0);
   assert.equal(nextSentenceCursor(0, 0), 0);
   assert.deepEqual(JSON.parse(values.get(SENTENCE_PROGRESS_KEY)), { "book-a": 3, "book-b": 1 });
+});
+
+test("today review reads due scheduler states and routes each mode independently", async () => {
+  const [review, learn, memorize, recognition, functions, library] = await Promise.all([
+    readFile(new URL("../src/routes/_authenticated/review.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/memorize.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/RecognitionReview.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/library.functions.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(review, /useDueReview\("recognition"\)/);
+  assert.match(review, /useDueReview\("spelling"\)/);
+  assert.doesNotMatch(review, /todayItems/);
+  assert.match(review, /to="\/memorize" search=\{\{ queue: "today" \}\}/);
+  assert.match(review, /to="\/learn" search=\{\{ queue: "today" \}\}/);
+  assert.match(learn, /useDueReview\("spelling", queueKind === "today"\)/);
+  assert.match(learn, /queueKind === "today" \? true : includeSpellingInReview/);
+  assert.doesNotMatch(learn, /state\.todayItems/);
+  assert.match(memorize, /queue === "today" \? <RecognitionReview \/>/);
+  assert.match(recognition, /reviewMode: "recognition"/);
+  assert.match(recognition, /sessionStage: stage/);
+  assert.match(recognition, /mode: "memorize"/);
+  assert.doesNotMatch(recognition, /startMemorizeSession|recordMemorizeStage/);
+  assert.match(functions, /saved\.mode !== "memorize" \|\| saved\.session_stage === "recall"/);
+  assert.match(library, /out\.push\(bareEntry\(item\.word, item\.bookId\)\)/);
+  assert.deepEqual(recognitionOptions({ word: "empty" }, []), []);
+  const options = recognitionOptions({ word: "growth", cn: "增长" }, []);
+  assert.equal(options.filter((meaning) => meaning === "增长").length, 1);
+  assert.ok(options.length >= 2);
 });

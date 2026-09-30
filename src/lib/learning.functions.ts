@@ -147,7 +147,8 @@ export const recordAttempt = createServerFn({ method: "POST" })
       saved.time_zone !== attempt.time_zone
     )
       throw new Error("Attempt id is already associated with different learning data");
-    if (saved?.review_mode && saved.review_session_id && !data.skipped)
+    if (saved?.review_mode && saved.review_session_id && !data.skipped &&
+      (saved.mode !== "memorize" || saved.session_stage === "recall"))
       await finalizeReviewSession(context.supabase, {
         userId: context.userId,
         bookId: saved.book_id,
@@ -893,7 +894,7 @@ export const getDueReviewItems = createServerFn({ method: "GET" })
     let query = context.supabase
       .from("review_states")
       .select(
-        "word, word_key, review_mode, scope_key, last_reviewed_at, next_due_at, interval_seconds, consecutive_correct, total_wrong, hint_count, difficulty, scheduler_data, last_attempt_id, revision, updated_at",
+        "word, word_key, review_mode, scope_key, source_book_id, last_reviewed_at, next_due_at, interval_seconds, consecutive_correct, total_wrong, hint_count, difficulty, scheduler_data, last_attempt_id, revision, updated_at",
       )
       .eq("user_id", context.userId)
       .eq("review_mode", data.reviewMode);
@@ -905,7 +906,12 @@ export const getDueReviewItems = createServerFn({ method: "GET" })
       .order("next_due_at", { ascending: true })
       .limit(data.limit ?? 100);
     if (error) throw new Error(error.message);
-    return dueItems ?? [];
+    // The source is provenance, not part of Review identity. It may name a bundled or deleted book.
+    return (dueItems ?? []).map((item) => ({
+      ...item,
+      bookId: item.source_book_id ??
+        (item.scope_key.startsWith("book:") ? item.scope_key.slice(5) : null) ?? "review:unattributed",
+    }));
   });
 
 export const saveSettings = createServerFn({ method: "POST" })

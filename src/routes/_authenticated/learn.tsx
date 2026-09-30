@@ -4,9 +4,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { BookPicker } from "@/components/BookPicker";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
-import { bareEntry, findInBundledBook, findWord, isBundledBook, type WordEntry } from "@/data/words";
+import { bareEntry, findInBundledBook, findWord, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
+import { useDueReview } from "@/hooks/use-due-review";
 import { resolveEntries } from "@/lib/library.functions";
 import { entryKey, parseFavorites, type EntryIdentity } from "@/lib/entry-identity";
 import {
@@ -238,6 +239,14 @@ function LearnPage() {
   const persistSettings = useServerFn(saveSettings);
   const qc = useQueryClient();
   const { data: state, isAuthoritative: stateIsAuthoritative } = useLearningState();
+  const dueSpelling = useDueReview("spelling", queueKind === "today");
+  const [todayQueue, setTodayQueue] = useState<{ word: string; bookId: string; translation: null }[] | null>(null);
+  useEffect(() => {
+    if (queueKind === "today" && dueSpelling.isFetchedAfterMount && todayQueue === null)
+      setTodayQueue((dueSpelling.data ?? []).filter((item) => !!item.bookId).map((item) => ({
+        word: item.word, bookId: item.bookId!, translation: null,
+      })));
+  }, [queueKind, dueSpelling.isFetchedAfterMount, dueSpelling.data, todayQueue]);
 
   const [bookId, setBookId] = useState<string | null>(null);
   const [index, setIndex] = useState(0);
@@ -319,11 +328,11 @@ function LearnPage() {
         bookId: item.bookId,
         translation: null,
       }));
-    if (queueKind === "today") return state.todayItems;
+    if (queueKind === "today") return todayQueue ?? [];
     if (queueKind === "wrong") return state.wrongWords;
     if (queueKind === "trouble") return state.troubleWords;
     return [];
-  }, [queueKind, state, favorites]);
+  }, [queueKind, state, favorites, todayQueue]);
 
   const { all: allBooks } = useLibrary();
   const { book: currentBook } = useBook(queueKind ? null : bookId);
@@ -332,7 +341,7 @@ function LearnPage() {
     () => reviewItems.map((i) => ({ bookId: i.bookId, word: i.word })),
     [reviewItems],
   );
-  const { data: resolved, isFetched: resolvedFetched } = useQuery({
+  const { data: resolved, isFetchedAfterMount: resolvedFetched } = useQuery({
     queryKey: ["resolve-entries", dbItems],
     queryFn: () => resolve({ data: { items: dbItems.slice(0, 500) } }),
     enabled: !!queueKind && dbItems.length > 0,
@@ -348,9 +357,9 @@ function LearnPage() {
       );
     return currentBook?.words ?? [];
   }, [queueKind, reviewItems, resolved, currentBook]);
-  const queueLoading = queueKind
-    ? dbItems.some((item) => !isBundledBook(item.bookId)) && !resolvedFetched
-    : !currentBook;
+  const queueLoading = (queueKind === "today" && todayQueue === null) || (queueKind
+    ? dbItems.length > 0 && !resolvedFetched
+    : !currentBook);
 
   // hydrate the persisted book + cursor once the state arrives
   useEffect(() => {
@@ -457,6 +466,7 @@ function LearnPage() {
           setCompletionRetries((items) => items.filter((item) => item.identity !== nextCompletion.identity));
           void qc.invalidateQueries({ queryKey: ["stats"] });
           void qc.invalidateQueries({ queryKey: ["learning-state"] });
+          void qc.invalidateQueries({ queryKey: ["due-review"] });
         })
         .catch(() => {
           setCompletionRetries((items) =>
@@ -490,7 +500,7 @@ function LearnPage() {
         result: r,
         isReview: !!queueKind,
         reviewMode: "spelling" as const,
-        includeInReview: includeSpellingInReview,
+        includeInReview: queueKind === "today" ? true : includeSpellingInReview,
         timeZone: getUserTimeZone(),
         ...(!queueKind && bookId && queue.length
           ? { cursor: { bookId, cursorIndex: (index + 1) % queue.length } }
@@ -559,6 +569,7 @@ function LearnPage() {
       });
       clearPendingWordAttempt(skippedIdentity);
       void qc.invalidateQueries({ queryKey: ["learning-state"] });
+      void qc.invalidateQueries({ queryKey: ["due-review"] });
       next();
     } catch {
       // Keep the skipped word in place if the server did not persist the skip/cursor.
@@ -587,7 +598,10 @@ function LearnPage() {
       if (mistouched.has(key)) return;
       setLocallyMistouched((s) => new Set(s).add(key));
       void queueLearningStateWrite(() => flagMistouch({ data: { ...item, attemptId } }))
-        .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+        .then(() => {
+          void qc.invalidateQueries({ queryKey: ["learning-state"] });
+          void qc.invalidateQueries({ queryKey: ["due-review"] });
+        })
         .catch(() => undefined);
     },
     [flagMistouch, mistouched, qc],
@@ -729,6 +743,8 @@ function LearnPage() {
   const learnedInBook = !queueKind && bookId ? (state?.learnedByBook[bookId]?.length ?? 0) : 0;
 
   if (!ready || !entry) {
+    if (queueKind === "today" && dueSpelling.isError)
+      return <div className="glass-stage flex min-h-[30rem] items-center justify-center">加载失败，请刷新重试。</div>;
     if (ready && queueLoading) {
       return (
         <div className="glass-stage flex min-h-[30rem] flex-col items-center justify-center gap-4 text-center">
@@ -829,7 +845,7 @@ function LearnPage() {
               {t.label}
             </button>
           ))}
-          <button
+          {queueKind !== "today" && <button
             type="button"
             aria-pressed={includeSpellingInReview ?? false}
             title={(includeSpellingInReview ?? false) ? "本次计入复习" : "本次不计入复习"}
@@ -843,7 +859,7 @@ function LearnPage() {
           >
             <RotateCcw className="size-3.5" />
             计入复习
-          </button>
+          </button>}
         </div>
         {!done && !reviewing && (
           <button
