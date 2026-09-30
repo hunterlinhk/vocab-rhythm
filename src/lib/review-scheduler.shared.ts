@@ -1,4 +1,5 @@
 import type { Json } from "@/integrations/supabase/types";
+import { reviewScopeIncludesBook, type ReviewScopeKey } from "./review-scope.shared";
 
 export type ReviewMode = "recognition" | "spelling";
 export type ReviewOutcome = "smooth" | "strained" | "failed";
@@ -11,9 +12,10 @@ export type ScheduleReason =
   | "inclusion_pending"
   | "excluded_by_choice"
   | "excluded_by_preference"
+  | "excluded_by_book_setting"
   | "no_valid_attempts";
 
-/** Review identity is shared across books; trim edge whitespace and preserve display spelling. */
+/** Normalize the word key; the selected Review scope decides whether state is shared or book-local. */
 export function normalizeReviewWord(word: string): string {
   return word.replace(/[\u2018\u2019]/gu, "'").trim().replace(/\s+/gu, " ").toLowerCase();
 }
@@ -47,7 +49,7 @@ export type ReviewAttemptEvent = {
 
 export type ReviewSessionResult = {
   sessionId: string;
-  /** Source book for this session; review state itself is shared across books. */
+  /** Source book for this session; its state scope may be shared or book-local per user preference. */
   bookId: string;
   /** Original spelling is retained for display/provenance; wordKey is canonical. */
   word: string;
@@ -120,6 +122,12 @@ export type ReviewSchedulerContext = {
   isInitialLearning: boolean;
   successAlreadyAdvancedToday: boolean;
   effectiveInclusion: boolean | null;
+  bookIncluded: boolean;
+};
+
+export type ReviewProjectionOptions = {
+  scopeKey?: ReviewScopeKey;
+  bookInclusionById?: Readonly<Record<string, boolean>>;
 };
 
 export interface ReviewScheduler {
@@ -344,7 +352,7 @@ function withSessionMetadata(
  * A later scheduler can replace this implementation and fill nextDueAt/intervalSeconds.
  */
 export const eventOnlyReviewScheduler: ReviewScheduler = {
-  version: "review-foundation-v2",
+  version: "review-foundation-v3",
   applySession(state, session, context) {
     let reason: ScheduleReason;
     let action: ScheduleAction = "none";
@@ -352,7 +360,8 @@ export const eventOnlyReviewScheduler: ReviewScheduler = {
     let stateAdvanced = false;
     let intervalAdvanced = false;
 
-    if (context.effectiveInclusion === null) reason = "inclusion_pending";
+    if (!context.bookIncluded) reason = "excluded_by_book_setting";
+    else if (context.effectiveInclusion === null) reason = "inclusion_pending";
     else if (!context.effectiveInclusion)
       reason = session.countedForReview === false ? "excluded_by_choice" : "excluded_by_preference";
     else if (!session.outcome) reason = "no_valid_attempts";
@@ -416,10 +425,15 @@ export function projectReviewScheduleState(
   sessions: ReviewSessionResult[],
   firstSpellingChoice: boolean | null,
   scheduler: ReviewScheduler = eventOnlyReviewScheduler,
+  options: ReviewProjectionOptions = {},
 ): { state: ReviewScheduleState; decisions: ReviewDecision[] } {
   const initialState = emptyReviewScheduleState(reviewMode);
   const ordered = [...sessions]
-    .filter((session) => session.reviewMode === reviewMode)
+    .filter(
+      (session) =>
+        session.reviewMode === reviewMode &&
+        (!options.scopeKey || reviewScopeIncludesBook(options.scopeKey, session.bookId)),
+    )
     .sort(
       (a, b) =>
         a.completedAt.localeCompare(b.completedAt) ||
@@ -433,9 +447,11 @@ export function projectReviewScheduleState(
   const decisions: ReviewDecision[] = [];
 
   for (const session of ordered) {
-    const effectiveInclusion =
-      session.countedForReview ??
-      (reviewMode === "spelling" ? firstSpellingChoice : null);
+    const bookIncluded = options.bookInclusionById?.[session.bookId] !== false;
+    const effectiveInclusion = !bookIncluded
+      ? false
+      : (session.countedForReview ??
+        (reviewMode === "spelling" ? firstSpellingChoice : null));
     const isInitialLearning = effectiveInclusion === true && !hasPriorIncludedSession;
     const successAlreadyAdvancedToday = state.successfulGrowthDay === session.learningDay;
     const beforeState = state;
@@ -443,6 +459,7 @@ export function projectReviewScheduleState(
       isInitialLearning,
       successAlreadyAdvancedToday,
       effectiveInclusion,
+      bookIncluded,
     });
     const inputFingerprint = JSON.stringify({
       schedulerVersion: transition.schedulerVersion,
@@ -451,6 +468,8 @@ export function projectReviewScheduleState(
       effectiveInclusion,
       isInitialLearning,
       successAlreadyAdvancedToday,
+      bookIncluded,
+      scopeKey: options.scopeKey ?? "shared",
     });
     const decision: ReviewDecision = {
       session,

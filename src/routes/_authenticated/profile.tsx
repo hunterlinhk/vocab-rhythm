@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Bell, ChevronRight, Crown, Headphones, Keyboard, LogOut, Moon, ShieldCheck, UserRound } from "lucide-react";
+import { Bell, ChevronRight, Crown, Headphones, Keyboard, LogOut, Moon, Network, ShieldCheck, UserRound } from "lucide-react";
 import { setVirtualKeyboard, useVirtualKeyboard } from "@/lib/virtual-keyboard";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -10,6 +10,8 @@ import { saveSettings } from "@/lib/learning.functions";
 import { useLearningState } from "@/hooks/use-learning-state";
 import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import { supabase } from "@/integrations/supabase/client";
+import { SettingInfo } from "@/components/setting-info";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({ meta: [
@@ -32,9 +34,15 @@ function ProfilePage() {
   const qc = useQueryClient();
   const { data: state } = useLearningState();
   const [strict, setStrict] = useState(false);
+  const [shareReviewProgress, setShareReviewProgress] = useState(true);
   const vk = useVirtualKeyboard();
 
-  useEffect(() => { if (state) setStrict(state.strictSpelling); }, [state]);
+  useEffect(() => {
+    if (state) {
+      setStrict(state.strictSpelling);
+      setShareReviewProgress(state.shareReviewProgress ?? true);
+    }
+  }, [state]);
   useEffect(() => { void supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? "学习者")); }, []);
 
   const toggleStrict = (on: boolean) => {
@@ -42,6 +50,17 @@ function ProfilePage() {
     void queueLearningStateWrite(() => persistSettings({ data: { strictSpelling: on } }))
       .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
       .catch(() => undefined);
+  };
+
+  const toggleReviewSharing = (on: boolean) => {
+    setShareReviewProgress(on);
+    void queueLearningStateWrite(() => persistSettings({ data: { shareReviewProgress: on } }))
+      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .catch(() => {
+        setShareReviewProgress(state?.shareReviewProgress ?? true);
+        void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        toast.error("保存复习设置失败，请重试");
+      });
   };
 
   return (
@@ -60,9 +79,12 @@ function ProfilePage() {
         <Button className="shrink-0 rounded-full px-6">升级 Pro</Button>
       </section>
 
-      <section className="glass-panel overflow-hidden">
+      <section className="glass-panel overflow-visible">
         <Setting icon={Headphones} title="完成后自动发音" description="每题完成后朗读单词或句子"><Switch checked={autoSpeak} onCheckedChange={setAutoSpeak}/></Setting>
         <Setting icon={ShieldCheck} title="严格拼写模式" description="拼错时清空输入，从头重新拼这个单词"><Switch checked={strict} onCheckedChange={toggleStrict}/></Setting>
+        <Setting icon={Network} title="跨词书共享复习进度" info="开启时，同一个规范化单词在不同词书中共享认词或拼写进度；关闭时，每本词书分别维护进度。认词和拼写始终独立。">
+          <Switch checked={shareReviewProgress} onCheckedChange={toggleReviewSharing}/>
+        </Setting>
         <Setting icon={Keyboard} title="网页键盘" description="手机拼写时显示页面内置键盘"><Switch checked={vk} onCheckedChange={setVirtualKeyboard}/></Setting>
         <Setting icon={Bell} title="按键与完成音效" description="保留轻量、克制的操作反馈"><Switch checked={sound} onCheckedChange={setSound}/></Setting>
         <Setting icon={Moon} title="主题" description="当前为浅色玻璃主题"><ChevronRight className="size-5 text-muted-foreground"/></Setting>
@@ -73,6 +95,6 @@ function ProfilePage() {
   );
 }
 
-function Setting({ icon: Icon, title, description, children }: { icon: typeof Headphones; title: string; description: string; children: ReactNode }) {
-  return <div className="flex items-center gap-4 border-b border-border/50 px-5 py-4 last:border-0 sm:px-7"><div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary/70 text-primary"><Icon className="size-5"/></div><div className="min-w-0 flex-1"><p className="text-sm font-medium">{title}</p><p className="mt-0.5 text-xs text-muted-foreground">{description}</p></div>{children}</div>;
+function Setting({ icon: Icon, title, description, info, children }: { icon: typeof Headphones; title: string; description?: string; info?: string; children: ReactNode }) {
+  return <div className="flex items-center gap-4 border-b border-border/50 px-5 py-4 last:border-0 sm:px-7"><div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-secondary/70 text-primary"><Icon className="size-5"/></div><div className="min-w-0 flex-1"><div className="flex items-center gap-1.5"><p className="text-sm font-medium">{title}</p>{info && <SettingInfo text={info}/>}</div>{description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}</div>{children}</div>;
 }

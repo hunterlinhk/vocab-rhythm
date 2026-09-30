@@ -27,6 +27,7 @@ const {
   projectReviewScheduleState,
   reviewSessionSource,
 } = await vite.ssrLoadModule("/src/lib/review-scheduler.shared.ts");
+const { bookIdForReviewScope, reviewScopeForBook } = await vite.ssrLoadModule("/src/lib/review-scope.shared.ts");
 const {
   findMissingHistoricalReviewStateIdentities,
   findMissingReviewStateIdentities,
@@ -733,6 +734,41 @@ test("review state is shared across source books but remains independent by mode
   assert.equal(independentMode.decisions[0].reason, "first_learning");
 });
 
+test("review scope switch shares histories by default and isolates the same word per book when disabled", () => {
+  const sessions = [
+    reviewSession("book-a-first", { bookId: "book-a", completedAt: "2026-09-27T18:00:00.000Z", learningDay: "2026-09-27" }),
+    reviewSession("book-a-growth", { bookId: "book-a", completedAt: "2026-09-28T18:00:00.000Z", learningDay: "2026-09-28" }),
+    reviewSession("book-b-first", { bookId: "book-b", completedAt: "2026-09-28T19:00:00.000Z", learningDay: "2026-09-28" }),
+  ];
+  const shared = projectReviewScheduleState("recognition", sessions, null, undefined, { scopeKey: "shared" });
+  assert.deepEqual(shared.decisions.map(({ reason }) => reason), ["first_learning", "normal_growth", "same_day_repeat"]);
+  assert.equal(reviewScopeForBook("book-a", true), "shared");
+
+  const bookA = projectReviewScheduleState("recognition", sessions, null, undefined, { scopeKey: "book:book-a" });
+  const bookB = projectReviewScheduleState("recognition", sessions, null, undefined, { scopeKey: "book:book-b" });
+  assert.deepEqual(bookA.decisions.map(({ session }) => session.sessionId), ["book-a-first", "book-a-growth"]);
+  assert.deepEqual(bookA.decisions.map(({ reason }) => reason), ["first_learning", "normal_growth"]);
+  assert.deepEqual(bookB.decisions.map(({ session }) => session.sessionId), ["book-b-first"]);
+  assert.equal(bookB.decisions[0].reason, "first_learning");
+  assert.equal(bookA.state.lastSessionId, "book-a-growth");
+  assert.equal(bookB.state.lastSessionId, "book-b-first");
+  assert.equal(reviewScopeForBook("book-b", false), "book:book-b");
+  assert.equal(bookIdForReviewScope("book:book-b"), "book-b");
+});
+
+test("per-book review exclusion overrides session inclusion without changing its history", () => {
+  const session = reviewSession("excluded", { bookId: "bundled-ngsl" });
+  const projection = projectReviewScheduleState("recognition", [session], null, undefined, {
+    scopeKey: "shared",
+    bookInclusionById: { "bundled-ngsl": false },
+  });
+  assert.equal(projection.decisions[0].effectiveInclusion, false);
+  assert.equal(projection.decisions[0].reason, "excluded_by_book_setting");
+  assert.equal(projection.decisions[0].schedulerVersion, "review-foundation-v3");
+  assert.equal(projection.decisions[0].intervalAdvanced, false);
+  assert.equal(projection.state.lastSessionId, null);
+});
+
 test("missing review states are repairable once per included word and mode from v1 session results", () => {
   const sessions = [
     {
@@ -793,9 +829,9 @@ test("historical repair planning is bounded by user, word, mode, and first spell
 
   const missing = findMissingHistoricalReviewStateIdentities(sessions, existingStates, preferences);
   assert.deepEqual(missing, [
-    { userId: "user-a", wordKey: "apple", reviewMode: "spelling" },
-    { userId: "user-b", wordKey: "apple", reviewMode: "recognition" },
-    { userId: "user-c", wordKey: "plum", reviewMode: "spelling" },
+    { userId: "user-a", wordKey: "apple", reviewMode: "spelling", scopeKey: "shared" },
+    { userId: "user-b", wordKey: "apple", reviewMode: "recognition", scopeKey: "shared" },
+    { userId: "user-c", wordKey: "plum", reviewMode: "spelling", scopeKey: "shared" },
   ]);
   assert.deepEqual(
     findMissingHistoricalReviewStateIdentities(
@@ -805,6 +841,22 @@ test("historical repair planning is bounded by user, word, mode, and first spell
     ),
     [],
   );
+});
+
+test("historical repair identifies missing per-book scopes and honors book exclusion", () => {
+  const missing = findMissingHistoricalReviewStateIdentities(
+    [
+      { user_id: "user-a", book_id: "book-a", word_key: "apple", review_mode: "recognition", counted_for_review: true, outcome: "smooth" },
+      { user_id: "user-a", book_id: "book-b", word_key: "apple", review_mode: "recognition", counted_for_review: true, outcome: "smooth" },
+      { user_id: "user-a", book_id: "book-c", word_key: "apple", review_mode: "recognition", counted_for_review: true, outcome: "smooth" },
+    ],
+    [{ user_id: "user-a", word_key: "apple", review_mode: "recognition", scope_key: "book:book-a" }],
+    [{ user_id: "user-a", include_spelling_in_review_first_choice: null, share_review_progress: false }],
+    [{ user_id: "user-a", book_id: "book-c", include_in_review: false }],
+  );
+  assert.deepEqual(missing, [
+    { userId: "user-a", wordKey: "apple", reviewMode: "recognition", scopeKey: "book:book-b" },
+  ]);
 });
 
 test("changing an earlier session recalculates later decisions during full-history replay", async () => {
@@ -1041,8 +1093,9 @@ test("review integration separates raw attempts, session results, and append-onl
   assert.match(persistence, /normalizeReviewWord\(source\.word\)/);
   assert.match(persistence, /\.eq\("review_word_key", identity\.wordKey\)/);
   assert.match(sessionRead, /\.eq\("word_key", identity\.wordKey\)/);
-  assert.doesNotMatch(sessionRead, /\.eq\("book_id"/);
-  assert.doesNotMatch(stateProjection, /\.eq\("book_id"/);
+  assert.match(sessionRead, /bookIdForReviewScope\(identity\.scopeKey\)/);
+  assert.match(sessionRead, /if \(sourceBookId\) query = query\.eq\("book_id", sourceBookId\)/);
+  assert.match(stateProjection, /\.eq\("scope_key", identity\.scopeKey\)/);
   assert.match(functions, /Memorize stages have fixed review ownership/);
   assert.match(functions, /Attempt id is already associated with different learning data/);
   assert.match(persistence, /book_id: decision\.session\.bookId/);
@@ -1152,7 +1205,7 @@ test("historical state repair is a bounded one-off and normal reads do not scan 
     tag: "0013_review_source_provenance",
     breakpoints: true,
   });
-  assert.deepEqual(journal.entries.at(-1), {
+  assert.deepEqual(journal.entries.find(({ tag }) => tag === "0014_apply_pending_0013_marker"), {
     idx: 14,
     version: "7",
     when: 1790675901270,
@@ -1185,13 +1238,93 @@ test("historical state repair is a bounded one-off and normal reads do not scan 
   assert.doesNotMatch(reviewStateTypes, /review_states_source_book_id_fkey/);
 });
 
+test("Review scope settings migration preserves history and supports bundled or deleted book ids", async () => {
+  const [migrationText, journalText, snapshotText, priorSnapshotText, persistence, functions, books, profile, info] =
+    await Promise.all([
+      readFile(new URL("../drizzle/migrations/0015_review_scope_settings.sql", import.meta.url), "utf8"),
+      readFile(new URL("../drizzle/migrations/meta/_journal.json", import.meta.url), "utf8"),
+      readFile(new URL("../drizzle/migrations/meta/0015_snapshot.json", import.meta.url), "utf8"),
+      readFile(new URL("../drizzle/migrations/meta/0014_snapshot.json", import.meta.url), "utf8"),
+      readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8"),
+      readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
+      readFile(new URL("../src/routes/_authenticated/books.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../src/routes/_authenticated/profile.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../src/components/setting-info.tsx", import.meta.url), "utf8"),
+    ]);
+  const journal = JSON.parse(journalText);
+  const snapshot = JSON.parse(snapshotText);
+  const priorSnapshot = JSON.parse(priorSnapshotText);
+  const dueQuery = functions.slice(
+    functions.indexOf("export const getDueReviewItems"),
+    functions.indexOf("export const saveSettings"),
+  );
+
+  assert.equal(journal.entries.at(-2).idx, 15);
+  assert.equal(journal.entries.at(-2).tag, "0015_review_scope_settings");
+  assert.equal(journal.entries.at(-1).idx, 16);
+  assert.equal(journal.entries.at(-1).tag, "0016_apply_pending_0015_marker");
+  assert.equal(snapshot.prevId, priorSnapshot.id);
+  assert.match(migrationText, /share_review_progress boolean NOT NULL DEFAULT true/);
+  assert.match(migrationText, /include_in_review boolean NOT NULL DEFAULT true/);
+  assert.match(migrationText, /PRIMARY KEY \(user_id, book_id\)/);
+  assert.doesNotMatch(migrationText, /REFERENCES public\.word_books/);
+  assert.match(migrationText, /REVOKE ALL ON public\.user_book_review_settings FROM PUBLIC, anon, authenticated/);
+  assert.match(migrationText, /GRANT SELECT, INSERT, UPDATE ON public\.user_book_review_settings TO authenticated/);
+  assert.match(migrationText, /CREATE POLICY "own book review settings insert"[\s\S]*WITH CHECK \(auth\.uid\(\) = user_id\)/);
+  assert.match(migrationText, /CREATE POLICY "own book review settings update"[\s\S]*WITH CHECK \(auth\.uid\(\) = user_id\)/);
+  assert.match(migrationText, /PRIMARY KEY \(user_id, word_key, review_mode, scope_key\)/);
+  assert.match(migrationText, /UNIQUE \(user_id, scope_key, book_id, word_key, review_mode, session_id, decision_revision\)/);
+  assert.match(migrationText, /excluded_by_book_setting/);
+  assert.match(migrationText, /COMMENT ON COLUMN public\.review_states\.word_key IS[\s\S]*review_mode \+ scope_key/);
+  assert.match(migrationText, /COMMENT ON COLUMN public\.review_session_results\.book_id IS[\s\S]*shared or book-local/);
+  assert.doesNotMatch(migrationText, /DELETE FROM public\.(attempts|review_session_results|review_schedule_decisions)/);
+  assert.match(persistence, /export async function rebuildReviewProjectionsForUser/);
+  assert.match(persistence, /export async function rebuildReviewProjectionsForBook/);
+  assert.match(persistence, /settings writes may enumerate affected sessions/i);
+  assert.match(persistence, /refreshSessionResults\s*\?\s*await rebuildReviewSessionResultsFromAttempts/);
+  assert.match(persistence, /refreshSessionResults: false/);
+  assert.match(functions, /shareReviewProgress: z\.boolean\(\)\.optional\(\)/);
+  assert.match(functions, /export const saveBookReviewSetting/);
+  assert.match(dueQuery, /\.eq\("scope_key", "shared"\)/);
+  assert.match(dueQuery, /\.like\("scope_key", "book:%"\)/);
+  assert.doesNotMatch(dueQuery, /collectProjectionIdentities|rebuildReviewState|review_session_results|attempts/);
+  assert.match(books, /纳入复习计划/);
+  assert.match(books, /SettingInfo text=/);
+  assert.match(profile, /跨词书共享复习进度/);
+  assert.match(profile, /SettingInfo text=/);
+  assert.match(books, /saveBookReviewSetting/);
+  assert.match(profile, /shareReviewProgress: on/);
+  assert.match(info, /group-hover:visible/);
+  assert.match(info, /onClick=\{/);
+  assert.match(info, /aria-expanded=\{open\}/);
+});
+
 test("local review RLS runner uses only an isolated disposable PostgreSQL container", async () => {
   const runner = await readFile(new URL("../scripts/verify-review-v1-rls.ps1", import.meta.url), "utf8");
   assert.match(runner, /--network none/);
   assert.match(runner, /--rm --name \$containerName/);
   assert.match(runner, /POSTGRES_DB=review_test/);
   assert.match(runner, /Invoke-PostgresFile[\s\S]*?-SingleTransaction/);
+  assert.match(runner, /Expected migrations 0000–0015 \(16 files\)/);
+  assert.match(runner, /preScopeFixture[\s\S]*?0015_review_scope_settings\.sql[\s\S]*?scopeChecks/);
+  assert.match(runner, /Reapplying 0015 to verify repeatability/);
+  assert.match(runner, /0015 preserves pre-existing Review rows/);
+  assert.match(runner, /scope_key = 'shared' AND source_book_id = 'deleted-custom-book'/);
+  assert.match(runner, /book review settings enforce owner INSERT\/UPDATE checks and deny DELETE/);
   assert.doesNotMatch(runner, /LOVABLE_DB_MIGRATION_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_URL/);
+});
+
+test("Review architecture comments describe the configurable projection scope", async () => {
+  const [scheduler, persistence, migration] = await Promise.all([
+    readFile(new URL("../src/lib/review-scheduler.shared.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/migrations/0015_review_scope_settings.sql", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(scheduler, /Review identity is shared across books/);
+  assert.doesNotMatch(scheduler, /review state itself is shared across books/);
+  assert.match(scheduler, /selected Review scope decides whether state is shared or book-local/);
+  assert.match(persistence, /selected scope; book id is scope input or source provenance/);
+  assert.match(migration, /review identity is user_id \+ word_key \+ review_mode \+ scope_key/);
 });
 
 test("spelling review inclusion keeps the tri-state setting", () => {
@@ -1213,6 +1346,18 @@ test("spelling review inclusion keeps the tri-state setting", () => {
   assert.equal(state(undefined).includeSpellingInReview, null);
   assert.equal(state(false).includeSpellingInReview, false);
   assert.equal(state(true).includeSpellingInReview, true);
+  assert.equal(state(undefined).shareReviewProgress, true);
+
+  const scoped = buildLearningState({
+    settings: { ...base, share_review_progress: false },
+    bookReviewSettings: [{ book_id: "bundled-ngsl", include_in_review: false }],
+    progress: [],
+    attempts: [],
+    mastery: [],
+    now,
+  });
+  assert.equal(scoped.shareReviewProgress, false);
+  assert.equal(scoped.reviewInclusionByBook["bundled-ngsl"], false);
 });
 
 test("cursor writes queued before and after navigation cannot land out of order", async () => {

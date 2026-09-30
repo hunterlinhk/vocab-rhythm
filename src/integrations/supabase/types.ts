@@ -311,9 +311,9 @@ export type Database = {
           is_initial_learning: boolean
           learning_day: string
           review_mode: string
+          scope_key: string
           schedule_action: string
           scheduler_version: string
-          scope_key: string
           session_id: string
           session_outcome: string | null
           state_advanced: boolean
@@ -336,9 +336,9 @@ export type Database = {
           is_initial_learning?: boolean
           learning_day: string
           review_mode: string
+          scope_key?: string
           schedule_action: string
           scheduler_version: string
-          scope_key?: string
           session_id: string
           session_outcome?: string | null
           state_advanced: boolean
@@ -361,9 +361,9 @@ export type Database = {
           is_initial_learning?: boolean
           learning_day?: string
           review_mode?: string
+          scope_key?: string
           schedule_action?: string
           scheduler_version?: string
-          scope_key?: string
           session_id?: string
           session_outcome?: string | null
           state_advanced?: boolean
@@ -481,10 +481,10 @@ export type Database = {
           next_due_at: string | null
           pending_action: string
           review_mode: string
+          scope_key: string
           revision: number
           scheduler_data: Json
           scheduler_version: string | null
-          scope_key: string
           source_book_id: string | null
           successful_growth_day: string | null
           total_wrong: number
@@ -508,10 +508,10 @@ export type Database = {
           next_due_at?: string | null
           pending_action?: string
           review_mode: string
+          scope_key?: string
           revision?: number
           scheduler_data?: Json
           scheduler_version?: string | null
-          scope_key?: string
           source_book_id?: string | null
           successful_growth_day?: string | null
           total_wrong?: number
@@ -535,10 +535,10 @@ export type Database = {
           next_due_at?: string | null
           pending_action?: string
           review_mode?: string
+          scope_key?: string
           revision?: number
           scheduler_data?: Json
           scheduler_version?: string | null
-          scope_key?: string
           source_book_id?: string | null
           successful_growth_day?: string | null
           total_wrong?: number

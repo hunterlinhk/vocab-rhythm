@@ -11,6 +11,8 @@ import {
 import {
   finalizeReviewSession,
   rebuildPendingSpellingStates,
+  rebuildReviewProjectionsForBook,
+  rebuildReviewProjectionsForUser,
 } from "@/lib/review-sessions.server";
 import {
   buildLearningState,
@@ -825,11 +827,11 @@ export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
 export const getLearningState = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<LearningState> => {
-    const [settingsRes, progressRes, attemptsRes, masteryRes] = await Promise.all([
+    const [settingsRes, progressRes, attemptsRes, masteryRes, bookReviewSettingsRes] = await Promise.all([
       context.supabase
         .from("user_settings")
         .select(
-          "daily_goal, active_book, memorize_spelling, strict_spelling, include_spelling_in_review",
+          "daily_goal, active_book, memorize_spelling, strict_spelling, include_spelling_in_review, share_review_progress",
         )
         .eq("user_id", context.userId)
         .maybeSingle(),
@@ -848,6 +850,10 @@ export const getLearningState = createServerFn({ method: "GET" })
         .select("word, book_id")
         .eq("user_id", context.userId)
         .gte("rounds", 3),
+      context.supabase
+        .from("user_book_review_settings")
+        .select("book_id, include_in_review")
+        .eq("user_id", context.userId),
     ]);
 
     const errors = [
@@ -855,6 +861,7 @@ export const getLearningState = createServerFn({ method: "GET" })
       progressRes.error,
       attemptsRes.error,
       masteryRes.error,
+      bookReviewSettingsRes.error,
     ].flatMap((error) => (error ? [error.message] : []));
     if (errors.length) throw new Error(errors.join("; "));
     return buildLearningState({
@@ -862,6 +869,7 @@ export const getLearningState = createServerFn({ method: "GET" })
       progress: (progressRes.data ?? []).map((row) => ({ ...row, mode: row.mode as LearningMode })),
       attempts: (attemptsRes.data ?? []) as LearningAttemptRow[],
       mastery: masteryRes.data ?? [],
+      bookReviewSettings: bookReviewSettingsRes.data ?? [],
     });
   });
 
@@ -876,13 +884,23 @@ export const getDueReviewItems = createServerFn({ method: "GET" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { data: dueItems, error } = await context.supabase
+    const { data: settings, error: settingsError } = await context.supabase
+      .from("user_settings")
+      .select("share_review_progress")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (settingsError) throw new Error(settingsError.message);
+    let query = context.supabase
       .from("review_states")
       .select(
-        "word, word_key, review_mode, last_reviewed_at, next_due_at, interval_seconds, consecutive_correct, total_wrong, hint_count, difficulty, scheduler_data, last_attempt_id, revision, updated_at",
+        "word, word_key, review_mode, scope_key, last_reviewed_at, next_due_at, interval_seconds, consecutive_correct, total_wrong, hint_count, difficulty, scheduler_data, last_attempt_id, revision, updated_at",
       )
       .eq("user_id", context.userId)
-      .eq("review_mode", data.reviewMode)
+      .eq("review_mode", data.reviewMode);
+    query = settings?.share_review_progress === false
+      ? query.like("scope_key", "book:%")
+      : query.eq("scope_key", "shared");
+    const { data: dueItems, error } = await query
       .lte("next_due_at", new Date().toISOString())
       .order("next_due_at", { ascending: true })
       .limit(data.limit ?? 100);
@@ -900,6 +918,7 @@ export const saveSettings = createServerFn({ method: "POST" })
         memorizeSpelling: z.boolean().optional(),
         strictSpelling: z.boolean().optional(),
         includeSpellingInReview: z.boolean().nullable().optional(),
+        shareReviewProgress: z.boolean().optional(),
       })
       .parse(input),
   )
@@ -913,6 +932,7 @@ export const saveSettings = createServerFn({ method: "POST" })
       strict_spelling?: boolean;
       include_spelling_in_review?: boolean | null;
       include_spelling_in_review_first_choice?: boolean | null;
+      share_review_progress?: boolean;
     } = {
       user_id: context.userId,
       updated_at: new Date().toISOString(),
@@ -924,21 +944,25 @@ export const saveSettings = createServerFn({ method: "POST" })
     if (data.includeSpellingInReview !== undefined)
       patch.include_spelling_in_review = data.includeSpellingInReview;
     let shouldRebuildPendingSpelling = false;
+    let shouldRebuildAllReviewScopes = false;
     if (data.includeSpellingInReview !== undefined) {
-      const { data: previous, error: previousError } = await context.supabase
+      const { data: previousSettings, error: previousError } = await context.supabase
         .from("user_settings")
-        .select("include_spelling_in_review, include_spelling_in_review_first_choice")
+        .select("include_spelling_in_review_first_choice")
         .eq("user_id", context.userId)
         .maybeSingle();
       if (previousError) throw new Error(previousError.message);
       const firstChoice = captureFirstSpellingReviewChoice(
-        previous?.include_spelling_in_review_first_choice,
+        previousSettings?.include_spelling_in_review_first_choice,
         data.includeSpellingInReview,
       );
       patch.include_spelling_in_review_first_choice = firstChoice;
-      shouldRebuildPendingSpelling =
-        (previous?.include_spelling_in_review ?? null) !== data.includeSpellingInReview ||
-        (previous?.include_spelling_in_review_first_choice ?? null) !== firstChoice;
+      // Explicit retry remains self-healing if a prior projection write failed after saving the preference.
+      shouldRebuildPendingSpelling = true;
+    }
+    if (data.shareReviewProgress !== undefined) {
+      patch.share_review_progress = data.shareReviewProgress;
+      shouldRebuildAllReviewScopes = true;
     }
     const { error } = await context.supabase
       .from("user_settings")
@@ -946,6 +970,28 @@ export const saveSettings = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     if (shouldRebuildPendingSpelling)
       await rebuildPendingSpellingStates(context.supabase, context.userId);
+    if (shouldRebuildAllReviewScopes)
+      await rebuildReviewProjectionsForUser(context.supabase, context.userId);
+    return { ok: true };
+  });
+
+export const saveBookReviewSetting = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ bookId: z.string().trim().min(1), includeInReview: z.boolean() }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase.from("user_book_review_settings").upsert(
+      {
+        user_id: context.userId,
+        book_id: data.bookId,
+        include_in_review: data.includeInReview,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,book_id" },
+    );
+    if (error) throw new Error(error.message);
+    await rebuildReviewProjectionsForBook(context.supabase, context.userId, data.bookId);
     return { ok: true };
   });
 

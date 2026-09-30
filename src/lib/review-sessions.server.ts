@@ -15,14 +15,21 @@ import {
   type ReviewSessionResult,
 } from "@/lib/review-scheduler.shared";
 import {
+  bookIdForReviewScope,
+  reviewScopeForBook,
+  type ReviewScopeKey,
+} from "@/lib/review-scope.shared";
+import {
   findMissingHistoricalReviewStateIdentities,
   type HistoricalReviewStateRepairIdentity,
 } from "@/lib/review-state-repair.shared";
 
 type Client = SupabaseClient<Database>;
-// Source books partition raw sessions; projected state is shared by user, normalized word, and mode.
-type Identity = { userId: string; wordKey: string; reviewMode: ReviewMode };
-type SessionIdentity = Identity & { bookId: string; word: string };
+type WordIdentity = { userId: string; wordKey: string; reviewMode: ReviewMode };
+// Review state is keyed by normalized word + mode + selected scope; book id is scope input or source provenance.
+type Identity = WordIdentity & { scopeKey: ReviewScopeKey };
+type RebuildIdentity = WordIdentity & { scopeKey?: ReviewScopeKey };
+type SessionIdentity = WordIdentity & { bookId: string; word: string };
 type SessionInput = { userId: string; bookId: string; word: string; reviewMode: ReviewMode };
 type SessionRow = Database["public"]["Tables"]["review_session_results"]["Row"];
 const PAGE_SIZE = 500;
@@ -58,7 +65,7 @@ function sessionFromRow(row: SessionRow): ReviewSessionResult {
 async function fetchSessions(supabase: Client, identity: Identity): Promise<SessionRow[]> {
   const rows: SessionRow[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("review_session_results")
       .select("*")
       .eq("user_id", identity.userId)
@@ -66,8 +73,10 @@ async function fetchSessions(supabase: Client, identity: Identity): Promise<Sess
       .eq("review_mode", identity.reviewMode)
       .order("completed_at", { ascending: true })
       .order("book_id", { ascending: true })
-      .order("session_id", { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1);
+      .order("session_id", { ascending: true });
+    const sourceBookId = bookIdForReviewScope(identity.scopeKey);
+    if (sourceBookId) query = query.eq("book_id", sourceBookId);
+    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
     rows.push(...(data ?? []));
     if (!data || data.length < PAGE_SIZE) return rows;
@@ -93,6 +102,8 @@ async function fetchAttempts(
       .order("created_at", { ascending: true })
       .order("id", { ascending: true });
     if (filters.sourceBookId) query = query.eq("book_id", filters.sourceBookId);
+    const scopeBookId = bookIdForReviewScope(identity.scopeKey);
+    if (scopeBookId) query = query.eq("book_id", scopeBookId);
     if (filters.sessionId) query = query.eq("review_session_id", filters.sessionId);
     const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
@@ -110,7 +121,11 @@ async function persistSessionResultFromAttempts(
   const [sessionAttempts, existingResult] = await Promise.all([
     attempts
       ? Promise.resolve(attempts)
-      : fetchAttempts(supabase, identity, { sessionId, sourceBookId: identity.bookId }),
+      : fetchAttempts(
+          supabase,
+          { ...identity, scopeKey: "shared" },
+          { sessionId, sourceBookId: identity.bookId },
+        ),
     supabase
       .from("review_session_results")
       .select("completed_at, time_zone, learning_day, source_fingerprint, revision")
@@ -234,6 +249,7 @@ async function fetchLatestDecisions(
       .eq("user_id", identity.userId)
       .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
+      .eq("scope_key", identity.scopeKey)
       .order("decision_revision", { ascending: false })
       .order("created_at", { ascending: false })
       .range(offset, offset + PAGE_SIZE - 1);
@@ -251,23 +267,115 @@ async function fetchLatestDecisions(
   }
 }
 
-async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Promise<void> {
-  const invalidatedSessions = await rebuildReviewSessionResultsFromAttempts(supabase, identity);
+async function shareReviewProgressForUser(supabase: Client, userId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("user_settings")
+    .select("share_review_progress")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.share_review_progress ?? true;
+}
+
+type RebuildFilter = { bookId?: string; wordKey?: string; reviewMode?: ReviewMode };
+
+async function collectProjectionIdentities(
+  supabase: Client,
+  userId: string,
+  shareAcrossBooks: boolean,
+  filter: RebuildFilter = {},
+): Promise<Identity[]> {
+  const identities = new Map<string, Identity>();
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    let query = supabase
+      .from("review_session_results")
+      .select("book_id, word_key, review_mode")
+      .eq("user_id", userId)
+      .order("word_key", { ascending: true })
+      .order("review_mode", { ascending: true })
+      .order("book_id", { ascending: true });
+    if (filter.bookId) query = query.eq("book_id", filter.bookId);
+    if (filter.wordKey) query = query.eq("word_key", filter.wordKey);
+    if (filter.reviewMode) query = query.eq("review_mode", filter.reviewMode);
+    const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1);
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      if (row.review_mode !== "recognition" && row.review_mode !== "spelling") continue;
+      const identity: Identity = {
+        userId,
+        wordKey: row.word_key,
+        reviewMode: row.review_mode,
+        scopeKey: reviewScopeForBook(row.book_id, shareAcrossBooks),
+      };
+      identities.set(JSON.stringify([identity.wordKey, identity.reviewMode, identity.scopeKey]), identity);
+    }
+    if (!data || data.length < PAGE_SIZE) return [...identities.values()];
+  }
+}
+
+/** Settings writes may enumerate affected sessions; normal review reads never call this history scan. */
+export async function rebuildReviewProjectionsForUser(supabase: Client, userId: string): Promise<void> {
+  const shareAcrossBooks = await shareReviewProgressForUser(supabase, userId);
+  const identities = await collectProjectionIdentities(supabase, userId, shareAcrossBooks);
+  for (const identity of identities) await rebuildReviewState(supabase, identity, { refreshSessionResults: false });
+}
+
+/** Rebuild only words sourced by this book, replaying their full active-scope history. */
+export async function rebuildReviewProjectionsForBook(
+  supabase: Client,
+  userId: string,
+  bookId: string,
+): Promise<void> {
+  const shareAcrossBooks = await shareReviewProgressForUser(supabase, userId);
+  const identities = await collectProjectionIdentities(supabase, userId, shareAcrossBooks, { bookId });
+  for (const identity of identities) await rebuildReviewState(supabase, identity, { refreshSessionResults: false });
+}
+
+async function fetchBookReviewInclusion(
+  supabase: Client,
+  userId: string,
+  bookIds: string[],
+): Promise<Record<string, boolean>> {
+  if (bookIds.length === 0) return {};
+  const preferences: Record<string, boolean> = {};
+  for (let offset = 0; offset < bookIds.length; offset += 100) {
+    const { data, error } = await supabase
+      .from("user_book_review_settings")
+      .select("book_id, include_in_review")
+      .eq("user_id", userId)
+      .in("book_id", bookIds.slice(offset, offset + 100));
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) preferences[row.book_id] = row.include_in_review;
+  }
+  return preferences;
+}
+
+async function rebuildReviewStateOnce(
+  supabase: Client,
+  identity: Identity,
+  refreshSessionResults: boolean,
+): Promise<void> {
+  const shareAcrossBooks = await shareReviewProgressForUser(supabase, identity.userId);
+  if ((identity.scopeKey === "shared") !== shareAcrossBooks) {
+    throw new Error("Review scope changed concurrently; retry projection");
+  }
+  const invalidatedSessions = refreshSessionResults
+    ? await rebuildReviewSessionResultsFromAttempts(supabase, identity)
+    : [];
   const [sessions, settingResult, stateResult, previousDecisions] = await Promise.all([
     fetchSessions(supabase, identity),
-    identity.reviewMode === "spelling"
-      ? supabase
-          .from("user_settings")
-          .select("include_spelling_in_review, include_spelling_in_review_first_choice")
-          .eq("user_id", identity.userId)
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null }),
+    supabase
+      .from("user_settings")
+      .select("include_spelling_in_review_first_choice")
+      .eq("user_id", identity.userId)
+      .maybeSingle(),
     supabase
       .from("review_states")
       .select("revision")
       .eq("user_id", identity.userId)
       .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
+      .eq("scope_key", identity.scopeKey)
       .maybeSingle(),
     fetchLatestDecisions(supabase, identity),
   ]);
@@ -275,10 +383,17 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
   if (stateResult.error) throw new Error(stateResult.error.message);
 
   const firstSpellingPreference = settingResult.data?.include_spelling_in_review_first_choice ?? null;
+  const bookInclusionById = await fetchBookReviewInclusion(
+    supabase,
+    identity.userId,
+    [...new Set(sessions.map((session) => session.book_id))],
+  );
   const projection = projectReviewScheduleState(
     identity.reviewMode,
     sessions.map(sessionFromRow),
     firstSpellingPreference,
+    eventOnlyReviewScheduler,
+    { scopeKey: identity.scopeKey, bookInclusionById },
   );
   const decisionIds = new Map(previousDecisions);
 
@@ -292,6 +407,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
       .insert({
         user_id: identity.userId,
         book_id: decision.session.bookId,
+        scope_key: identity.scopeKey,
         word: decision.session.word,
         word_key: decision.session.wordKey,
         review_mode: identity.reviewMode,
@@ -328,15 +444,19 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
     const prior = previousDecisions.get(decisionKey);
     if (!prior) continue;
     const effectiveInclusion =
-      invalidated.countedForReview ??
-      (identity.reviewMode === "spelling" ? firstSpellingPreference : null);
+      bookInclusionById[invalidated.bookId] === false
+        ? false
+        : (invalidated.countedForReview ??
+          (identity.reviewMode === "spelling" ? firstSpellingPreference : null));
     const inputFingerprint = JSON.stringify({
       schedulerVersion,
+      scopeKey: identity.scopeKey,
       sessionId: invalidated.sessionId,
       bookId: invalidated.bookId,
       wordKey: invalidated.wordKey,
       sourceFingerprint: invalidated.sourceFingerprint,
       effectiveInclusion,
+      bookIncluded: bookInclusionById[invalidated.bookId] !== false,
       learningDay: invalidated.learningDay,
       invalidated: true,
     });
@@ -346,6 +466,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
     const { error } = await supabaseAdmin.from("review_schedule_decisions").insert({
       user_id: identity.userId,
       book_id: invalidated.bookId,
+      scope_key: identity.scopeKey,
       word: invalidated.word,
       word_key: invalidated.wordKey,
       review_mode: identity.reviewMode,
@@ -380,6 +501,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
       .eq("user_id", identity.userId)
       .eq("word_key", identity.wordKey)
       .eq("review_mode", identity.reviewMode)
+      .eq("scope_key", identity.scopeKey)
       .eq("revision", stateResult.data.revision)
       .select("revision")
       .maybeSingle();
@@ -401,6 +523,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
     word: lastIncluded.session.word,
     word_key: identity.wordKey,
     review_mode: identity.reviewMode,
+    scope_key: identity.scopeKey,
     last_reviewed_at: state.lastReviewedAt,
     next_due_at: state.nextDueAt,
     interval_seconds: state.intervalSeconds,
@@ -434,6 +557,7 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
     .eq("user_id", identity.userId)
     .eq("word_key", identity.wordKey)
     .eq("review_mode", identity.reviewMode)
+    .eq("scope_key", identity.scopeKey)
     .eq("revision", stateResult.data.revision)
     .select("revision")
     .maybeSingle();
@@ -441,16 +565,30 @@ async function rebuildReviewStateOnce(supabase: Client, identity: Identity): Pro
   if (!data) throw new Error("Review state changed concurrently; retry projection");
 }
 
-export async function rebuildReviewState(supabase: Client, identity: Identity): Promise<void> {
-  for (let retry = 0; retry < 6; retry += 1) {
-    try {
-      await rebuildReviewStateOnce(supabase, identity);
-      return;
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("changed concurrently")) throw error;
+export async function rebuildReviewState(
+  supabase: Client,
+  identity: RebuildIdentity,
+  options: { refreshSessionResults?: boolean } = {},
+): Promise<void> {
+  const scopes = identity.scopeKey
+    ? [{ ...identity, scopeKey: identity.scopeKey }]
+    : await collectProjectionIdentities(
+        supabase,
+        identity.userId,
+        await shareReviewProgressForUser(supabase, identity.userId),
+        { wordKey: identity.wordKey, reviewMode: identity.reviewMode },
+      );
+  for (const scopedIdentity of scopes) {
+    for (let retry = 0; retry < 6; retry += 1) {
+      try {
+        await rebuildReviewStateOnce(supabase, scopedIdentity, options.refreshSessionResults ?? true);
+        break;
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes("changed concurrently")) throw error;
+        if (retry === 5) throw new Error("Review state changed concurrently; retry the learning attempt");
+      }
     }
   }
-  throw new Error("Review state changed concurrently; retry the learning attempt");
 }
 
 export async function finalizeReviewSession(
@@ -460,22 +598,27 @@ export async function finalizeReviewSession(
 ): Promise<void> {
   const wordKey = normalizeReviewWord(source.word);
   if (!wordKey) throw new Error("A review word must contain non-whitespace characters");
-  const identity: Identity = { userId: source.userId, wordKey, reviewMode: source.reviewMode };
+  const identity = { userId: source.userId, wordKey, reviewMode: source.reviewMode };
   await persistSessionResultFromAttempts(
     supabase,
     { ...identity, bookId: source.bookId, word: source.word },
     sessionId,
   );
-  // Retrying the current session replays only this normalized word and mode, without a user-wide scan.
-  await rebuildReviewState(supabase, identity);
+  // Retry repairs only this current word/session's active scope; source book is not a live-book dependency.
+  const shareAcrossBooks = await shareReviewProgressForUser(supabase, source.userId);
+  await rebuildReviewState(supabase, {
+    ...identity,
+    scopeKey: reviewScopeForBook(source.bookId, shareAcrossBooks),
+  });
 }
 
 export async function rebuildPendingSpellingStates(supabase: Client, userId: string): Promise<void> {
   const identities = new Map<string, Identity>();
+  const shareAcrossBooks = await shareReviewProgressForUser(supabase, userId);
   for (let offset = 0; ; offset += PAGE_SIZE) {
     const { data, error } = await supabase
       .from("attempts")
-      .select("review_word_key")
+      .select("review_word_key, book_id")
       .eq("user_id", userId)
       .eq("mode", "word")
       .eq("review_mode", "spelling")
@@ -488,12 +631,19 @@ export async function rebuildPendingSpellingStates(supabase: Client, userId: str
       if (row.review_word_key === null) {
         throw new Error("Attempt is missing its generated review word key");
       }
-      identities.set(row.review_word_key, { userId, wordKey: row.review_word_key, reviewMode: "spelling" });
+      const identity: Identity = {
+        userId,
+        wordKey: row.review_word_key,
+        reviewMode: "spelling",
+        scopeKey: reviewScopeForBook(row.book_id, shareAcrossBooks),
+      };
+      identities.set(JSON.stringify([identity.wordKey, identity.scopeKey]), identity);
     }
     if (!data || data.length < PAGE_SIZE) break;
   }
 
-  for (const identity of identities.values()) await rebuildReviewState(supabase, identity);
+  for (const identity of identities.values())
+    await rebuildReviewState(supabase, identity, { refreshSessionResults: false });
 }
 
 export type HistoricalReviewStateRepairPlan = {
@@ -549,25 +699,40 @@ export async function planMissingReviewStatesInWindow(
         (session.review_mode === "spelling" && session.counted_for_review === null)),
   );
 
-  const pendingSpellingUsers = [
-    ...new Set(
-      candidateSessions
-        .filter((session) => session.review_mode === "spelling" && session.counted_for_review === null)
-        .map((session) => session.user_id),
-    ),
-  ];
+  const candidateUsers = [...new Set(candidateSessions.map((session) => session.user_id))];
   const spellingPreferences: Array<{
     user_id: string;
     include_spelling_in_review_first_choice: boolean | null;
+    share_review_progress: boolean | null;
   }> = [];
-  for (let offset = 0; offset < pendingSpellingUsers.length; offset += 100) {
-    const userIds = pendingSpellingUsers.slice(offset, offset + 100);
+  for (let offset = 0; offset < candidateUsers.length; offset += 100) {
+    const userIds = candidateUsers.slice(offset, offset + 100);
     const { data, error } = await supabase
       .from("user_settings")
-      .select("user_id, include_spelling_in_review_first_choice")
+      .select("user_id, include_spelling_in_review_first_choice, share_review_progress")
       .in("user_id", userIds);
     if (error) throw new Error(error.message);
     spellingPreferences.push(...(data ?? []));
+  }
+
+  const booksByUser = new Map<string, Set<string>>();
+  for (const session of candidateSessions) {
+    const books = booksByUser.get(session.user_id) ?? new Set<string>();
+    books.add(session.book_id);
+    booksByUser.set(session.user_id, books);
+  }
+  const bookPreferences: Array<{ user_id: string; book_id: string; include_in_review: boolean }> = [];
+  for (const [userId, bookSet] of booksByUser) {
+    const bookIds = [...bookSet];
+    for (let offset = 0; offset < bookIds.length; offset += 100) {
+      const { data, error } = await supabase
+        .from("user_book_review_settings")
+        .select("user_id, book_id, include_in_review")
+        .eq("user_id", userId)
+        .in("book_id", bookIds.slice(offset, offset + 100));
+      if (error) throw new Error(error.message);
+      bookPreferences.push(...(data ?? []));
+    }
   }
 
   const wordKeysByUser = new Map<string, Set<string>>();
@@ -578,13 +743,13 @@ export async function planMissingReviewStatesInWindow(
     wordKeysByUser.set(session.user_id, keys);
   }
 
-  const existingStates: Array<{ user_id: string; word_key: string; review_mode: string }> = [];
+  const existingStates: Array<{ user_id: string; word_key: string; review_mode: string; scope_key: string }> = [];
   for (const [userId, wordKeys] of wordKeysByUser) {
     const keys = [...wordKeys];
     for (let offset = 0; offset < keys.length; offset += 100) {
       const { data, error } = await supabase
         .from("review_states")
-        .select("user_id, word_key, review_mode")
+        .select("user_id, word_key, review_mode, scope_key")
         .eq("user_id", userId)
         .in("word_key", keys.slice(offset, offset + 100));
       if (error) throw new Error(error.message);
@@ -596,6 +761,7 @@ export async function planMissingReviewStatesInWindow(
     candidateSessions,
     existingStates,
     spellingPreferences,
+    bookPreferences,
   );
   return {
     fromInclusive: from,
