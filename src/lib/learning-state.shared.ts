@@ -1,4 +1,6 @@
 import { entryKey } from "./entry-identity";
+import { normalizeReviewWord } from "./review-scheduler.shared";
+import { reviewScopeForBook } from "./review-scope.shared";
 import {
   parseMemorizeSession,
   parseSentenceCheckpoint,
@@ -77,7 +79,12 @@ export type LearningAttemptRow = {
 
 const dayKey = (date: Date) => date.toLocaleDateString("en-CA");
 
-function collectErrorWords(rows: LearningAttemptRow[]) {
+/** Study problems use Review's word/scope identity, but do not split by review mode. */
+export function learningProblemKey(bookId: string, word: string, shareAcrossBooks: boolean): string {
+  return JSON.stringify([reviewScopeForBook(bookId, shareAcrossBooks), normalizeReviewWord(word)]);
+}
+
+function collectErrorWords(rows: LearningAttemptRow[], shareAcrossBooks: boolean) {
   const wrong = new Map<string, { word: string; bookId: string; translation: string | null }>();
   const errorAttempts = new Map<
     string,
@@ -91,7 +98,7 @@ function collectErrorWords(rows: LearningAttemptRow[]) {
     if (seenAttempts.has(attemptId)) return;
     seenAttempts.add(attemptId);
 
-    const key = entryKey({ bookId: row.book_id, word: row.word });
+    const key = learningProblemKey(row.book_id, row.word, shareAcrossBooks);
     if (!wrong.has(key))
       wrong.set(key, { word: row.word, bookId: row.book_id, translation: row.translation });
     const current = errorAttempts.get(key) ?? {
@@ -168,11 +175,14 @@ export function buildLearningState(input: {
 
   const identity = (row: { book_id: string; word: string }) =>
     entryKey({ bookId: row.book_id, word: row.word });
-  const errorWords = collectErrorWords(rows);
+  const shareAcrossBooks = input.settings?.share_review_progress ?? true;
+  const errorWords = collectErrorWords(rows, shareAcrossBooks);
   const wrongWords = errorWords.wrongWords.slice(0, 60);
-  const visibleWrongKeys = new Set(wrongWords.map(entryKey));
+  const visibleWrongKeys = new Set(
+    wrongWords.map((item) => learningProblemKey(item.bookId, item.word, shareAcrossBooks)),
+  );
   const troubleWords = errorWords.troubleWords
-    .filter((item) => visibleWrongKeys.has(entryKey(item)))
+    .filter((item) => visibleWrongKeys.has(learningProblemKey(item.bookId, item.word, shareAcrossBooks)))
     .slice(0, 60);
   const mistouch: LearningState["mistouchWords"] = [];
   for (const row of studied) {
@@ -210,7 +220,7 @@ export function buildLearningState(input: {
     memorizeSpelling: input.settings?.memorize_spelling ?? true,
     strictSpelling: input.settings?.strict_spelling ?? false,
     includeSpellingInReview: input.settings?.include_spelling_in_review ?? null,
-    shareReviewProgress: input.settings?.share_review_progress ?? true,
+    shareReviewProgress: shareAcrossBooks,
     reviewInclusionByBook: Object.fromEntries(
       (input.bookReviewSettings ?? []).map(({ book_id, include_in_review }) => [book_id, include_in_review]),
     ),
@@ -237,19 +247,27 @@ export function buildLearningState(input: {
   };
 }
 
-export function buildLearningStats(rows: LearningAttemptRow[], now = new Date()): LearningStats {
+export function buildLearningStats(
+  rows: LearningAttemptRow[],
+  now = new Date(),
+  shareAcrossBooks = true,
+): LearningStats {
   const attempts = rows.filter((row) => !row.skipped);
   const today = dayKey(now);
   const todayRows = attempts.filter((row) => dayKey(new Date(row.created_at)) === today);
 
   const practiceAttempts = new Map<string, number>();
-  for (const row of attempts) {
-    const key = entryKey({ bookId: row.book_id, word: row.word });
+  const seenPracticeAttempts = new Set<string>();
+  for (const [index, row] of attempts.entries()) {
+    const attemptId = row.id ? `id:${row.id}` : `row:${index}`;
+    if (seenPracticeAttempts.has(attemptId)) continue;
+    seenPracticeAttempts.add(attemptId);
+    const key = learningProblemKey(row.book_id, row.word, shareAcrossBooks);
     practiceAttempts.set(key, (practiceAttempts.get(key) ?? 0) + 1);
   }
-  const troubleWords = collectErrorWords(rows).troubleWords.map((item) => ({
+  const troubleWords = collectErrorWords(rows, shareAcrossBooks).troubleWords.map((item) => ({
     ...item,
-    times: practiceAttempts.get(entryKey(item)) ?? 0,
+    times: practiceAttempts.get(learningProblemKey(item.bookId, item.word, shareAcrossBooks)) ?? 0,
   }));
 
   const days = new Set(attempts.map((row) => dayKey(new Date(row.created_at))));

@@ -6,7 +6,7 @@ import { createServer } from "vite";
 const vite = await createServer({ configFile: false, server: { middlewareMode: true } });
 after(() => vite.close());
 
-const { buildLearningState, buildLearningStats, nextLearningCursor, shouldRunSpellingRound } =
+const { buildLearningState, buildLearningStats, learningProblemKey, nextLearningCursor, shouldRunSpellingRound } =
   await vite.ssrLoadModule("/src/lib/learning-state.shared.ts");
 const {
   clearPendingWordAttempt,
@@ -183,7 +183,7 @@ test("stats exclude skips, separate per-book trouble, and do not count wrong rec
   assert.deepEqual(stats.troubleWords, []);
 });
 
-test("mistakes include typo and wrong-answer attempts; trouble requires two real attempts per book", () => {
+test("mistakes include typo and wrong-answer attempts; shared trouble counts distinct real attempts", () => {
   const rows = [
     attempt({ id: "typo-many", word: "typo", typo_count: 8 }),
     attempt({ id: "answer-one", word: "answer", correct: false }),
@@ -212,12 +212,11 @@ test("mistakes include typo and wrong-answer attempts; trouble requires two real
   assert.deepEqual(identities(state.wrongWords), [
     "book-a:typo",
     "book-a:answer",
-    "book-b:answer",
     "book-a:duplicate",
   ]);
   assert.deepEqual(
     state.troubleWords.map(({ bookId, word, errorAttempts }) => [bookId, word, errorAttempts]),
-    [["book-a", "answer", 2]],
+    [["book-a", "answer", 3]],
   );
   assert.deepEqual(
     stats.troubleWords.map(({ bookId, word, errorAttempts, times }) => [
@@ -226,7 +225,7 @@ test("mistakes include typo and wrong-answer attempts; trouble requires two real
       errorAttempts,
       times,
     ]),
-    [["book-a", "answer", 2, 2]],
+    [["book-a", "answer", 3, 3]],
   );
   assert.equal(
     stats.recent.find((item) => item.word === "answer")?.correct,
@@ -240,6 +239,61 @@ test("mistakes include typo and wrong-answer attempts; trouble requires two real
   );
   assert.deepEqual(identities(state.mistouchWords), ["book-a:mistouch"]);
   assert.ok(!identities(state.wrongWords).some((key) => key.endsWith(":skip")));
+});
+
+test("problem scope normalizes cross-book words without splitting recognition and spelling", () => {
+  const rows = [
+    attempt({ id: "spelling-error", book_id: "book-a", word: "  DON’T   WORRY ", typo_count: 7, translation: "别担心" }),
+    attempt({ id: "recognition-error", book_id: "book-b", word: "don't worry", mode: "memorize", correct: false, translation: "无需担忧" }),
+    attempt({ id: "spelling-error", book_id: "book-a", word: "  DON’T   WORRY ", typo_count: 7 }),
+    attempt({ id: "mistouch", book_id: "book-b", word: "don't worry", typo_count: 3, mistouch: true }),
+    attempt({ id: "skip", book_id: "book-b", word: "don't worry", correct: false, skipped: true }),
+  ];
+  const state = (shareReviewProgress) => buildLearningState({
+    settings: { share_review_progress: shareReviewProgress },
+    bookReviewSettings: [{ book_id: "book-b", include_in_review: false }],
+    progress: [], attempts: rows, mastery: [], now,
+  });
+  const shared = state(true);
+  assert.equal(learningProblemKey("book-a", "  DON’T   WORRY ", true), learningProblemKey("book-b", "don't worry", true));
+  assert.equal(shared.wrongWords.length, 1);
+  assert.deepEqual(shared.wrongWords[0], { word: "  DON’T   WORRY ", bookId: "book-a", translation: "别担心" });
+  assert.deepEqual(shared.troubleWords.map(({ errorAttempts }) => errorAttempts), [2]);
+  assert.deepEqual(buildLearningStats(rows, now, true).troubleWords.map(({ errorAttempts }) => errorAttempts), [2]);
+
+  const separate = state(false);
+  assert.notEqual(learningProblemKey("book-a", "don't worry", false), learningProblemKey("book-b", "don't worry", false));
+  assert.deepEqual(separate.wrongWords.map(({ bookId }) => bookId), ["book-a", "book-b"]);
+  assert.deepEqual(separate.troubleWords, []);
+  assert.deepEqual(buildLearningStats(rows, now, false).troubleWords, []);
+});
+
+test("problem scope is used by mistake badges and stats reads the saved sharing setting", async () => {
+  const [learn, functions, profile] = await Promise.all([
+    readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/profile.tsx", import.meta.url), "utf8"),
+  ]);
+  const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
+  assert.match(learn, /savedToMistakes[\s\S]*learningProblemKey\(itemBookId, item\.entry\.word/);
+  assert.match(learn, /isSaved=\{savedToMistakes\.has\(resultProblemKey\)\}/);
+  assert.match(statsRead, /\.select\("share_review_progress"\)/);
+  assert.match(statsRead, /settings\.data\?\.share_review_progress \?\? true/);
+  assert.match(profile, /invalidateQueries\(\{ queryKey: \["stats"\] \}\)/);
+});
+
+test("book-local trouble needs two different real attempt ids in that book", () => {
+  const rows = [
+    attempt({ id: "same", book_id: "book-a", word: "Growth", typo_count: 8 }),
+    attempt({ id: "same", book_id: "book-a", word: "Growth", typo_count: 8 }),
+    attempt({ id: "other-book", book_id: "book-b", word: "growth", correct: false }),
+    attempt({ id: "second", book_id: "book-a", word: " growth ", correct: false }),
+  ];
+  const state = buildLearningState({
+    settings: { share_review_progress: false }, progress: [], attempts: rows, mastery: [], now,
+  });
+  assert.deepEqual(state.troubleWords.map(({ bookId, errorAttempts }) => [bookId, errorAttempts]), [["book-a", 2]]);
+  assert.deepEqual(buildLearningStats(rows, now, false).troubleWords.map(({ bookId, errorAttempts, times }) => [bookId, errorAttempts, times]), [["book-a", 2, 2]]);
 });
 
 test("learning-state re-entry waits for pending server writes and restores each book and mode", async () => {
