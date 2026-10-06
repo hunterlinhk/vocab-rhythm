@@ -98,7 +98,7 @@ function ProfilePage() {
         <Setting icon={Moon} title="主题" description="当前为浅色玻璃主题"><ChevronRight className="size-5 text-muted-foreground"/></Setting>
       </section>
 
-      <Button variant="ghost" onClick={async () => { await supabase.auth.signOut(); void navigate({ to: "/" }); }} className="rounded-full text-muted-foreground"><LogOut /> 退出登录</Button>
+      <Button variant="ghost" onClick={async () => { await supabase.auth.signOut(); void navigate({ to: "/auth", replace: true }); }} className="rounded-full text-muted-foreground"><LogOut /> 退出登录</Button>
     </div>
   );
 }
