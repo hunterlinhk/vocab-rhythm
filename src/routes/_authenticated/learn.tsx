@@ -14,12 +14,14 @@ import { entryKey, parseFavorites, type EntryIdentity } from "@/lib/entry-identi
 import { learningProblemKey } from "@/lib/learning-state.shared";
 import {
   markAttemptMistouch,
+  hasLearningProblem,
   recordAttempt,
   saveBookCursor,
   saveSettings,
 } from "@/lib/learning.functions";
 import {
   clearPendingWordAttempt,
+  fetchAfterLearningStateWrites,
   getOrCreatePendingWordAttemptId,
   getUserTimeZone,
   queueLearningStateWrite,
@@ -237,13 +239,15 @@ function ResultPanel({
 
 function LearnPage() {
   const { queue: queueKind } = Route.useSearch();
+  const problemQueue = queueKind === "wrong" || queueKind === "trouble";
   const save = useServerFn(recordAttempt);
+  const checkProblem = useServerFn(hasLearningProblem);
   const flagMistouch = useServerFn(markAttemptMistouch);
   const persistCursor = useServerFn(saveBookCursor);
   const persistSettings = useServerFn(saveSettings);
   const qc = useQueryClient();
   const { data: state, isAuthoritative: stateIsAuthoritative } = useLearningState();
-  const problems = useLearningProblems();
+  const problems = useLearningProblems({ enabled: problemQueue });
   const dueSpelling = useDueReview("spelling", queueKind === "today");
   const [todayQueue, setTodayQueue] = useState<{ word: string; bookId: string; translation: null }[] | null>(null);
   useEffect(() => {
@@ -303,11 +307,15 @@ function LearnPage() {
     void queueLearningStateWrite(() =>
       persistSettings({ data: { includeSpellingInReview: next } }),
     )
-      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        void qc.invalidateQueries({ queryKey: ["due-review-count"] });
+      })
       .catch(() => {
         if (reviewPreferenceWriteRef.current === writeId)
           setIncludeSpellingInReview(state?.includeSpellingInReview ?? null);
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        void qc.invalidateQueries({ queryKey: ["due-review-count"] });
       });
   }, [includeSpellingInReview, persistSettings, qc, state?.includeSpellingInReview]);
   const [locallySavedToMistakes, setLocallySavedToMistakes] = useState<Set<string>>(new Set());
@@ -365,7 +373,6 @@ function LearnPage() {
       );
     return currentBook?.words ?? [];
   }, [queueKind, reviewItems, resolved, currentBook]);
-  const problemQueue = queueKind === "wrong" || queueKind === "trouble";
   const queueLoading = (queueKind === "today" && todayQueue === null) ||
     (problemQueue && !problems.isAuthoritative) || (queueKind
     ? dbItems.length > 0 && !resolvedFetched
@@ -435,6 +442,18 @@ function LearnPage() {
   const resultProblemKey = resultItem
     ? learningProblemKey(resultBookId, resultItem.entry.word, state?.shareReviewProgress ?? true)
     : "";
+  const currentProblem = useQuery({
+    queryKey: ["learning-problem", resultBookId, resultProblemKey],
+    queryFn: () => fetchAfterLearningStateWrites(() => checkProblem({
+      data: { bookId: resultBookId, word: resultItem!.entry.word },
+    })),
+    enabled: !!resultItem && !problemQueue,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
+  const canSaveProblem = problemQueue
+    ? problems.isAuthoritative
+    : currentProblem.isFetchedAfterMount && !currentProblem.isFetching && !currentProblem.isError;
 
   const persistCompletion = useCallback(
     (completion: PendingWordCompletion) => {
@@ -480,7 +499,9 @@ function LearnPage() {
           void qc.invalidateQueries({ queryKey: ["stats"] });
           void qc.invalidateQueries({ queryKey: ["learning-state"] });
           void qc.invalidateQueries({ queryKey: ["learning-problems"] });
+          void qc.invalidateQueries({ queryKey: ["learning-problem"] });
           void qc.invalidateQueries({ queryKey: ["due-review"] });
+          void qc.invalidateQueries({ queryKey: ["due-review-count"] });
         })
         .catch(() => {
           setCompletionRetries((items) =>
@@ -615,7 +636,9 @@ function LearnPage() {
         .then(() => {
           void qc.invalidateQueries({ queryKey: ["learning-state"] });
           void qc.invalidateQueries({ queryKey: ["learning-problems"] });
+          void qc.invalidateQueries({ queryKey: ["learning-problem"] });
           void qc.invalidateQueries({ queryKey: ["due-review"] });
+          void qc.invalidateQueries({ queryKey: ["due-review-count"] });
         })
         .catch(() => undefined);
     },
@@ -732,7 +755,7 @@ function LearnPage() {
     (item: HistoryItem) => {
       const itemBookId = item.entry.bookId ?? bookId ?? "core";
       const key = learningProblemKey(itemBookId, item.entry.word, state?.shareReviewProgress ?? true);
-      if (!problems.isAuthoritative || savedToMistakes.has(key)) return;
+      if (!canSaveProblem || savedToMistakes.has(key) || currentProblem.data?.saved) return;
       setLocallySavedToMistakes((s) => new Set(s).add(key));
       void queueLearningStateWrite(() =>
         save({
@@ -753,6 +776,7 @@ function LearnPage() {
         .then(() => {
           void qc.invalidateQueries({ queryKey: ["learning-state"] });
           void qc.invalidateQueries({ queryKey: ["learning-problems"] });
+          void qc.invalidateQueries({ queryKey: ["learning-problem"] });
         })
         .catch(() => setLocallySavedToMistakes((items) => {
           const next = new Set(items);
@@ -760,7 +784,7 @@ function LearnPage() {
           return next;
         }));
     },
-    [bookId, save, savedToMistakes, problems.isAuthoritative, qc, state?.shareReviewProgress],
+    [bookId, save, savedToMistakes, canSaveProblem, currentProblem.data?.saved, qc, state?.shareReviewProgress],
   );
 
   const progress = queue.length ? (index / queue.length) * 100 : 0;
@@ -924,8 +948,8 @@ function LearnPage() {
                 item={resultItem}
                 sweeping={!reviewing}
                 isFav={favorites.has(resultKey)}
-                isSaved={savedToMistakes.has(resultProblemKey)}
-                canSave={problems.isAuthoritative}
+                isSaved={savedToMistakes.has(resultProblemKey) || !!currentProblem.data?.saved}
+                canSave={canSaveProblem}
                 onFav={() => toggleFavorite({ bookId: resultBookId, word: resultItem.entry.word })}
                 onSave={() => addToMistakes(resultItem)}
                 onListen={() => speak(resultItem.entry.word)}

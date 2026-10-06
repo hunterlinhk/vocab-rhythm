@@ -150,7 +150,9 @@ export function RecognitionReview() {
         clearPendingWordAttempt(`${identity}:context`);
         clearPendingWordAttempt(attemptKey);
         void qc.invalidateQueries({ queryKey: ["due-review"] });
+        void qc.invalidateQueries({ queryKey: ["due-review-count"] });
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        void qc.invalidateQueries({ queryKey: ["learning-problems"] });
         next();
       }
     } catch {

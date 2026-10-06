@@ -94,9 +94,13 @@ function BooksPage() {
     if (savingReviewBook) return;
     setSavingReviewBook(bookId);
     void persistBookReviewSetting({ data: { bookId, includeInReview } })
-      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        void qc.invalidateQueries({ queryKey: ["due-review-count"] });
+      })
       .catch(() => {
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        void qc.invalidateQueries({ queryKey: ["due-review-count"] });
         toast.error("保存复习设置失败，请重试");
       })
       .finally(() => setSavingReviewBook(null));

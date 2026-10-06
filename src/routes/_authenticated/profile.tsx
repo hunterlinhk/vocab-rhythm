@@ -59,12 +59,14 @@ function ProfilePage() {
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
         void qc.invalidateQueries({ queryKey: ["stats"] });
         void qc.invalidateQueries({ queryKey: ["learning-problems"] });
+        void qc.invalidateQueries({ queryKey: ["due-review-count"] });
       })
       .catch(() => {
         setShareReviewProgress(state?.shareReviewProgress ?? true);
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
         void qc.invalidateQueries({ queryKey: ["stats"] });
         void qc.invalidateQueries({ queryKey: ["learning-problems"] });
+        void qc.invalidateQueries({ queryKey: ["due-review-count"] });
         toast.error("保存复习设置失败，请重试");
       });
   };

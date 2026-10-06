@@ -7,9 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { SectionHeading } from "@/components/SectionHeading";
 import { AppShell } from "@/components/AppShell";
-import { getStats } from "@/lib/learning.functions";
+import { getDueReviewCount, getStats } from "@/lib/learning.functions";
 import { useLearningState } from "@/hooks/use-learning-state";
-import { useLearningProblems } from "@/hooks/use-learning-problems";
 import { useLibrary } from "@/hooks/use-library";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
@@ -121,6 +120,7 @@ function LoginPrompt() {
 
 function HomeContent() {
   const fetchStats = useServerFn(getStats);
+  const fetchDueCount = useServerFn(getDueReviewCount);
   const [authed, setAuthed] = useState(false);
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => setAuthed(!!data.session));
@@ -130,11 +130,16 @@ function HomeContent() {
   const { data, isLoading: statsLoading } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats(), enabled: authed });
   const isLoading = authed && statsLoading;
   const { data: state } = useLearningState({ enabled: authed });
-  const { data: problems, isAuthoritative: problemsReady } = useLearningProblems({ enabled: authed });
+  const { data: reviewCount, isLoading: dueLoading, isError: dueError } = useQuery({
+    queryKey: ["due-review-count"],
+    queryFn: () => fetchDueCount(),
+    enabled: authed,
+    staleTime: 0,
+    refetchOnMount: "always",
+  });
   const todayCount = data?.todayCount ?? 0;
   const dailyGoal = state?.dailyGoal ?? 20;
   const progress = Math.min(100, Math.round((todayCount / dailyGoal) * 100));
-  const reviewCount = problems?.wrongWords.length ?? 0;
   const { all: allBooks } = useLibrary();
   const activeBook = allBooks.find((b) => b.id === (state?.activeBook ?? "core")) ?? allBooks[0]!;
   const bookLearned = state?.learnedByBook[activeBook.id]?.length ?? 0;
@@ -164,7 +169,7 @@ function HomeContent() {
 
       <section className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <Metric icon={Target} label="今日练习" value={isLoading ? "—" : `${todayCount}`} unit={`/ ${dailyGoal} 次`} />
-        <Metric icon={RotateCcw} label="待复习" value={isLoading || !problemsReady ? "—" : `${reviewCount}`} unit="个词" />
+        <Metric icon={RotateCcw} label="待复习" value={dueLoading || dueError ? "—" : `${reviewCount ?? 0}`} unit="项" />
         <Metric icon={Flame} label="连续学习" value={isLoading ? "—" : `${data?.streakDays ?? 0}`} unit="天" />
         <Metric icon={Sparkles} label="正确率" value={isLoading ? "—" : `${data?.cleanRate ?? 0}`} unit="%" />
       </section>
@@ -192,8 +197,8 @@ function HomeContent() {
             <ChevronRight className="size-5 text-muted-foreground transition-transform group-hover:translate-x-1" />
           </div>
           <p className="mt-7 text-sm text-muted-foreground">复习任务</p>
-          <p className="mt-1 font-display text-2xl">{!problemsReady ? "载入中…" : reviewCount ? `${reviewCount} 个易错词待巩固` : "今天的复习已完成"}</p>
-          <p className="mt-2 text-sm text-muted-foreground">根据真实错误与误触记录安排</p>
+          <p className="mt-1 font-display text-2xl">{dueError ? "加载失败" : dueLoading ? "载入中…" : reviewCount ? `${reviewCount} 项复习待完成` : "今天的复习已完成"}</p>
+          <p className="mt-2 text-sm text-muted-foreground">按复习计划到期时间安排</p>
         </Link>
       </section>
 
