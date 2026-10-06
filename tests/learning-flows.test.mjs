@@ -395,7 +395,10 @@ test("root and legacy home route send users directly into learning or auth", asy
 });
 
 test("profile shows only working settings with tooltip help", async () => {
-  const profile = await readFile(new URL("../src/routes/_authenticated/profile.tsx", import.meta.url), "utf8");
+  const [profile, shell] = await Promise.all([
+    readFile(new URL("../src/routes/_authenticated/profile.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/AppShell.tsx", import.meta.url), "utf8"),
+  ]);
   assert.deepEqual([...profile.matchAll(/<Setting title="([^"]+)"/g)].map((match) => match[1]), [
     "严格拼写模式",
     "跨词书共享复习进度",
@@ -404,7 +407,8 @@ test("profile shows only working settings with tooltip help", async () => {
   assert.match(profile, /strictSpelling: on/);
   assert.match(profile, /shareReviewProgress: on/);
   assert.match(profile, /onCheckedChange=\{setVirtualKeyboard\}/);
-  assert.doesNotMatch(profile, /description=|编辑资料|升级 Pro|完成后自动发音|按键与完成音效|title="主题"/);
+  assert.doesNotMatch(profile, /description=|编辑资料|升级 Pro|完成后自动发音|按键与完成音效|title="主题"|会员|免费账户/);
+  assert.doesNotMatch(shell, /升级 Pro|更多词库与进阶分析|Crown|pro-sidebar/);
 });
 
 test("learning-state re-entry waits for pending server writes and restores each book and mode", async () => {

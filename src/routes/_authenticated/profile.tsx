@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_authenticated/profile")({
     { title: "我的 · 韵词 Cadence" },
     { name: "description", content: "管理韵词账号与学习设置。" },
     { property: "og:title", content: "我的 · 韵词 Cadence" },
-    { property: "og:description", content: "账号、会员与学习偏好设置。" },
+    { property: "og:description", content: "账号与学习偏好设置。" },
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
   ] }),
@@ -75,7 +75,7 @@ function ProfilePage() {
       <section className="glass-hero flex flex-col gap-6 rounded-[2rem] p-7 sm:flex-row sm:items-center sm:justify-between sm:p-9">
         <div className="flex min-w-0 items-center gap-4">
           <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20"><UserRound /></div>
-          <div className="min-w-0"><p className="truncate font-display text-2xl">{email}</p><p className="mt-1 text-sm text-muted-foreground">免费账户 · 学习记录已同步</p></div>
+          <div className="min-w-0"><p className="truncate font-display text-2xl">{email}</p><p className="mt-1 text-sm text-muted-foreground">学习记录已同步</p></div>
         </div>
       </section>
 

@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Bot, BookOpen, Brain, ChartNoAxesCombined, ChevronDown, ChevronLeft, Crown, Menu, UserRound } from "lucide-react";
+import { Bot, BookOpen, Brain, ChartNoAxesCombined, ChevronDown, ChevronLeft, Menu, UserRound } from "lucide-react";
 import { useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -207,12 +207,6 @@ function SidebarContent({
         </div>
       </nav>
 
-      <div className="relative z-10 m-3 mt-auto">
-        <Link to="/profile" className={cn("pro-sidebar glass-lift block p-4", collapsed && "flex justify-center p-3")}>
-          <Crown className="size-5 text-primary" />
-          {!collapsed && <><p className="mt-3 text-sm font-semibold">升级 Pro</p><p className="mt-1 text-xs leading-5 text-muted-foreground">更多词库与进阶分析</p></>}
-        </Link>
-      </div>
     </>
   );
 }
