@@ -411,6 +411,21 @@ test("profile shows only working settings with tooltip help", async () => {
   assert.doesNotMatch(shell, /升级 Pro|更多词库与进阶分析|Crown|pro-sidebar/);
 });
 
+test("plan labels attempts as daily practice and rolls back failed settings", async () => {
+  const plan = await readFile(new URL("../src/routes/_authenticated/plan.tsx", import.meta.url), "utf8");
+  assert.match(plan, /title="每日练习次数"/);
+  assert.match(plan, /每天 \{p\} 次/);
+  assert.match(plan, /还差 \$\{Math\.max\(0, goal - todayCount\)\} 次/);
+  assert.doesNotMatch(plan, /单词数量|每天 \{p\} 个| 个达成今日目标/);
+  assert.match(plan, /<SettingInfo text="选对词义后再拼写一次，完成三轮强化。"/);
+  assert.match(plan, /<Switch[\s\S]*aria-label="第三轮拼写"[\s\S]*onCheckedChange=\{toggleSpelling\}/);
+  assert.doesNotMatch(plan, /role="switch"|<p className="mt-1 text-xs text-muted-foreground">选对词义/);
+  assert.match(plan, /\.catch\(\(\) => \{\s*setGoal\(savedGoal\.current\);\s*setSaved\(false\);\s*toast\.error\("保存每日练习次数失败/);
+  assert.match(plan, /\.catch\(\(\) => \{\s*setSpelling\(savedSpelling\.current\);\s*toast\.error\("保存第三轮拼写设置失败/);
+  assert.match(plan, /disabled=\{!isAuthoritative \|\| goalSaving\}/);
+  assert.match(plan, /disabled=\{!isAuthoritative \|\| spellingSaving\}/);
+});
+
 test("learning-state re-entry waits for pending server writes and restores each book and mode", async () => {
   assert.equal(
     hasAuthoritativeLearningState({ isFetchedAfterMount: false, isFetching: true, isError: false }),
