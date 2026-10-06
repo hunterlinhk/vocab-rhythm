@@ -7,10 +7,10 @@ import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { bareEntry, findInBundledBook, findWord, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
+import { useLearningProblems } from "@/hooks/use-learning-problems";
 import { useDueReview } from "@/hooks/use-due-review";
 import { resolveEntries } from "@/lib/library.functions";
 import { entryKey, parseFavorites, type EntryIdentity } from "@/lib/entry-identity";
-import { learningProblemKey } from "@/lib/learning-state.shared";
 import {
   markAttemptMistouch,
   recordAttempt,
@@ -117,9 +117,7 @@ function ResultPanel({
   item,
   sweeping = false,
   isFav,
-  isSaved,
   onFav,
-  onSave,
   onListen,
   onNext,
   nextDisabled = false,
@@ -130,9 +128,7 @@ function ResultPanel({
   item: HistoryItem;
   sweeping?: boolean;
   isFav: boolean;
-  isSaved: boolean;
   onFav: () => void;
-  onSave: () => void;
   onListen: () => void;
   onNext: () => void;
   nextDisabled?: boolean;
@@ -172,7 +168,7 @@ function ResultPanel({
           </div>
         )}
       </div>
-      <div className="grid w-full grid-cols-6 gap-2 pt-1 sm:flex sm:w-auto sm:flex-wrap sm:justify-center">
+      <div className="grid w-full grid-cols-4 gap-2 pt-1 sm:flex sm:w-auto sm:flex-wrap sm:justify-center">
         <button
           type="button"
           onClick={onListen}
@@ -192,22 +188,11 @@ function ResultPanel({
         </button>
         <button
           type="button"
-          onClick={onSave}
-          disabled={isSaved}
-          className={cn(
-            "col-span-2 whitespace-nowrap rounded-full border px-2 py-2 text-sm transition-colors sm:px-4 sm:py-1.5",
-            isSaved ? "border-border bg-card text-muted-foreground" : "border-border bg-card hover:border-primary/40",
-          )}
-        >
-          {isSaved ? "已加入错题本" : "加入错题本"}
-        </button>
-        <button
-          type="button"
           onClick={onNext}
           disabled={nextDisabled}
           className={cn(
             "whitespace-nowrap rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:py-1.5",
-            showMistouch ? "col-span-3" : "col-span-6 mx-auto w-[58%] sm:w-auto",
+            showMistouch ? "col-span-2" : "col-span-4 mx-auto w-[58%] sm:w-auto",
           )}
         >
           下一个 →
@@ -218,7 +203,7 @@ function ResultPanel({
             onClick={onMistouch}
             disabled={mistouched}
             className={cn(
-              "col-span-3 whitespace-nowrap rounded-full border px-3 py-2 text-sm transition-colors sm:px-4 sm:py-1.5",
+              "col-span-2 whitespace-nowrap rounded-full border px-3 py-2 text-sm transition-colors sm:px-4 sm:py-1.5",
               mistouched
                 ? "border-border bg-card text-muted-foreground"
                 : "border-border bg-card hover:border-primary/40",
@@ -234,12 +219,14 @@ function ResultPanel({
 
 function LearnPage() {
   const { queue: queueKind } = Route.useSearch();
+  const problemQueue = queueKind === "wrong" || queueKind === "trouble";
   const save = useServerFn(recordAttempt);
   const flagMistouch = useServerFn(markAttemptMistouch);
   const persistCursor = useServerFn(saveBookCursor);
   const persistSettings = useServerFn(saveSettings);
   const qc = useQueryClient();
   const { data: state, isAuthoritative: stateIsAuthoritative } = useLearningState();
+  const problems = useLearningProblems({ enabled: problemQueue });
   const dueSpelling = useDueReview("spelling", queueKind === "today");
   const [todayQueue, setTodayQueue] = useState<{ word: string; bookId: string; translation: null }[] | null>(null);
   useEffect(() => {
@@ -299,22 +286,17 @@ function LearnPage() {
     void queueLearningStateWrite(() =>
       persistSettings({ data: { includeSpellingInReview: next } }),
     )
-      .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        void qc.invalidateQueries({ queryKey: ["due-review-count"] });
+      })
       .catch(() => {
         if (reviewPreferenceWriteRef.current === writeId)
           setIncludeSpellingInReview(state?.includeSpellingInReview ?? null);
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        void qc.invalidateQueries({ queryKey: ["due-review-count"] });
       });
   }, [includeSpellingInReview, persistSettings, qc, state?.includeSpellingInReview]);
-  const [locallySavedToMistakes, setLocallySavedToMistakes] = useState<Set<string>>(new Set());
-  const savedToMistakes = useMemo(
-    () => new Set([
-      ...(state?.wrongWords.map((item) =>
-        learningProblemKey(item.bookId, item.word, state.shareReviewProgress)) ?? []),
-      ...locallySavedToMistakes,
-    ]),
-    [state?.wrongWords, state?.shareReviewProgress, locallySavedToMistakes],
-  );
   const [locallyMistouched, setLocallyMistouched] = useState<Set<string>>(new Set());
   const mistouched = useMemo(
     () => new Set([...(state?.mistouchWords.map(entryKey) ?? []), ...locallyMistouched]),
@@ -334,10 +316,10 @@ function LearnPage() {
         translation: null,
       }));
     if (queueKind === "today") return todayQueue ?? [];
-    if (queueKind === "wrong") return state.wrongWords;
-    if (queueKind === "trouble") return state.troubleWords;
+    if (queueKind === "wrong") return problems.data?.wrongWords ?? [];
+    if (queueKind === "trouble") return problems.data?.troubleWords ?? [];
     return [];
-  }, [queueKind, state, favorites, todayQueue]);
+  }, [queueKind, state, problems.data, favorites, todayQueue]);
 
   const { all: allBooks } = useLibrary();
   const { book: currentBook } = useBook(queueKind ? null : bookId);
@@ -362,7 +344,8 @@ function LearnPage() {
       );
     return currentBook?.words ?? [];
   }, [queueKind, reviewItems, resolved, currentBook]);
-  const queueLoading = (queueKind === "today" && todayQueue === null) || (queueKind
+  const queueLoading = (queueKind === "today" && todayQueue === null) ||
+    (problemQueue && !problems.isAuthoritative) || (queueKind
     ? dbItems.length > 0 && !resolvedFetched
     : !currentBook);
 
@@ -427,9 +410,6 @@ function LearnPage() {
     (done && entry && doneAttemptId ? { entry, result: done, attemptId: doneAttemptId } : undefined);
   const resultBookId = resultItem?.entry.bookId ?? bookId ?? "core";
   const resultKey = resultItem ? entryKey({ bookId: resultBookId, word: resultItem.entry.word }) : "";
-  const resultProblemKey = resultItem
-    ? learningProblemKey(resultBookId, resultItem.entry.word, state?.shareReviewProgress ?? true)
-    : "";
 
   const persistCompletion = useCallback(
     (completion: PendingWordCompletion) => {
@@ -474,7 +454,9 @@ function LearnPage() {
           setCompletionRetries((items) => items.filter((item) => item.identity !== nextCompletion.identity));
           void qc.invalidateQueries({ queryKey: ["stats"] });
           void qc.invalidateQueries({ queryKey: ["learning-state"] });
+          void qc.invalidateQueries({ queryKey: ["learning-problems"] });
           void qc.invalidateQueries({ queryKey: ["due-review"] });
+          void qc.invalidateQueries({ queryKey: ["due-review-count"] });
         })
         .catch(() => {
           setCompletionRetries((items) =>
@@ -608,7 +590,9 @@ function LearnPage() {
       void queueLearningStateWrite(() => flagMistouch({ data: { ...item, attemptId } }))
         .then(() => {
           void qc.invalidateQueries({ queryKey: ["learning-state"] });
+          void qc.invalidateQueries({ queryKey: ["learning-problems"] });
           void qc.invalidateQueries({ queryKey: ["due-review"] });
+          void qc.invalidateQueries({ queryKey: ["due-review-count"] });
         })
         .catch(() => undefined);
     },
@@ -721,37 +705,13 @@ function LearnPage() {
     });
   }, []);
 
-  const addToMistakes = useCallback(
-    (item: HistoryItem) => {
-      const itemBookId = item.entry.bookId ?? bookId ?? "core";
-      const key = learningProblemKey(itemBookId, item.entry.word, state?.shareReviewProgress ?? true);
-      if (savedToMistakes.has(key)) return;
-      setLocallySavedToMistakes((s) => new Set(s).add(key));
-      void queueLearningStateWrite(() =>
-        save({
-          data: {
-            mode: "word" as const,
-            bookId: itemBookId,
-            word: item.entry.word,
-            translation: item.entry.cn,
-            correct: false,
-            mistouch: false,
-            typoCount: Math.max(1, item.result.typoCount),
-            durationMs: item.result.durationMs,
-          },
-        }),
-      )
-        .then(() => void qc.invalidateQueries({ queryKey: ["learning-state"] }))
-        .catch(() => undefined);
-    },
-    [bookId, save, savedToMistakes, qc, state?.shareReviewProgress],
-  );
-
   const progress = queue.length ? (index / queue.length) * 100 : 0;
   const learnedInBook = !queueKind && bookId ? (state?.learnedByBook[bookId]?.length ?? 0) : 0;
 
   if (!ready || !entry) {
     if (queueKind === "today" && dueSpelling.isError)
+      return <div className="glass-stage flex min-h-[30rem] items-center justify-center">加载失败，请刷新重试。</div>;
+    if (problemQueue && problems.isError)
       return <div className="glass-stage flex min-h-[30rem] items-center justify-center">加载失败，请刷新重试。</div>;
     if (ready && queueLoading) {
       return (
@@ -906,9 +866,7 @@ function LearnPage() {
                 item={resultItem}
                 sweeping={!reviewing}
                 isFav={favorites.has(resultKey)}
-                isSaved={savedToMistakes.has(resultProblemKey)}
                 onFav={() => toggleFavorite({ bookId: resultBookId, word: resultItem.entry.word })}
-                onSave={() => addToMistakes(resultItem)}
                 onListen={() => speak(resultItem.entry.word)}
                 onNext={() =>
                   reviewing

@@ -1,3 +1,10 @@
+# Full-history learning problems
+
+- `bugfix/full-history-learning-problems` from `main` at `76312251204278c841d9cb665ef845baee325bc5`.
+- Wrong/trouble queues use a separate paginated read of real-error attempts. Ordinary `/learn` does not query problem history. The manual "加入错题本" action was removed because it fabricated an error attempt; active saves use "收藏". Normal learning state remains capped at 2,000 attempts and carries no partial problem lists. The existing 60-item queue cap remains.
+- The home "待复习" count uses an exact count of due Scheduler states in the active shared/book scope, including recognition and spelling, rather than wrong-word count.
+- Attempt writes, mistouch edits, and scope changes invalidate the problem query. Validation: `npm test` 80/80, `npx tsc --noEmit`, `npm run build`, and `git diff --check` passed. No database operation or migration.
+
 # Review problem scope
 
 - Phase: implementation on `feat/review-problem-scope` from clean `origin/main` at `488dd9e457312e42edd34cb1b5acbb69e3a6aed8`.

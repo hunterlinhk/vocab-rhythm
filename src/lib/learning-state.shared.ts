@@ -27,6 +27,11 @@ export type LearningState = {
   learnedByBook: Record<string, string[]>;
   learnedWords: string[];
   todayItems: { word: string; bookId: string; translation: string | null }[];
+  mistouchWords: { word: string; bookId: string; translation: string | null; at: string }[];
+  skippedWords: { word: string; bookId: string; translation: string | null; at: string }[];
+};
+
+export type LearningProblems = {
   wrongWords: { word: string; bookId: string; translation: string | null }[];
   troubleWords: {
     word: string;
@@ -34,8 +39,7 @@ export type LearningState = {
     translation: string | null;
     errorAttempts: number;
   }[];
-  mistouchWords: { word: string; bookId: string; translation: string | null; at: string }[];
-  skippedWords: { word: string; bookId: string; translation: string | null; at: string }[];
+  wrongKeys: string[];
 };
 
 export type LearningStats = {
@@ -119,6 +123,20 @@ function collectErrorWords(rows: LearningAttemptRow[], shareAcrossBooks: boolean
   };
 }
 
+export function buildLearningProblems(rows: LearningAttemptRow[], shareAcrossBooks: boolean): LearningProblems {
+  const errorWords = collectErrorWords(rows, shareAcrossBooks);
+  const wrongKeys = errorWords.wrongWords.map((item) => learningProblemKey(item.bookId, item.word, shareAcrossBooks));
+  const wrongWords = errorWords.wrongWords.slice(0, 60);
+  const visibleWrongKeys = new Set(wrongKeys.slice(0, 60));
+  return {
+    wrongKeys,
+    wrongWords,
+    troubleWords: errorWords.troubleWords
+      .filter((item) => visibleWrongKeys.has(learningProblemKey(item.bookId, item.word, shareAcrossBooks)))
+      .slice(0, 60),
+  };
+}
+
 export function shouldRunSpellingRound(phase: string, spellingEnabled: boolean): boolean {
   return phase === "recall" && spellingEnabled;
 }
@@ -176,14 +194,6 @@ export function buildLearningState(input: {
   const identity = (row: { book_id: string; word: string }) =>
     entryKey({ bookId: row.book_id, word: row.word });
   const shareAcrossBooks = input.settings?.share_review_progress ?? true;
-  const errorWords = collectErrorWords(rows, shareAcrossBooks);
-  const wrongWords = errorWords.wrongWords.slice(0, 60);
-  const visibleWrongKeys = new Set(
-    wrongWords.map((item) => learningProblemKey(item.bookId, item.word, shareAcrossBooks)),
-  );
-  const troubleWords = errorWords.troubleWords
-    .filter((item) => visibleWrongKeys.has(learningProblemKey(item.bookId, item.word, shareAcrossBooks)))
-    .slice(0, 60);
   const mistouch: LearningState["mistouchWords"] = [];
   for (const row of studied) {
     if (row.mistouch) {
@@ -232,8 +242,6 @@ export function buildLearningState(input: {
     learnedByBook,
     learnedWords: [...new Set(studied.map((row) => row.word))],
     todayItems: [...todayItems.values()],
-    wrongWords,
-    troubleWords,
     mistouchWords: mistouch,
     skippedWords: rows
       .filter((row) => row.skipped)
