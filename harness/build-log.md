@@ -1,3 +1,9 @@
+# Direct learning entry
+
+- `feat/direct-learning-entry` starts from `origin/main` at `ba33b11c9c1dc743a951b9ae83d16ca5f1104d48`.
+- `/` checks the browser session and replaces the route with `/learn` or `/auth`; `/home` redirects to `/learn`. Auth success and confirmation links target `/learn`; sign-out targets `/auth`. The Dashboard is no longer rendered.
+- Validation: `npm test` 81/81, `npx tsc --noEmit`, `npm run build`, and `git diff --check` passed. No database or migration changes.
+
 # Full-history learning problems
 
 - `bugfix/full-history-learning-problems` from `main` at `76312251204278c841d9cb665ef845baee325bc5`.

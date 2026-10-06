@@ -91,7 +91,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Sheet>
           ) : (
           <header className="glass-mobile-bar sticky top-2 z-40 mb-3 flex h-14 items-center justify-between px-4 lg:hidden">
-            <Link to="/" className="font-display text-lg font-semibold text-foreground">Cadence <span className="font-sans text-xs font-medium text-muted-foreground">韵词</span></Link>
+            <Link to="/learn" className="font-display text-lg font-semibold text-foreground">Cadence <span className="font-sans text-xs font-medium text-muted-foreground">韵词</span></Link>
             <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
               <SheetTrigger asChild><Button variant="ghost" size="icon" className="rounded-xl" aria-label="打开目录"><Menu /></Button></SheetTrigger>
               <SheetContent side="left" className="glass-drawer w-[86vw] border-card/60 p-0 sm:max-w-80"><SheetTitle className="sr-only">学习目录</SheetTitle><SidebarContent collapsed={false} pathname={pathname} expandedItem={expandedItem} setExpandedItem={setExpandedItem} onNavigate={() => setMobileOpen(false)} /></SheetContent>
@@ -125,7 +125,7 @@ function SidebarContent({
   return (
     <>
       <div className={cn("relative z-10 flex h-20 items-center px-5", collapsed ? "justify-center px-2" : "gap-3")}>
-        <Link to="/" className={cn("brand-wordmark", collapsed && "brand-wordmark-collapsed")} aria-label="Cadence 首页">
+        <Link to="/learn" className={cn("brand-wordmark", collapsed && "brand-wordmark-collapsed")} aria-label="Cadence 学习">
           <span className="font-display text-lg font-semibold leading-none">{collapsed ? "C" : "Cadence"}</span>
           {!collapsed && <span className="font-sans text-[10px] font-semibold text-muted-foreground">韵词</span>}
         </Link>

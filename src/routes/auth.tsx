@@ -27,7 +27,7 @@ function AuthPage() {
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) void navigate({ to: "/" });
+      if (data.session) void navigate({ to: "/learn", replace: true });
     });
   }, [navigate]);
 
@@ -39,7 +39,7 @@ function AuthPage() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${window.location.origin}/home` },
+        options: { emailRedirectTo: `${window.location.origin}/learn` },
       });
       setLoading(false);
       setMsg(error ? error.message : "注册成功，请查收邮件完成验证后登录。");
@@ -48,17 +48,17 @@ function AuthPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) setMsg(error.message);
-    else void navigate({ to: "/" });
+    else void navigate({ to: "/learn", replace: true });
   }
 
   async function google() {
-    const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
+    const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: `${window.location.origin}/learn` });
     if (result.error) {
       setMsg("Google 登录失败，请稍后再试。");
       return;
     }
     if (result.redirected) return;
-    void navigate({ to: "/" });
+    void navigate({ to: "/learn", replace: true });
   }
 
   async function guest() {
@@ -70,13 +70,13 @@ function AuthPage() {
       setMsg(error.message);
       return;
     }
-    void navigate({ to: "/" });
+    void navigate({ to: "/learn", replace: true });
   }
 
   return (
     <div className="flex min-h-screen items-center justify-center px-5">
       <div className="card-surface rise-in w-full max-w-md rounded-3xl p-8">
-        <Link to="/" className="font-display text-xl">
+        <Link to="/learn" className="font-display text-xl">
           韵词 Cadence
         </Link>
         <h1 className="mt-6 font-display text-2xl">{mode === "in" ? "欢迎回来" : "创建账号"}</h1>

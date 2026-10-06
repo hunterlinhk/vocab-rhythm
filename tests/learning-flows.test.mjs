@@ -352,12 +352,11 @@ test("historical problems remain visible beyond 2000 recent attempts and follow 
 });
 
 test("problem reads scan only real errors while ordinary learning state stays bounded", async () => {
-  const [functions, hook, learn, review, home] = await Promise.all([
+  const [functions, hook, learn, review] = await Promise.all([
     readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/hooks/use-learning-problems.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/routes/_authenticated/review.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/routes/index.tsx", import.meta.url), "utf8"),
   ]);
   const stateRead = functions.slice(functions.indexOf("export const getLearningState"), functions.indexOf("export const getLearningProblems"));
   const problemRead = functions.slice(functions.indexOf("export const getLearningProblems"), functions.indexOf("export const getDueReviewItems"));
@@ -374,8 +373,25 @@ test("problem reads scan only real errors while ordinary learning state stays bo
   assert.match(dueCountRead, /\.lte\("next_due_at", new Date\(\)\.toISOString\(\)\)/);
   assert.match(dueCountRead, /share_review_progress === false[\s\S]*\.like\("scope_key", "book:%"\)[\s\S]*\.eq\("scope_key", "shared"\)/);
   assert.doesNotMatch(dueCountRead, /\.eq\("review_mode"/);
-  assert.match(home, /useServerFn\(getDueReviewCount\)/);
-  assert.doesNotMatch(home, /useLearningProblems|wrongWords/);
+});
+
+test("root and legacy home route send users directly into learning or auth", async () => {
+  const [index, auth, home, shell, profile] = await Promise.all([
+    readFile(new URL("../src/routes/index.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/auth.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/home.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/AppShell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/profile.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(index, /getSession\(\)[\s\S]*data\.session \? "\/learn" : "\/auth"/);
+  assert.doesNotMatch(index, /HomePage|HomeContent|Dashboard|AppShell/);
+  assert.match(home, /redirect\(\{ to: "\/learn" \}\)/);
+  assert.match(auth, /emailRedirectTo: `\$\{window\.location\.origin\}\/learn`/);
+  assert.match(auth, /redirect_uri: `\$\{window\.location\.origin\}\/learn`/);
+  assert.match(auth, /signInWithPassword[\s\S]*navigate\(\{ to: "\/learn", replace: true \}\)/);
+  assert.doesNotMatch(auth, /\/home|navigate\(\{ to: "\/"/);
+  assert.match(shell, /<Link to="\/learn"[\s\S]*aria-label="Cadence 学习"/);
+  assert.match(profile, /signOut\(\); void navigate\(\{ to: "\/auth", replace: true \}\)/);
 });
 
 test("learning-state re-entry waits for pending server writes and restores each book and mode", async () => {

@@ -16,7 +16,7 @@ export const Route = createFileRoute("/_authenticated/plan")({
   head: () => ({
     meta: [
       { title: "学习计划 · 韵词 Cadence" },
-      { name: "description", content: "设置每天要完成的单词数量，首页与进度都会按这个目标计算。" },
+      { name: "description", content: "设置每天要完成的单词数量，进度会按这个目标计算。" },
       { property: "og:title", content: "学习计划 · 韵词 Cadence" },
       { property: "og:description", content: "设定每日目标，稳定推进词书进度。" },
       { property: "og:type", content: "website" },
@@ -77,7 +77,7 @@ function PlanPage() {
       <div>
         <p className="text-sm font-medium text-primary">按自己的节奏推进</p>
         <h1 className="mt-2 font-display text-4xl">学习计划</h1>
-        <p className="mt-2 text-sm text-muted-foreground">每日目标会用于首页今日进度与完成状态。</p>
+        <p className="mt-2 text-sm text-muted-foreground">每日目标会用于今日进度与完成状态。</p>
       </div>
 
       <section className="glass-panel p-6 sm:p-8">
