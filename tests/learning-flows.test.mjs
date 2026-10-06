@@ -292,15 +292,15 @@ test("problem scope normalizes cross-book words without splitting recognition an
   assert.deepEqual(buildLearningStats(rows, now, false).troubleWords, []);
 });
 
-test("problem scope is used by mistake badges and stats reads the saved sharing setting", async () => {
+test("mistake history stays tied to real errors and stats reads the saved sharing setting", async () => {
   const [learn, functions, profile] = await Promise.all([
     readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/routes/_authenticated/profile.tsx", import.meta.url), "utf8"),
   ]);
   const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
-  assert.match(learn, /savedToMistakes[\s\S]*learningProblemKey\(itemBookId, item\.entry\.word/);
-  assert.match(learn, /isSaved=\{savedToMistakes\.has\(resultProblemKey\) \|\| !!currentProblem\.data\?\.saved\}/);
+  assert.doesNotMatch(learn, /加入错题本|已加入错题本|addToMistakes/);
+  assert.match(learn, /onFav=\{\(\) => toggleFavorite/);
   assert.match(statsRead, /\.select\("share_review_progress"\)/);
   assert.match(statsRead, /settings\.data\?\.share_review_progress \?\? true/);
   assert.match(profile, /invalidateQueries\(\{ queryKey: \["stats"\] \}\)/);
@@ -360,21 +360,15 @@ test("problem reads scan only real errors while ordinary learning state stays bo
     readFile(new URL("../src/routes/index.tsx", import.meta.url), "utf8"),
   ]);
   const stateRead = functions.slice(functions.indexOf("export const getLearningState"), functions.indexOf("export const getLearningProblems"));
-  const problemRead = functions.slice(functions.indexOf("export const getLearningProblems"), functions.indexOf("export const hasLearningProblem"));
-  const singleProblemRead = functions.slice(functions.indexOf("export const hasLearningProblem"), functions.indexOf("export const getDueReviewItems"));
+  const problemRead = functions.slice(functions.indexOf("export const getLearningProblems"), functions.indexOf("export const getDueReviewItems"));
   const dueCountRead = functions.slice(functions.indexOf("export const getDueReviewCount"), functions.indexOf("export const saveSettings"));
   assert.match(stateRead, /\.limit\(2000\)/);
   assert.match(problemRead, /\.eq\("skipped", false\)[\s\S]*\.eq\("mistouch", false\)[\s\S]*\.or\("correct\.eq\.false,typo_count\.gt\.0"\)/);
   assert.match(problemRead, /\.range\(offset, offset \+ 999\)/);
   assert.match(hook, /fetchAfterLearningStateWrites/);
   assert.match(learn, /useLearningProblems\(\{ enabled: problemQueue \}\)/);
-  assert.match(learn, /enabled: !!resultItem && !problemQueue/);
-  assert.match(singleProblemRead, /\.eq\("review_word_key", wordKey\)/);
-  assert.match(singleProblemRead, /\.eq\("skipped", false\)[\s\S]*\.eq\("mistouch", false\)[\s\S]*\.or\("correct\.eq\.false,typo_count\.gt\.0"\)/);
-  assert.match(singleProblemRead, /share_review_progress === false\) query = query\.eq\("book_id", data\.bookId\)/);
-  assert.match(singleProblemRead, /\.limit\(1\)\.maybeSingle\(\)/);
-  assert.match(learn, /problems\.data\?\.wrongKeys/);
-  assert.match(learn, /reviewMode: "spelling" as const,[\s\S]*includeInReview: false/);
+  assert.doesNotMatch(learn, /hasLearningProblem|\["learning-problem"\]|addToMistakes/);
+  assert.doesNotMatch(functions, /export const hasLearningProblem/);
   assert.match(review, /problems\?\.wrongWords/);
   assert.match(dueCountRead, /\.from\("review_states"\)[\s\S]*\.select\("word_key", \{ count: "exact", head: true \}\)/);
   assert.match(dueCountRead, /\.lte\("next_due_at", new Date\(\)\.toISOString\(\)\)/);

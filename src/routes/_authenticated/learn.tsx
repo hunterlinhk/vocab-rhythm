@@ -11,17 +11,14 @@ import { useLearningProblems } from "@/hooks/use-learning-problems";
 import { useDueReview } from "@/hooks/use-due-review";
 import { resolveEntries } from "@/lib/library.functions";
 import { entryKey, parseFavorites, type EntryIdentity } from "@/lib/entry-identity";
-import { learningProblemKey } from "@/lib/learning-state.shared";
 import {
   markAttemptMistouch,
-  hasLearningProblem,
   recordAttempt,
   saveBookCursor,
   saveSettings,
 } from "@/lib/learning.functions";
 import {
   clearPendingWordAttempt,
-  fetchAfterLearningStateWrites,
   getOrCreatePendingWordAttemptId,
   getUserTimeZone,
   queueLearningStateWrite,
@@ -120,10 +117,7 @@ function ResultPanel({
   item,
   sweeping = false,
   isFav,
-  isSaved,
-  canSave,
   onFav,
-  onSave,
   onListen,
   onNext,
   nextDisabled = false,
@@ -134,10 +128,7 @@ function ResultPanel({
   item: HistoryItem;
   sweeping?: boolean;
   isFav: boolean;
-  isSaved: boolean;
-  canSave: boolean;
   onFav: () => void;
-  onSave: () => void;
   onListen: () => void;
   onNext: () => void;
   nextDisabled?: boolean;
@@ -177,7 +168,7 @@ function ResultPanel({
           </div>
         )}
       </div>
-      <div className="grid w-full grid-cols-6 gap-2 pt-1 sm:flex sm:w-auto sm:flex-wrap sm:justify-center">
+      <div className="grid w-full grid-cols-4 gap-2 pt-1 sm:flex sm:w-auto sm:flex-wrap sm:justify-center">
         <button
           type="button"
           onClick={onListen}
@@ -197,22 +188,11 @@ function ResultPanel({
         </button>
         <button
           type="button"
-          onClick={onSave}
-          disabled={isSaved || !canSave}
-          className={cn(
-            "col-span-2 whitespace-nowrap rounded-full border px-2 py-2 text-sm transition-colors sm:px-4 sm:py-1.5",
-            isSaved ? "border-border bg-card text-muted-foreground" : "border-border bg-card hover:border-primary/40",
-          )}
-        >
-          {isSaved ? "已加入错题本" : "加入错题本"}
-        </button>
-        <button
-          type="button"
           onClick={onNext}
           disabled={nextDisabled}
           className={cn(
             "whitespace-nowrap rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:py-1.5",
-            showMistouch ? "col-span-3" : "col-span-6 mx-auto w-[58%] sm:w-auto",
+            showMistouch ? "col-span-2" : "col-span-4 mx-auto w-[58%] sm:w-auto",
           )}
         >
           下一个 →
@@ -223,7 +203,7 @@ function ResultPanel({
             onClick={onMistouch}
             disabled={mistouched}
             className={cn(
-              "col-span-3 whitespace-nowrap rounded-full border px-3 py-2 text-sm transition-colors sm:px-4 sm:py-1.5",
+              "col-span-2 whitespace-nowrap rounded-full border px-3 py-2 text-sm transition-colors sm:px-4 sm:py-1.5",
               mistouched
                 ? "border-border bg-card text-muted-foreground"
                 : "border-border bg-card hover:border-primary/40",
@@ -241,7 +221,6 @@ function LearnPage() {
   const { queue: queueKind } = Route.useSearch();
   const problemQueue = queueKind === "wrong" || queueKind === "trouble";
   const save = useServerFn(recordAttempt);
-  const checkProblem = useServerFn(hasLearningProblem);
   const flagMistouch = useServerFn(markAttemptMistouch);
   const persistCursor = useServerFn(saveBookCursor);
   const persistSettings = useServerFn(saveSettings);
@@ -318,14 +297,6 @@ function LearnPage() {
         void qc.invalidateQueries({ queryKey: ["due-review-count"] });
       });
   }, [includeSpellingInReview, persistSettings, qc, state?.includeSpellingInReview]);
-  const [locallySavedToMistakes, setLocallySavedToMistakes] = useState<Set<string>>(new Set());
-  const savedToMistakes = useMemo(
-    () => new Set([
-      ...(problems.data?.wrongKeys ?? []),
-      ...locallySavedToMistakes,
-    ]),
-    [problems.data?.wrongKeys, locallySavedToMistakes],
-  );
   const [locallyMistouched, setLocallyMistouched] = useState<Set<string>>(new Set());
   const mistouched = useMemo(
     () => new Set([...(state?.mistouchWords.map(entryKey) ?? []), ...locallyMistouched]),
@@ -439,21 +410,6 @@ function LearnPage() {
     (done && entry && doneAttemptId ? { entry, result: done, attemptId: doneAttemptId } : undefined);
   const resultBookId = resultItem?.entry.bookId ?? bookId ?? "core";
   const resultKey = resultItem ? entryKey({ bookId: resultBookId, word: resultItem.entry.word }) : "";
-  const resultProblemKey = resultItem
-    ? learningProblemKey(resultBookId, resultItem.entry.word, state?.shareReviewProgress ?? true)
-    : "";
-  const currentProblem = useQuery({
-    queryKey: ["learning-problem", resultBookId, resultProblemKey],
-    queryFn: () => fetchAfterLearningStateWrites(() => checkProblem({
-      data: { bookId: resultBookId, word: resultItem!.entry.word },
-    })),
-    enabled: !!resultItem && !problemQueue,
-    staleTime: 0,
-    refetchOnMount: "always",
-  });
-  const canSaveProblem = problemQueue
-    ? problems.isAuthoritative
-    : currentProblem.isFetchedAfterMount && !currentProblem.isFetching && !currentProblem.isError;
 
   const persistCompletion = useCallback(
     (completion: PendingWordCompletion) => {
@@ -499,7 +455,6 @@ function LearnPage() {
           void qc.invalidateQueries({ queryKey: ["stats"] });
           void qc.invalidateQueries({ queryKey: ["learning-state"] });
           void qc.invalidateQueries({ queryKey: ["learning-problems"] });
-          void qc.invalidateQueries({ queryKey: ["learning-problem"] });
           void qc.invalidateQueries({ queryKey: ["due-review"] });
           void qc.invalidateQueries({ queryKey: ["due-review-count"] });
         })
@@ -636,7 +591,6 @@ function LearnPage() {
         .then(() => {
           void qc.invalidateQueries({ queryKey: ["learning-state"] });
           void qc.invalidateQueries({ queryKey: ["learning-problems"] });
-          void qc.invalidateQueries({ queryKey: ["learning-problem"] });
           void qc.invalidateQueries({ queryKey: ["due-review"] });
           void qc.invalidateQueries({ queryKey: ["due-review-count"] });
         })
@@ -750,42 +704,6 @@ function LearnPage() {
       return nextSet;
     });
   }, []);
-
-  const addToMistakes = useCallback(
-    (item: HistoryItem) => {
-      const itemBookId = item.entry.bookId ?? bookId ?? "core";
-      const key = learningProblemKey(itemBookId, item.entry.word, state?.shareReviewProgress ?? true);
-      if (!canSaveProblem || savedToMistakes.has(key) || currentProblem.data?.saved) return;
-      setLocallySavedToMistakes((s) => new Set(s).add(key));
-      void queueLearningStateWrite(() =>
-        save({
-          data: {
-            mode: "word" as const,
-            bookId: itemBookId,
-            word: item.entry.word,
-            translation: item.entry.cn,
-            correct: false,
-            mistouch: false,
-            typoCount: Math.max(1, item.result.typoCount),
-            durationMs: item.result.durationMs,
-            reviewMode: "spelling" as const,
-            includeInReview: false,
-          },
-        }),
-      )
-        .then(() => {
-          void qc.invalidateQueries({ queryKey: ["learning-state"] });
-          void qc.invalidateQueries({ queryKey: ["learning-problems"] });
-          void qc.invalidateQueries({ queryKey: ["learning-problem"] });
-        })
-        .catch(() => setLocallySavedToMistakes((items) => {
-          const next = new Set(items);
-          next.delete(key);
-          return next;
-        }));
-    },
-    [bookId, save, savedToMistakes, canSaveProblem, currentProblem.data?.saved, qc, state?.shareReviewProgress],
-  );
 
   const progress = queue.length ? (index / queue.length) * 100 : 0;
   const learnedInBook = !queueKind && bookId ? (state?.learnedByBook[bookId]?.length ?? 0) : 0;
@@ -948,10 +866,7 @@ function LearnPage() {
                 item={resultItem}
                 sweeping={!reviewing}
                 isFav={favorites.has(resultKey)}
-                isSaved={savedToMistakes.has(resultProblemKey) || !!currentProblem.data?.saved}
-                canSave={canSaveProblem}
                 onFav={() => toggleFavorite({ bookId: resultBookId, word: resultItem.entry.word })}
-                onSave={() => addToMistakes(resultItem)}
                 onListen={() => speak(resultItem.entry.word)}
                 onNext={() =>
                   reviewing
