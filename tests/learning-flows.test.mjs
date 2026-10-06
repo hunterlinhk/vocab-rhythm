@@ -209,6 +209,15 @@ test("progress history names all three learning modes", async () => {
   assert.match(page, /r\.mode === "word" \? "单词拼写" : r\.mode === "sentence" \? "句子拼写" : "背单词"/);
 });
 
+test("progress statistics read every attempt page before counting distinct words", async () => {
+  const functions = await readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8");
+  const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
+  assert.match(statsRead, /for \(let offset = 0; ; offset \+= 1000\)/);
+  assert.match(statsRead, /\.order\("created_at", \{ ascending: false \}\)[\s\S]*\.order\("id", \{ ascending: false \}\)[\s\S]*\.range\(offset, offset \+ 999\)/);
+  assert.match(statsRead, /if \(!page\.data \|\| page\.data\.length < 1000\) break/);
+  assert.doesNotMatch(statsRead, /\.limit\(1000\)/);
+});
+
 test("mistakes include typo and wrong-answer attempts; shared trouble counts distinct real attempts", () => {
   const rows = [
     attempt({ id: "typo-many", word: "typo", typo_count: 8 }),
