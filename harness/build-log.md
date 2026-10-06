@@ -1,3 +1,9 @@
+# Profile settings cleanup
+
+- `feat/profile-settings-cleanup` starts from `origin/main` at `7188009ec34354244bb9ddfa87bb884ade748d5d`.
+- Removed temporary-only audio switches and inactive profile, upgrade, and theme controls from `/profile`. Retained persisted strict spelling, shared review scope, and browser-stored virtual keyboard settings. Setting rows show title, switch, and tooltip only.
+- Validation: `npm test` 82/82, `npx tsc --noEmit`, and `npm run build` passed. No database or migration changes.
+
 # Direct learning entry
 
 - `feat/direct-learning-entry` starts from `origin/main` at `ba33b11c9c1dc743a951b9ae83d16ca5f1104d48`.
