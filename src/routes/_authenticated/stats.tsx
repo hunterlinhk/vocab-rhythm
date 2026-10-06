@@ -97,7 +97,7 @@ function StatsPage() {
             <li key={`${entryKey(r)}-${i}`} className="flex items-center justify-between py-2.5 text-sm">
               <span className="font-mono">{r.word}</span>
               <span className="text-muted-foreground">
-                {r.mode === "word" ? "单词" : "句子"} · {r.mistouch
+                {r.mode === "word" ? "单词拼写" : r.mode === "sentence" ? "句子拼写" : "背单词"} · {r.mistouch
                   ? "误触"
                   : r.typos > 0
                     ? `拼写错 ${r.typos} 次`

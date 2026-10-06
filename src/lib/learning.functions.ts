@@ -1030,25 +1030,30 @@ export const saveBookCursor = createServerFn({ method: "POST" })
 export const getStats = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<LearningStats> => {
-    const [attempts, settings] = await Promise.all([
-      context.supabase
+    const settings = await context.supabase
+      .from("user_settings")
+      .select("share_review_progress")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (settings.error) throw new Error(settings.error.message);
+
+    const attempts: LearningAttemptRow[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const page = await context.supabase
         .from("attempts")
         .select(
           "id, word, book_id, translation, mode, typo_count, mistouch, correct, skipped, created_at",
         )
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
-        .limit(1000),
-      context.supabase
-        .from("user_settings")
-        .select("share_review_progress")
-        .eq("user_id", context.userId)
-        .maybeSingle(),
-    ]);
-    if (attempts.error || settings.error)
-      throw new Error(attempts.error?.message ?? settings.error!.message);
+        .order("id", { ascending: false })
+        .range(offset, offset + 999);
+      if (page.error) throw new Error(page.error.message);
+      attempts.push(...((page.data ?? []) as LearningAttemptRow[]));
+      if (!page.data || page.data.length < 1000) break;
+    }
     return buildLearningStats(
-      (attempts.data ?? []) as LearningAttemptRow[],
+      attempts,
       new Date(),
       settings.data?.share_review_progress ?? true,
     );
