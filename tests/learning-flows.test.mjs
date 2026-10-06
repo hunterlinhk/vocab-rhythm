@@ -176,11 +176,37 @@ test("stats exclude skips, separate per-book trouble, and do not count wrong rec
     stats.todayWords.map(({ bookId, word }) => [bookId, word]),
     [
       ["book-a", "apple"],
-      ["book-b", "apple"],
       ["book-a", "orange"],
     ],
   );
   assert.deepEqual(stats.troubleWords, []);
+});
+
+test("progress word counts use normalized Review scope for all-time and today", () => {
+  const rows = [
+    attempt({ id: "a-today", book_id: "book-a", word: "  DON’T   WORRY ", typo_count: 1 }),
+    attempt({ id: "b-today", book_id: "book-b", word: "don't worry", mode: "memorize", correct: false }),
+    attempt({ id: "a-yesterday", book_id: "book-a", word: "Don't worry", created_at: "2026-09-26T12:00:00Z" }),
+    attempt({ id: "b-yesterday", book_id: "book-b", word: "growth", created_at: "2026-09-26T12:00:00Z" }),
+    attempt({ id: "skipped", book_id: "book-b", word: "skip", skipped: true }),
+  ];
+  const shared = buildLearningStats(rows, now, true);
+  assert.equal(shared.uniqueWords, 2);
+  assert.deepEqual(shared.todayWords, [{ word: "  DON’T   WORRY ", bookId: "book-a" }]);
+  assert.deepEqual(shared.troubleWords.map(({ errorAttempts, times }) => [errorAttempts, times]), [[2, 3]]);
+
+  const perBook = buildLearningStats(rows, now, false);
+  assert.equal(perBook.uniqueWords, 3);
+  assert.deepEqual(perBook.todayWords, [
+    { word: "  DON’T   WORRY ", bookId: "book-a" },
+    { word: "don't worry", bookId: "book-b" },
+  ]);
+  assert.deepEqual(perBook.troubleWords, []);
+});
+
+test("progress history names all three learning modes", async () => {
+  const page = await readFile(new URL("../src/routes/_authenticated/stats.tsx", import.meta.url), "utf8");
+  assert.match(page, /r\.mode === "word" \? "单词拼写" : r\.mode === "sentence" \? "句子拼写" : "背单词"/);
 });
 
 test("mistakes include typo and wrong-answer attempts; shared trouble counts distinct real attempts", () => {

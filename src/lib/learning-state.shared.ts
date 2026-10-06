@@ -270,6 +270,12 @@ export function buildLearningStats(
     times: practiceAttempts.get(learningProblemKey(item.bookId, item.word, shareAcrossBooks)) ?? 0,
   }));
 
+  const todayWords = new Map<string, { word: string; bookId: string }>();
+  for (const row of todayRows) {
+    const key = learningProblemKey(row.book_id, row.word, shareAcrossBooks);
+    if (!todayWords.has(key)) todayWords.set(key, { word: row.word, bookId: row.book_id });
+  }
+
   const days = new Set(attempts.map((row) => dayKey(new Date(row.created_at))));
   let streak = 0;
   const cursor = new Date(now);
@@ -291,16 +297,9 @@ export function buildLearningStats(
 
   return {
     todayCount: todayRows.length,
-    todayWords: [
-      ...new Map(
-        todayRows.map((row) => [
-          entryKey({ bookId: row.book_id, word: row.word }),
-          { word: row.word, bookId: row.book_id },
-        ]),
-      ).values(),
-    ],
+    todayWords: [...todayWords.values()],
     totalCount: attempts.length,
-    uniqueWords: new Set(attempts.map((row) => row.word)).size,
+    uniqueWords: new Set(attempts.map((row) => learningProblemKey(row.book_id, row.word, shareAcrossBooks))).size,
     cleanRate: attempts.length ? Math.round((clean / attempts.length) * 100) : 0,
     streakDays: streak,
     troubleWords: troubleWords.slice(0, 8),
