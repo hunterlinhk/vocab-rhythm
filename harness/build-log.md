@@ -1,3 +1,10 @@
+# Full-history learning problems
+
+- `bugfix/full-history-learning-problems` from `main` at `76312251204278c841d9cb665ef845baee325bc5`.
+- Wrong/trouble queues, the home problem count, and the learned-word mistake badge use a separate paginated read of real-error attempts. Normal learning state remains capped at 2,000 attempts and no longer carries partial problem lists. The existing 60-item queue cap remains; all wrong scope keys remain available to the badge.
+- Manual mistake saves now supply the required spelling review metadata and are excluded from scheduling. Attempt writes, mistouch edits, and scope changes invalidate the problem query.
+- Validation: `npm test` 80/80, `npx tsc --noEmit`, `npm run build`, and `git diff --check` passed. No database operation or migration.
+
 # Review problem scope
 
 - Phase: implementation on `feat/review-problem-scope` from clean `origin/main` at `488dd9e457312e42edd34cb1b5acbb69e3a6aed8`.

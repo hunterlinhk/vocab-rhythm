@@ -116,6 +116,7 @@ function NormalMemorizePage() {
   const invalidate = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ["stats"] });
     void qc.invalidateQueries({ queryKey: ["learning-state"] });
+    void qc.invalidateQueries({ queryKey: ["learning-problems"] });
   }, [qc]);
 
   const switchBook = useCallback(

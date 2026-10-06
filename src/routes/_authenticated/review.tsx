@@ -6,7 +6,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { entryKey } from "@/lib/entry-identity";
-import { useLearningState } from "@/hooks/use-learning-state";
+import { useLearningProblems } from "@/hooks/use-learning-problems";
 import { useDueReview } from "@/hooks/use-due-review";
 import { resolveEntries } from "@/lib/library.functions";
 
@@ -40,7 +40,7 @@ export const Route = createFileRoute("/_authenticated/review")({
 function ReviewPage() {
   const { tab = "今日复习" } = Route.useSearch();
   const navigate = useNavigate();
-  const { data, isLoading, isAuthoritative } = useLearningState();
+  const { data: problems, isError: problemsError, isAuthoritative } = useLearningProblems({ enabled: tab !== "今日复习" });
   const recognition = useDueReview("recognition");
   const spelling = useDueReview("spelling");
   const resolve = useServerFn(resolveEntries);
@@ -75,11 +75,11 @@ function ReviewPage() {
         mode: item.review_mode,
         scopeKey: item.scope_key,
       })),
-      错词: data?.wrongWords.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: "发生过错误" })) ?? [],
+      错词: problems?.wrongWords.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: "发生过错误" })) ?? [],
       易错词:
-        data?.troubleWords.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: `${w.errorAttempts} 次错误尝试` })) ?? [],
+        problems?.troubleWords.map((w) => ({ word: w.word, bookId: w.bookId, translation: w.translation, note: `${w.errorAttempts} 次错误尝试` })) ?? [],
     }),
-    [data, due, dueEntries.data],
+    [problems, due, dueEntries.data],
   );
 
   const dueError = recognition.isError || spelling.isError || dueEntries.isError;
@@ -162,9 +162,9 @@ function ReviewPage() {
             </div>
           ))}
           {!ready && (
-            <p className="py-8 text-center text-sm text-muted-foreground">{tab === "今日复习" && dueError ? "加载失败，请刷新重试。" : "载入中…"}</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">{(tab === "今日复习" ? dueError : problemsError) ? "加载失败，请刷新重试。" : "载入中…"}</p>
           )}
-          {ready && !(tab !== "今日复习" && isLoading) && !current.length && (
+          {ready && !current.length && (
             <div className="py-14 text-center">
               <CheckCircle2 className="mx-auto size-8 text-success" />
               <p className="mt-3 text-sm text-muted-foreground">这里暂时没有记录。</p>

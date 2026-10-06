@@ -297,6 +297,7 @@ function SentencePage() {
         if (prefsRef.current.speech) speak(entry.sentence);
         void qc.invalidateQueries({ queryKey: ["stats"] });
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
+        void qc.invalidateQueries({ queryKey: ["learning-problems"] });
       } catch {
         // The server checkpoint remains authoritative; retrying reuses its attempt id.
       } finally {

@@ -15,9 +15,11 @@ import {
   rebuildReviewProjectionsForUser,
 } from "@/lib/review-sessions.server";
 import {
+  buildLearningProblems,
   buildLearningState,
   buildLearningStats,
   type LearningAttemptRow,
+  type LearningProblems,
   type LearningState,
   type LearningStats,
 } from "@/lib/learning-state.shared";
@@ -31,7 +33,7 @@ import {
   type SentenceCheckpoint,
 } from "@/lib/learning-session.shared";
 
-export type { LearningState, LearningStats };
+export type { LearningProblems, LearningState, LearningStats };
 
 const AttemptInput = z
   .object({
@@ -872,6 +874,35 @@ export const getLearningState = createServerFn({ method: "GET" })
       mastery: masteryRes.data ?? [],
       bookReviewSettings: bookReviewSettingsRes.data ?? [],
     });
+  });
+
+export const getLearningProblems = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<LearningProblems> => {
+    const { data: settings, error: settingsError } = await context.supabase
+      .from("user_settings")
+      .select("share_review_progress")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (settingsError) throw new Error(settingsError.message);
+
+    const errors: LearningAttemptRow[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await context.supabase
+        .from("attempts")
+        .select("id, word, book_id, translation, typo_count, mistouch, correct, skipped, created_at")
+        .eq("user_id", context.userId)
+        .eq("skipped", false)
+        .eq("mistouch", false)
+        .or("correct.eq.false,typo_count.gt.0")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(offset, offset + 999);
+      if (error) throw new Error(error.message);
+      errors.push(...((data ?? []) as LearningAttemptRow[]));
+      if (!data || data.length < 1000) break;
+    }
+    return buildLearningProblems(errors, settings?.share_review_progress ?? true);
   });
 
 export const getDueReviewItems = createServerFn({ method: "GET" })
