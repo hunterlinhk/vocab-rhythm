@@ -1,3 +1,9 @@
+# Learning plan settings cleanup
+
+- `feat/learning-plan-settings-cleanup` starts from `origin/main` at `927d4587d5c5d805c713b2595c1a17fd9780c420`.
+- Daily goal UI and meta now describe practice attempts (`每日练习次数`, `每天 N 次`); the underlying count remains `stats.todayCount`. The third spelling round uses the shared switch and tooltip. Each setting blocks repeat writes while saving and restores its last confirmed value with an error toast if persistence fails.
+- Validation: `npm test` 83/83, `npx tsc --noEmit`, and `npm run build` passed. No database or migration changes.
+
 # Profile settings cleanup
 
 - `feat/profile-settings-cleanup` starts from `origin/main` at `7188009ec34354244bb9ddfa87bb884ade748d5d`.
