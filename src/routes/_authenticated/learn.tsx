@@ -7,10 +7,12 @@ import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { bareEntry, findInBundledBook, findWord, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
+import { BOOK_LEARNED_COUNTS_QUERY_KEY, useBookLearnedCounts } from "@/hooks/use-book-learned-counts";
 import { useLearningProblems } from "@/hooks/use-learning-problems";
 import { useDueReview } from "@/hooks/use-due-review";
 import { resolveEntries } from "@/lib/library.functions";
 import { entryKey, parseFavorites, type EntryIdentity } from "@/lib/entry-identity";
+import { applyFirstLearnedCount, bookLearnedCount, isCurrentAttemptMistouched } from "@/lib/learning-state.shared";
 import {
   markAttemptMistouch,
   recordAttempt,
@@ -25,6 +27,7 @@ import {
 } from "@/lib/learning-state.runtime";
 import { speak } from "@/lib/sound";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { Volume2, BookOpen, PenLine, CheckCircle2, RotateCcw } from "lucide-react";
 
 export type QueueKind = "today" | "wrong" | "trouble" | "favorites";
@@ -226,6 +229,8 @@ function LearnPage() {
   const persistSettings = useServerFn(saveSettings);
   const qc = useQueryClient();
   const { data: state, isAuthoritative: stateIsAuthoritative } = useLearningState();
+  const learnedProgress = useBookLearnedCounts({ enabled: !queueKind });
+  const learnedCounts = learnedProgress.confirmedCounts;
   const problems = useLearningProblems({ enabled: problemQueue });
   const dueSpelling = useDueReview("spelling", queueKind === "today");
   const [todayQueue, setTodayQueue] = useState<{ word: string; bookId: string; translation: null }[] | null>(null);
@@ -247,6 +252,7 @@ function LearnPage() {
   const savingProgressRef = useRef(false);
   const completionQueueRef = useRef<PendingWordCompletion[]>([]);
   const completionWriteActiveRef = useRef(false);
+  const countedAttemptIdsRef = useRef(new Set<string>());
   const [sessionDone, setSessionDone] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
@@ -298,10 +304,6 @@ function LearnPage() {
       });
   }, [includeSpellingInReview, persistSettings, qc, state?.includeSpellingInReview]);
   const [locallyMistouched, setLocallyMistouched] = useState<Set<string>>(new Set());
-  const mistouched = useMemo(
-    () => new Set([...(state?.mistouchWords.map(entryKey) ?? []), ...locallyMistouched]),
-    [state?.mistouchWords, locallyMistouched],
-  );
   const dragX = useRef<number | null>(null);
   const strict = state?.strictSpelling ?? false;
 
@@ -421,7 +423,10 @@ function LearnPage() {
       completionWriteActiveRef.current = true;
       let persisted = false;
       void queueLearningStateWrite(async () => {
-        await save({
+        const countQueryState = qc.getQueryState(learnedProgress.cacheKey);
+        const countVersion = countQueryState?.dataUpdatedAt ?? 0;
+        const countWasConfirmed = learnedProgress.confirmedCounts !== undefined;
+        const savedAttempt = await save({
           data: {
             attemptId: nextCompletion.attemptId,
             mode: "word" as const,
@@ -440,6 +445,28 @@ function LearnPage() {
         timeZone: nextCompletion.timeZone,
           },
         });
+        if (savedAttempt.firstLearned === null) {
+          void qc.invalidateQueries({ queryKey: learnedProgress.cacheKey, refetchType: "none" });
+        } else if (nextCompletion.isReview) {
+          if (savedAttempt.firstLearned)
+            void qc.invalidateQueries({ queryKey: learnedProgress.cacheKey, refetchType: "none" });
+        } else if (savedAttempt.reusedAttempt && !countedAttemptIdsRef.current.has(nextCompletion.attemptId)) {
+          countedAttemptIdsRef.current.add(nextCompletion.attemptId);
+          void qc.invalidateQueries({ queryKey: learnedProgress.cacheKey });
+        } else if (savedAttempt.firstLearned && !countedAttemptIdsRef.current.has(nextCompletion.attemptId)) {
+          const latestCountState = qc.getQueryState(learnedProgress.cacheKey);
+          if (countWasConfirmed && countVersion && countQueryState?.fetchStatus === "idle" &&
+            !countQueryState.isInvalidated && latestCountState?.fetchStatus === "idle" &&
+            !latestCountState.isInvalidated && latestCountState.dataUpdatedAt === countVersion &&
+            Date.now() - countVersion < 5 * 60 * 1000) {
+            qc.setQueryData<Record<string, number>>(learnedProgress.cacheKey, (counts) =>
+              counts ? applyFirstLearnedCount(counts, nextCompletion.entryBook, nextCompletion.attemptId, countedAttemptIdsRef.current) : counts,
+            );
+          } else {
+            countedAttemptIdsRef.current.add(nextCompletion.attemptId);
+            void qc.invalidateQueries({ queryKey: learnedProgress.cacheKey });
+          }
+        }
         if (nextCompletion.cursor)
           await persistCursor({
             data: { ...nextCompletion.cursor, mode: "word" },
@@ -474,7 +501,7 @@ function LearnPage() {
             persistCompletion(completionQueueRef.current[0]);
         });
     },
-    [save, persistCursor, qc],
+    [save, persistCursor, qc, learnedProgress.cacheKey],
   );
 
   const onComplete = useCallback(
@@ -584,19 +611,27 @@ function LearnPage() {
 
   const markMistouch = useCallback(
     (item: EntryIdentity, attemptId: string) => {
-      const key = entryKey(item);
-      if (mistouched.has(key)) return;
-      setLocallyMistouched((s) => new Set(s).add(key));
+      if (locallyMistouched.has(attemptId)) return;
+      setLocallyMistouched((s) => new Set(s).add(attemptId));
       void queueLearningStateWrite(() => flagMistouch({ data: { ...item, attemptId } }))
-        .then(() => {
+        .then((result) => {
+          if (!result.ok) throw new Error("Mistouch could not be saved");
           void qc.invalidateQueries({ queryKey: ["learning-state"] });
           void qc.invalidateQueries({ queryKey: ["learning-problems"] });
+          void qc.invalidateQueries({ queryKey: ["stats"] });
           void qc.invalidateQueries({ queryKey: ["due-review"] });
           void qc.invalidateQueries({ queryKey: ["due-review-count"] });
         })
-        .catch(() => undefined);
+        .catch(() => {
+          setLocallyMistouched((current) => {
+            const next = new Set(current);
+            next.delete(attemptId);
+            return next;
+          });
+          toast.error("标记误触失败，请重试");
+        });
     },
-    [flagMistouch, mistouched, qc],
+    [flagMistouch, locallyMistouched, qc],
   );
 
   const goBack = useCallback(() => {
@@ -706,7 +741,7 @@ function LearnPage() {
   }, []);
 
   const progress = queue.length ? (index / queue.length) * 100 : 0;
-  const learnedInBook = !queueKind && bookId ? (state?.learnedByBook[bookId]?.length ?? 0) : 0;
+  const learnedInBook = !queueKind && bookId ? bookLearnedCount(learnedCounts, bookId) : null;
 
   if (!ready || !entry) {
     if (queueKind === "today" && dueSpelling.isError)
@@ -772,7 +807,7 @@ function LearnPage() {
         </div>
         <div className="font-mono text-sm text-muted-foreground">
           {index + 1} / {queue.length} · 本次 {sessionDone}
-          {queueKind ? "" : ` · 已学 ${learnedInBook}`}
+          {queueKind ? "" : learnedInBook === null ? ` · ${learnedProgress.isError ? "进度读取失败" : "进度读取中"}` : ` · 已学 ${learnedInBook}`}
         </div>
       </div>
 
@@ -877,7 +912,7 @@ function LearnPage() {
                 }
                 nextDisabled={!reviewing && completionRetries.length > 0}
                 showMistouch={strict && resultItem.result.typoCount > 0}
-                mistouched={mistouched.has(resultKey)}
+                mistouched={isCurrentAttemptMistouched(resultItem.attemptId, resultItem.result.mistouch, locallyMistouched)}
                 onMistouch={() =>
                   markMistouch(
                     { bookId: resultBookId, word: resultItem.entry.word },

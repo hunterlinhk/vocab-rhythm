@@ -7,6 +7,7 @@ import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { hasSentence, type SentenceEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
+import { BOOK_LEARNED_COUNTS_QUERY_KEY } from "@/hooks/use-book-learned-counts";
 import {
   completeSentenceCheckpoint,
   saveSettings,
@@ -258,6 +259,8 @@ function SentencePage() {
             },
           }),
         );
+        if (result.attempt && !result.attempt.skipped)
+          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY, refetchType: "none" });
         if (!result.accepted || !result.checkpoint) {
           setIndex(result.cursorIndex);
           setCheckpoint(
