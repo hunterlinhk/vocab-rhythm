@@ -81,6 +81,25 @@ export type LearningAttemptRow = {
   mode?: string;
 };
 
+export function countLearnedByBook(rows: { book_id: string; word: string; skipped: boolean }[]): Record<string, number> {
+  const wordsByBook = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if (row.skipped) continue;
+    const words = wordsByBook.get(row.book_id) ?? new Set<string>();
+    words.add(row.word);
+    wordsByBook.set(row.book_id, words);
+  }
+  return Object.fromEntries([...wordsByBook].map(([bookId, words]) => [bookId, words.size]));
+}
+
+export function isCurrentAttemptMistouched(
+  attemptId: string,
+  savedMistouch: boolean,
+  markedAttemptIds: ReadonlySet<string>,
+): boolean {
+  return savedMistouch || markedAttemptIds.has(attemptId);
+}
+
 export function isValidIanaTimeZone(timeZone: string): boolean {
   try {
     const resolved = new Intl.DateTimeFormat("en-US", { timeZone }).resolvedOptions().timeZone;

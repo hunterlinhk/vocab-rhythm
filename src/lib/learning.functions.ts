@@ -18,6 +18,7 @@ import {
   buildLearningProblems,
   buildLearningState,
   buildLearningStats,
+  countLearnedByBook,
   isValidIanaTimeZone,
   type LearningAttemptRow,
   type LearningProblems,
@@ -161,45 +162,89 @@ export const recordAttempt = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** marks the most recent attempt of a word as a mistouch (used by the strict-spelling review panel) */
 export const markAttemptMistouch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
-    z.object({ word: z.string(), bookId: z.string(), attemptId: z.string().uuid().optional() }).parse(input),
+    z.object({ word: z.string(), bookId: z.string(), attemptId: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data, context }) => {
-    const q = context.supabase
+    const { data: row, error: lookupError } = await context.supabase
       .from("attempts")
       .select("id, book_id, word, mode, typo_count, mistouch, review_mode, review_session_id")
       .eq("user_id", context.userId)
+      .eq("id", data.attemptId)
       .eq("word", data.word)
-      .eq("book_id", data.bookId);
-    const { data: row, error: lookupError } = data.attemptId
-      ? await q.eq("id", data.attemptId).maybeSingle()
-      : await q
-          .eq("mode", "word")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+      .eq("book_id", data.bookId)
+      .eq("mode", "word")
+      .maybeSingle();
     if (lookupError) throw new Error(lookupError.message);
-    if (!row) return { ok: false };
-    if (row.book_id !== data.bookId || row.word !== data.word || row.mode !== "word")
+    if (!row)
       throw new Error("Attempt id is associated with a different learning entry");
+    const rebuildReview = async (reviewMode: string | null, reviewSessionId: string | null) => {
+      if (reviewMode && reviewSessionId)
+        await finalizeReviewSession(context.supabase, {
+          userId: context.userId,
+          bookId: data.bookId,
+          word: data.word,
+          reviewMode: reviewMode as ReviewMode,
+        }, reviewSessionId);
+    };
+    if (row.mistouch) {
+      await rebuildReview(row.review_mode, row.review_session_id);
+      return { ok: true };
+    }
     const { data: updated, error } = await context.supabase
       .from("attempts")
       .update({ mistouch: true })
       .eq("id", row.id)
+      .eq("user_id", context.userId)
+      .eq("book_id", data.bookId)
+      .eq("word", data.word)
+      .eq("mode", "word")
+      .eq("mistouch", false)
       .select("review_mode, review_session_id")
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (updated?.review_mode && updated.review_session_id)
-      await finalizeReviewSession(context.supabase, {
-        userId: context.userId,
-        bookId: data.bookId,
-        word: data.word,
-        reviewMode: updated.review_mode as ReviewMode,
-      }, updated.review_session_id);
+    if (!updated) {
+      const { data: latest, error: latestError } = await context.supabase
+        .from("attempts")
+        .select("mistouch")
+        .eq("id", row.id)
+        .eq("user_id", context.userId)
+        .maybeSingle();
+      if (latestError) throw new Error(latestError.message);
+      if (latest?.mistouch) {
+        await rebuildReview(row.review_mode, row.review_session_id);
+        return { ok: true };
+      }
+      throw new Error("Mistouch could not be saved");
+    }
+    await rebuildReview(updated.review_mode, updated.review_session_id);
     return { ok: true };
+  });
+
+export const getBookLearnedCounts = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<Record<string, number>> => {
+    const rows: { book_id: string; word: string; skipped: boolean }[] = [];
+    let afterId: string | null = null;
+    for (;;) {
+      let query = context.supabase
+        .from("attempts")
+        .select("id, book_id, word, skipped")
+        .eq("user_id", context.userId)
+        .eq("skipped", false)
+        .order("id", { ascending: true })
+        .limit(1000);
+      if (afterId) query = query.gt("id", afterId);
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      if (!data?.length) break;
+      rows.push(...data);
+      afterId = data[data.length - 1]!.id;
+      if (data.length < 1000) break;
+    }
+    return countLearnedByBook(rows);
   });
 
 const StartMemorizeInput = z

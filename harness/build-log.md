@@ -1,3 +1,10 @@
+# Learning progress and mistouch integrity
+
+- `bugfix/learning-progress-mistouch-integrity` starts from `origin/main` at `c9a02f314bb12959aa5c113838ad12bc7c97b6f0`.
+- Book progress reads full non-skipped attempt history through a separate paginated server function and returns per-book distinct-word counts; ordinary learning state remains capped at 2000 attempts. The count cache is scoped by signed-in user. Successful word, memorize, and sentence saves invalidate it.
+- Mistouch UI and mutation use the current attempt ID. Mutation validates owner, book, word, and word mode; retries are idempotent and replay Review projections. Failed UI saves roll back the optimistic mark and show an error.
+- Validation: `npm test` 91/91, `npx tsc --noEmit`, and `npm run build` passed. No migration, AI, or Scheduler changes.
+
 # Local calendar statistics
 
 - `bugfix/local-timezone-learning-stats` starts from `origin/main` at `429c060ca1f0ede02ee90d63bfed2a4971d5e8e3`.

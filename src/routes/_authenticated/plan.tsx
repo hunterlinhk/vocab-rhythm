@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { getStats, saveSettings } from "@/lib/learning.functions";
 import { useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
+import { useBookLearnedCounts } from "@/hooks/use-book-learned-counts";
 import { useLocalCalendar } from "@/hooks/use-local-calendar";
 import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import { toast } from "sonner";
@@ -38,6 +39,7 @@ function PlanPage() {
   const calendar = useLocalCalendar();
   const persist = useServerFn(saveSettings);
   const { data: state, isAuthoritative } = useLearningState();
+  const { data: learnedCounts } = useBookLearnedCounts();
   const { data: stats } = useQuery({
     queryKey: ["stats", calendar?.timeZone, calendar?.day],
     queryFn: () => fetchStats({ data: { timeZone: calendar!.timeZone } }),
@@ -209,7 +211,7 @@ function PlanPage() {
         <SectionHeading eyebrow="BOOKS" title="词书进度" action={<Button asChild variant="ghost" size="sm"><Link to="/books">管理词库</Link></Button>} />
         <div className="mt-5 space-y-4">
           {allBooks.map((b) => {
-            const learned = state?.learnedByBook[b.id]?.length ?? 0;
+            const learned = learnedCounts?.[b.id] ?? 0;
             const pct = Math.round((learned / Math.max(1, b.wordCount)) * 100);
             return (
               <div key={b.id}>

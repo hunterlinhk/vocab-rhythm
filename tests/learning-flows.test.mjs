@@ -6,7 +6,7 @@ import { createServer } from "vite";
 const vite = await createServer({ configFile: false, server: { middlewareMode: true } });
 after(() => vite.close());
 
-const { buildLearningProblems, buildLearningState, buildLearningStats, isValidIanaTimeZone, learningProblemKey, localDayAt, nextLearningCursor, shouldRunSpellingRound } =
+const { buildLearningProblems, buildLearningState, buildLearningStats, countLearnedByBook, isCurrentAttemptMistouched, isValidIanaTimeZone, learningProblemKey, localDayAt, nextLearningCursor, shouldRunSpellingRound } =
   await vite.ssrLoadModule("/src/lib/learning-state.shared.ts");
 const {
   clearPendingWordAttempt,
@@ -175,6 +175,75 @@ test("stats exclude skips, separate per-book trouble, and do not count wrong rec
     ],
   );
   assert.deepEqual(stats.troubleWords, []);
+});
+
+test("book progress counts complete history beyond 2000 attempts without duplicates or skips", () => {
+  const rows = Array.from({ length: 2005 }, (_, index) => ({ book_id: "book-a", word: `word-${index}`, skipped: false }));
+  rows.push(
+    { book_id: "book-a", word: "word-0", skipped: false },
+    { book_id: "book-a", word: "skipped", skipped: true },
+    { book_id: "book-b", word: "word-0", skipped: false },
+    { book_id: "book-b", word: "word-0", skipped: false },
+  );
+  assert.deepEqual(countLearnedByBook(rows), { "book-a": 2005, "book-b": 1 });
+  assert.equal(countLearnedByBook(rows.slice(-2000))["book-a"], 1997);
+});
+
+test("mistouch status follows the attempt id even when the word is repeated", () => {
+  const marked = new Set(["first-attempt"]);
+  assert.equal(isCurrentAttemptMistouched("first-attempt", false, marked), true);
+  assert.equal(isCurrentAttemptMistouched("second-attempt", false, marked), false);
+  assert.equal(isCurrentAttemptMistouched("second-attempt", true, marked), true);
+  marked.delete("first-attempt");
+  assert.equal(isCurrentAttemptMistouched("first-attempt", false, marked), false);
+});
+
+test("book progress uses a separate paginated count query and refreshes after saved attempts", async () => {
+  const [functions, learnedHook, learn, memorize, sentence, books, plan] = await Promise.all([
+    readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/hooks/use-book-learned-counts.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/memorize.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/sentence.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/books.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/plan.tsx", import.meta.url), "utf8"),
+  ]);
+  const countsRead = functions.slice(functions.indexOf("export const getBookLearnedCounts"), functions.indexOf("const StartMemorizeInput"));
+  const stateRead = functions.slice(functions.indexOf("export const getLearningState"), functions.indexOf("export const getLearningProblems"));
+  assert.match(countsRead, /\.eq\("skipped", false\)/);
+  assert.match(countsRead, /\.limit\(1000\)/);
+  assert.match(countsRead, /query\.gt\("id", afterId\)/);
+  assert.match(countsRead, /return countLearnedByBook\(rows\)/);
+  assert.match(stateRead, /\.limit\(2000\)/);
+  assert.match(learnedHook, /staleTime: 5 \* 60 \* 1000/);
+  assert.match(learnedHook, /queryKey: \[\.\.\.BOOK_LEARNED_COUNTS_QUERY_KEY, userId\]/);
+  for (const page of [learn, books, plan]) {
+    assert.match(page, /useBookLearnedCounts\(\)/);
+    assert.doesNotMatch(page, /state\?\.learnedByBook/);
+  }
+  for (const page of [learn, memorize, sentence]) {
+    assert.match(page, /qc\.invalidateQueries\(\{ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY \}\)/);
+  }
+});
+
+test("mistouch writes target the current owned spelling attempt and failed saves roll back", async () => {
+  const [functions, learn] = await Promise.all([
+    readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
+  ]);
+  const mistouchWrite = functions.slice(functions.indexOf("export const markAttemptMistouch"), functions.indexOf("export const getBookLearnedCounts"));
+  assert.match(mistouchWrite, /attemptId: z\.string\(\)\.uuid\(\)/);
+  for (const filter of ['user_id", context.userId', 'id", data.attemptId', 'book_id", data.bookId', 'word", data.word', 'mode", "word"']) {
+    assert.match(mistouchWrite, new RegExp(`\\.eq\\("${filter}\\)`));
+  }
+  assert.doesNotMatch(mistouchWrite, /order\("created_at"/);
+  assert.match(mistouchWrite, /if \(row\.mistouch\) \{\s*await rebuildReview/);
+  assert.match(mistouchWrite, /await rebuildReview\(updated\.review_mode, updated\.review_session_id\)/);
+  assert.match(learn, /setLocallyMistouched\(\(s\) => new Set\(s\)\.add\(attemptId\)\)/);
+  assert.match(learn, /next\.delete\(attemptId\)/);
+  assert.match(learn, /toast\.error\("标记误触失败，请重试"\)/);
+  assert.match(learn, /isCurrentAttemptMistouched\(resultItem\.attemptId, resultItem\.result\.mistouch, locallyMistouched\)/);
+  assert.match(learn, /queryKey: \["due-review"\]/);
 });
 
 test("today counts and streaks follow the user's calendar across time zones", () => {

@@ -28,6 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import { SettingInfo } from "@/components/setting-info";
 import { useLibrary, type BookSummary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
+import { useBookLearnedCounts } from "@/hooks/use-book-learned-counts";
 import { saveBookReviewSetting, saveSettings } from "@/lib/learning.functions";
 import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import { createCustomBook, deleteCustomBook } from "@/lib/library.functions";
@@ -63,6 +64,7 @@ function BooksPage() {
   const persistBookReviewSetting = useServerFn(saveBookReviewSetting);
   const remove = useServerFn(deleteCustomBook);
   const { data: state } = useLearningState();
+  const { data: learnedCounts } = useBookLearnedCounts();
   const { official, custom } = useLibrary();
   const activeBook = state?.activeBook ?? "core";
   const [creating, setCreating] = useState(false);
@@ -140,7 +142,7 @@ function BooksPage() {
       {list.length ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {list.map((b) => {
-            const learned = state?.learnedByBook[b.id]?.length ?? 0;
+            const learned = learnedCounts?.[b.id] ?? 0;
             const cursor = state?.cursors[b.id]?.word ?? 0;
             const pct = Math.round((learned / Math.max(1, b.wordCount)) * 100);
             const active = b.id === activeBook;

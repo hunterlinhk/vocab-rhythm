@@ -9,6 +9,7 @@ import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { hasMeaning, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
+import { BOOK_LEARNED_COUNTS_QUERY_KEY } from "@/hooks/use-book-learned-counts";
 import {
   recordMemorizeStage,
   saveSettings,
@@ -267,6 +268,7 @@ function NormalMemorizePage() {
         }),
       )
         .then((result) => {
+          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY });
           window.setTimeout(
             () => {
               if (result.session) setSession(result.session);
@@ -296,6 +298,7 @@ function NormalMemorizePage() {
       sessionRevision,
       spellOn,
       invalidate,
+      qc,
     ],
   );
 
@@ -324,6 +327,7 @@ function NormalMemorizePage() {
         }),
       )
         .then((result) => {
+          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY });
           window.setTimeout(() => {
             if (result.session) setSession(result.session);
             setSessionRevision(result.revision);
@@ -344,6 +348,7 @@ function NormalMemorizePage() {
       sessionRevision,
       spellOn,
       invalidate,
+      qc,
     ],
   );
 
