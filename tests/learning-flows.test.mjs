@@ -228,11 +228,17 @@ test("book progress aggregates pages and updates normal spelling without a full-
   const recordAttemptRead = functions.slice(functions.indexOf("export const recordAttempt"), functions.indexOf("export const markAttemptMistouch"));
   assert.match(recordAttemptRead, /if \(!inserted\) return \{ ok: true, firstLearned: false, reusedAttempt: true \}/);
   assert.match(recordAttemptRead, /firstLearned: !otherAttempts\?\.length, reusedAttempt: false/);
+  assert.doesNotMatch(recordAttemptRead, /saved\.is_review\)\s*return \{ ok: true, firstLearned: false/);
+  assert.match(recordAttemptRead, /if \(learnedError\) return \{ ok: true, firstLearned: null, reusedAttempt: false \}/);
+  assert.doesNotMatch(recordAttemptRead, /if \(learnedError\) throw/);
   assert.match(recordAttemptRead, /\.eq\("book_id", saved\.book_id\)[\s\S]*\.eq\("word", saved\.word\)[\s\S]*\.neq\("id", attemptId\)[\s\S]*\.limit\(1\)/);
   for (const page of [memorize, sentence]) {
     assert.match(page, /qc\.invalidateQueries\(\{ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY, refetchType: "none" \}\)/);
   }
-  assert.match(learn, /nextCompletion\.isReview[\s\S]*refetchType: "none"/);
+  const savedCountFlow = learn.slice(learn.indexOf("if (savedAttempt.firstLearned === null)"), learn.indexOf("if (nextCompletion.cursor)"));
+  assert.match(savedCountFlow, /firstLearned === null[\s\S]*invalidateQueries\(\{ queryKey: learnedProgress\.cacheKey, refetchType: "none" \}\)/);
+  assert.match(savedCountFlow, /nextCompletion\.isReview\) \{\s*if \(savedAttempt\.firstLearned\)\s*void qc\.invalidateQueries/);
+  assert.doesNotMatch(savedCountFlow, /queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY/);
 });
 
 test("mistouch writes target the current owned spelling attempt and failed saves roll back", async () => {
@@ -242,9 +248,12 @@ test("mistouch writes target the current owned spelling attempt and failed saves
   ]);
   const mistouchWrite = functions.slice(functions.indexOf("export const markAttemptMistouch"), functions.indexOf("export const getBookLearnedCounts"));
   assert.match(mistouchWrite, /attemptId: z\.string\(\)\.uuid\(\)/);
-  for (const filter of ['user_id", context.userId', 'id", data.attemptId', 'book_id", data.bookId', 'word", data.word', 'mode", "word"']) {
+  for (const filter of ['user_id", context.userId', 'id", data.attemptId', 'book_id", data.bookId', 'word", data.word', 'mode", "word"', 'session_stage", "word_spelling"', 'skipped", false']) {
     assert.match(mistouchWrite, new RegExp(`\\.eq\\("${filter}\\)`));
   }
+  assert.equal((mistouchWrite.match(/\.gt\("typo_count", 0\)/g) ?? []).length, 3);
+  assert.equal((mistouchWrite.match(/\.eq\("session_stage", "word_spelling"\)/g) ?? []).length, 3);
+  assert.equal((mistouchWrite.match(/\.eq\("skipped", false\)/g) ?? []).length, 3);
   assert.doesNotMatch(mistouchWrite, /order\("created_at"/);
   assert.match(mistouchWrite, /if \(row\.mistouch\) \{\s*await rebuildReview/);
   assert.match(mistouchWrite, /await rebuildReview\(updated\.review_mode, updated\.review_session_id\)/);

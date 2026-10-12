@@ -159,7 +159,7 @@ export const recordAttempt = createServerFn({ method: "POST" })
         word: saved.word,
         reviewMode: saved.review_mode as ReviewMode,
       }, saved.review_session_id);
-    if (saved.mode !== "word" || saved.skipped || saved.is_review)
+    if (saved.mode !== "word" || saved.skipped)
       return { ok: true, firstLearned: false, reusedAttempt: !inserted };
     if (!inserted) return { ok: true, firstLearned: false, reusedAttempt: true };
     const { data: otherAttempts, error: learnedError } = await context.supabase
@@ -171,7 +171,7 @@ export const recordAttempt = createServerFn({ method: "POST" })
       .eq("skipped", false)
       .neq("id", attemptId)
       .limit(1);
-    if (learnedError) throw new Error(learnedError.message);
+    if (learnedError) return { ok: true, firstLearned: null, reusedAttempt: false };
     return { ok: true, firstLearned: !otherAttempts?.length, reusedAttempt: false };
   });
 
@@ -183,12 +183,15 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: row, error: lookupError } = await context.supabase
       .from("attempts")
-      .select("id, book_id, word, mode, typo_count, mistouch, review_mode, review_session_id")
+      .select("id, book_id, word, mode, session_stage, skipped, typo_count, mistouch, review_mode, review_session_id")
       .eq("user_id", context.userId)
       .eq("id", data.attemptId)
       .eq("word", data.word)
       .eq("book_id", data.bookId)
       .eq("mode", "word")
+      .eq("session_stage", "word_spelling")
+      .eq("skipped", false)
+      .gt("typo_count", 0)
       .maybeSingle();
     if (lookupError) throw new Error(lookupError.message);
     if (!row)
@@ -214,6 +217,9 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
       .eq("book_id", data.bookId)
       .eq("word", data.word)
       .eq("mode", "word")
+      .eq("session_stage", "word_spelling")
+      .eq("skipped", false)
+      .gt("typo_count", 0)
       .eq("mistouch", false)
       .select("review_mode, review_session_id")
       .maybeSingle();
@@ -224,6 +230,12 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
         .select("mistouch")
         .eq("id", row.id)
         .eq("user_id", context.userId)
+        .eq("book_id", data.bookId)
+        .eq("word", data.word)
+        .eq("mode", "word")
+        .eq("session_stage", "word_spelling")
+        .eq("skipped", false)
+        .gt("typo_count", 0)
         .maybeSingle();
       if (latestError) throw new Error(latestError.message);
       if (latest?.mistouch) {

@@ -445,8 +445,11 @@ function LearnPage() {
         timeZone: nextCompletion.timeZone,
           },
         });
-        if (nextCompletion.isReview) {
-          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY, refetchType: "none" });
+        if (savedAttempt.firstLearned === null) {
+          void qc.invalidateQueries({ queryKey: learnedProgress.cacheKey, refetchType: "none" });
+        } else if (nextCompletion.isReview) {
+          if (savedAttempt.firstLearned)
+            void qc.invalidateQueries({ queryKey: learnedProgress.cacheKey, refetchType: "none" });
         } else if (savedAttempt.reusedAttempt && !countedAttemptIdsRef.current.has(nextCompletion.attemptId)) {
           countedAttemptIdsRef.current.add(nextCompletion.attemptId);
           void qc.invalidateQueries({ queryKey: learnedProgress.cacheKey });
