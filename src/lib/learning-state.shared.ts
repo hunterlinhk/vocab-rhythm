@@ -82,10 +82,9 @@ export type LearningAttemptRow = {
 };
 
 export function isValidIanaTimeZone(timeZone: string): boolean {
-  if (!/^[A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+)*$/.test(timeZone)) return false;
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone });
-    return true;
+    const resolved = new Intl.DateTimeFormat("en-US", { timeZone }).resolvedOptions().timeZone;
+    return !resolved.startsWith("+") && !resolved.startsWith("-");
   } catch {
     return false;
   }

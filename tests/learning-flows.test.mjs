@@ -220,7 +220,7 @@ test("calendar dates and streaks survive DST without changing Review's 04:00 day
 });
 
 test("calendar input accepts IANA zones and rejects invalid or offset zones", () => {
-  for (const zone of ["UTC", "America/Los_Angeles", "Asia/Tokyo", "Etc/GMT+1"]) {
+  for (const zone of ["UTC", "America/Los_Angeles", "Asia/Tokyo", "Etc/GMT+1", "CST6CDT", "EST5EDT", "GMT0"]) {
     assert.equal(isValidIanaTimeZone(zone), true, zone);
   }
   for (const zone of ["", "Mars/Olympus", "UTC+25", "+01:00", " America/Los_Angeles "]) {
