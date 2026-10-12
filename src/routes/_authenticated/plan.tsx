@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { getStats, saveSettings } from "@/lib/learning.functions";
 import { useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
+import { useLocalCalendar } from "@/hooks/use-local-calendar";
 import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import { toast } from "sonner";
 
@@ -34,9 +35,14 @@ const PRESETS = [20, 30, 50];
 function PlanPage() {
   const qc = useQueryClient();
   const fetchStats = useServerFn(getStats);
+  const calendar = useLocalCalendar();
   const persist = useServerFn(saveSettings);
   const { data: state, isAuthoritative } = useLearningState();
-  const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats() });
+  const { data: stats } = useQuery({
+    queryKey: ["stats", calendar?.timeZone, calendar?.day],
+    queryFn: () => fetchStats({ data: { timeZone: calendar!.timeZone } }),
+    enabled: !!calendar,
+  });
 
   const [goal, setGoal] = useState(20);
   const [custom, setCustom] = useState("");

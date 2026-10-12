@@ -18,6 +18,7 @@ import {
   buildLearningProblems,
   buildLearningState,
   buildLearningStats,
+  isValidIanaTimeZone,
   type LearningAttemptRow,
   type LearningProblems,
   type LearningState,
@@ -829,7 +830,8 @@ export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
 
 export const getLearningState = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }): Promise<LearningState> => {
+  .inputValidator((input: unknown) => z.object({ timeZone: z.string().min(1).max(100).refine(isValidIanaTimeZone) }).parse(input))
+  .handler(async ({ data, context }): Promise<LearningState> => {
     const [settingsRes, progressRes, attemptsRes, masteryRes, bookReviewSettingsRes] = await Promise.all([
       context.supabase
         .from("user_settings")
@@ -873,6 +875,7 @@ export const getLearningState = createServerFn({ method: "GET" })
       attempts: (attemptsRes.data ?? []) as LearningAttemptRow[],
       mastery: masteryRes.data ?? [],
       bookReviewSettings: bookReviewSettingsRes.data ?? [],
+      timeZone: data.timeZone,
     });
   });
 
@@ -1082,7 +1085,8 @@ export const saveBookCursor = createServerFn({ method: "POST" })
 
 export const getStats = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }): Promise<LearningStats> => {
+  .inputValidator((input: unknown) => z.object({ timeZone: z.string().min(1).max(100).refine(isValidIanaTimeZone) }).parse(input))
+  .handler(async ({ data, context }): Promise<LearningStats> => {
     const settings = await context.supabase
       .from("user_settings")
       .select("share_review_progress")
@@ -1107,6 +1111,7 @@ export const getStats = createServerFn({ method: "GET" })
     }
     return buildLearningStats(
       attempts,
+      data.timeZone,
       new Date(),
       settings.data?.share_review_progress ?? true,
     );

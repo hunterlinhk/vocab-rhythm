@@ -81,7 +81,33 @@ export type LearningAttemptRow = {
   mode?: string;
 };
 
-const dayKey = (date: Date) => date.toLocaleDateString("en-CA");
+export function isValidIanaTimeZone(timeZone: string): boolean {
+  try {
+    const resolved = new Intl.DateTimeFormat("en-US", { timeZone }).resolvedOptions().timeZone;
+    return !resolved.startsWith("+") && !resolved.startsWith("-");
+  } catch {
+    return false;
+  }
+}
+
+export function localDayAt(date: Date | string, timeZone: string): string {
+  const value = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(value.valueOf())) throw new Error("Invalid learning timestamp");
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const get = (type: string) => parts.find((part) => part.type === type)!.value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function previousDay(day: string): string {
+  const date = new Date(`${day}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
 
 /** Study problems use Review's word/scope identity, but do not split by review mode. */
 export function learningProblemKey(bookId: string, word: string, shareAcrossBooks: boolean): string {
@@ -166,10 +192,11 @@ export function buildLearningState(input: {
   mastery: { book_id: string; word: string }[];
   bookReviewSettings?: { book_id: string; include_in_review: boolean }[];
   now?: Date;
+  timeZone: string;
 }): LearningState {
   const rows = input.attempts;
   const studied = rows.filter((row) => !row.skipped);
-  const today = dayKey(input.now ?? new Date());
+  const today = localDayAt(input.now ?? new Date(), input.timeZone);
   const cursors: BookProgressMap = {};
   const progressRevisions: BookRevisionMap = {};
   const memorizeSessions: Record<string, MemorizeSession | null> = {};
@@ -216,7 +243,7 @@ export function buildLearningState(input: {
     { word: string; bookId: string; translation: string | null }
   >();
   for (const row of studied) {
-    if (dayKey(new Date(row.created_at)) === today && !todayItems.has(identity(row)))
+    if (localDayAt(row.created_at, input.timeZone) === today && !todayItems.has(identity(row)))
       todayItems.set(identity(row), {
         word: row.word,
         bookId: row.book_id,
@@ -257,12 +284,13 @@ export function buildLearningState(input: {
 
 export function buildLearningStats(
   rows: LearningAttemptRow[],
+  timeZone: string,
   now = new Date(),
   shareAcrossBooks = true,
 ): LearningStats {
   const attempts = rows.filter((row) => !row.skipped);
-  const today = dayKey(now);
-  const todayRows = attempts.filter((row) => dayKey(new Date(row.created_at)) === today);
+  const today = localDayAt(now, timeZone);
+  const todayRows = attempts.filter((row) => localDayAt(row.created_at, timeZone) === today);
 
   const practiceAttempts = new Map<string, number>();
   const seenPracticeAttempts = new Set<string>();
@@ -284,16 +312,15 @@ export function buildLearningStats(
     if (!todayWords.has(key)) todayWords.set(key, { word: row.word, bookId: row.book_id });
   }
 
-  const days = new Set(attempts.map((row) => dayKey(new Date(row.created_at))));
+  const days = new Set(attempts.map((row) => localDayAt(row.created_at, timeZone)));
   let streak = 0;
-  const cursor = new Date(now);
+  let cursor = today;
   for (;;) {
-    const key = dayKey(cursor);
-    if (days.has(key)) {
+    if (days.has(cursor)) {
       streak += 1;
-      cursor.setDate(cursor.getDate() - 1);
-    } else if (streak === 0 && key === today) {
-      cursor.setDate(cursor.getDate() - 1);
+      cursor = previousDay(cursor);
+    } else if (streak === 0 && cursor === today) {
+      cursor = previousDay(cursor);
     } else break;
   }
 
