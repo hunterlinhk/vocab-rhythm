@@ -6,7 +6,7 @@ import { createServer } from "vite";
 const vite = await createServer({ configFile: false, server: { middlewareMode: true } });
 after(() => vite.close());
 
-const { buildLearningProblems, buildLearningState, buildLearningStats, learningProblemKey, nextLearningCursor, shouldRunSpellingRound } =
+const { buildLearningProblems, buildLearningState, buildLearningStats, learningProblemKey, localDayAt, nextLearningCursor, shouldRunSpellingRound } =
   await vite.ssrLoadModule("/src/lib/learning-state.shared.ts");
 const {
   clearPendingWordAttempt,
@@ -117,6 +117,7 @@ test("learning queues isolate the same word by book and keep skips out of study 
       { book_id: "book-b", word: "apple" },
     ],
     now,
+    timeZone: "UTC",
   });
 
   assert.deepEqual(state.cursors, {
@@ -158,6 +159,7 @@ test("stats exclude skips, separate per-book trouble, and do not count wrong rec
       attempt({ book_id: "book-a", word: "orange" }),
       attempt({ book_id: "book-b", word: "skip", skipped: true }),
     ],
+    "UTC",
     now,
   );
 
@@ -175,6 +177,48 @@ test("stats exclude skips, separate per-book trouble, and do not count wrong rec
   assert.deepEqual(stats.troubleWords, []);
 });
 
+test("today counts and streaks follow the user's calendar across time zones", () => {
+  const instant = new Date("2026-10-01T08:30:00.000Z");
+  const rows = [
+    attempt({ word: "west-yesterday", created_at: "2026-09-30T23:30:00.000Z" }),
+    attempt({ word: "west-today", created_at: "2026-10-01T07:30:00.000Z" }),
+    attempt({ word: "skip", skipped: true, created_at: "2026-10-01T07:45:00.000Z" }),
+  ];
+  const west = buildLearningStats(rows, "America/Los_Angeles", instant);
+  const east = buildLearningStats(rows, "Asia/Tokyo", instant);
+  assert.equal(west.todayCount, 1);
+  assert.deepEqual(west.todayWords.map(({ word }) => word), ["west-today"]);
+  assert.equal(west.streakDays, 2);
+  assert.equal(east.todayCount, 2);
+  assert.deepEqual(east.todayWords.map(({ word }) => word), ["west-yesterday", "west-today"]);
+  assert.equal(east.streakDays, 1);
+
+  const state = (timeZone) => buildLearningState({
+    settings: null,
+    progress: [],
+    attempts: rows,
+    mastery: [],
+    now: instant,
+    timeZone,
+  });
+  assert.deepEqual(state("America/Los_Angeles").todayItems.map(({ word }) => word), ["west-today"]);
+  assert.deepEqual(state("Asia/Tokyo").todayItems.map(({ word }) => word), ["west-yesterday", "west-today"]);
+});
+
+test("calendar dates and streaks survive DST without changing Review's 04:00 day", () => {
+  const timeZone = "America/Los_Angeles";
+  assert.equal(localDayAt("2026-03-08T07:59:00.000Z", timeZone), "2026-03-07");
+  assert.equal(localDayAt("2026-03-08T08:00:00.000Z", timeZone), "2026-03-08");
+  assert.equal(localDayAt("2026-03-08T09:30:00.000Z", timeZone), "2026-03-08");
+  assert.equal(learningDayAt("2026-03-08T09:30:00.000Z", timeZone), "2026-03-07");
+  const rows = [
+    attempt({ created_at: "2026-03-07T09:30:00.000Z" }),
+    attempt({ created_at: "2026-03-08T09:30:00.000Z" }),
+    attempt({ created_at: "2026-03-09T08:30:00.000Z" }),
+  ];
+  assert.equal(buildLearningStats(rows, timeZone, new Date("2026-03-09T09:00:00.000Z")).streakDays, 3);
+});
+
 test("progress word counts use normalized Review scope for all-time and today", () => {
   const rows = [
     attempt({ id: "a-today", book_id: "book-a", word: "  DON’T   WORRY ", typo_count: 1 }),
@@ -183,12 +227,12 @@ test("progress word counts use normalized Review scope for all-time and today", 
     attempt({ id: "b-yesterday", book_id: "book-b", word: "growth", created_at: "2026-09-26T12:00:00Z" }),
     attempt({ id: "skipped", book_id: "book-b", word: "skip", skipped: true }),
   ];
-  const shared = buildLearningStats(rows, now, true);
+  const shared = buildLearningStats(rows, "UTC", now, true);
   assert.equal(shared.uniqueWords, 2);
   assert.deepEqual(shared.todayWords, [{ word: "  DON’T   WORRY ", bookId: "book-a" }]);
   assert.deepEqual(shared.troubleWords.map(({ errorAttempts, times }) => [errorAttempts, times]), [[2, 3]]);
 
-  const perBook = buildLearningStats(rows, now, false);
+  const perBook = buildLearningStats(rows, "UTC", now, false);
   assert.equal(perBook.uniqueWords, 3);
   assert.deepEqual(perBook.todayWords, [
     { word: "  DON’T   WORRY ", bookId: "book-a" },
@@ -209,6 +253,30 @@ test("progress statistics read every attempt page before counting distinct words
   assert.match(statsRead, /\.order\("created_at", \{ ascending: false \}\)[\s\S]*\.order\("id", \{ ascending: false \}\)[\s\S]*\.range\(offset, offset \+ 999\)/);
   assert.match(statsRead, /if \(!page\.data \|\| page\.data\.length < 1000\) break/);
   assert.doesNotMatch(statsRead, /\.limit\(1000\)/);
+});
+
+test("stats and learning state send the browser zone and refresh at local midnight", async () => {
+  const [functions, stateHook, calendarHook, statsPage, planPage, assistantPage] = await Promise.all([
+    readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/hooks/use-learning-state.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/hooks/use-local-calendar.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/stats.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/plan.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/assistant.tsx", import.meta.url), "utf8"),
+  ]);
+  const stateRead = functions.slice(functions.indexOf("export const getLearningState"), functions.indexOf("export const getLearningProblems"));
+  const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
+  assert.match(stateRead, /timeZone: data\.timeZone/);
+  assert.match(statsRead, /buildLearningStats\(\s*attempts,\s*data\.timeZone/);
+  assert.match(stateHook, /fetchState\(\{ data: \{ timeZone: calendar!\.timeZone \} \}\)/);
+  for (const page of [statsPage, planPage]) {
+    assert.match(page, /queryKey: \["stats", calendar\?\.timeZone, calendar\?\.day\]/);
+    assert.match(page, /fetchStats\(\{ data: \{ timeZone: calendar!\.timeZone \} \}\)/);
+  }
+  assert.match(calendarHook, /midnight\.setHours\(24, 0, 0, 0\)/);
+  assert.match(calendarHook, /window\.addEventListener\("focus", update\)/);
+  assert.match(functions, /const today = localDayAt\(new Date\(\), data\.timeZone\)/);
+  assert.match(assistantPage, /send\(\{ data: \{ content, timeZone: getUserTimeZone\(\) \} \}\)/);
 });
 
 test("mistakes include typo and wrong-answer attempts; shared trouble counts distinct real attempts", () => {
@@ -233,8 +301,9 @@ test("mistakes include typo and wrong-answer attempts; shared trouble counts dis
     attempts: rows,
     mastery: [],
     now,
+    timeZone: "UTC",
   });
-  const stats = buildLearningStats(rows, now);
+  const stats = buildLearningStats(rows, "UTC", now);
   const problems = buildLearningProblems(rows, true);
   const identities = (items) => items.map(({ bookId, word }) => `${bookId}:${word}`);
 
@@ -283,13 +352,13 @@ test("problem scope normalizes cross-book words without splitting recognition an
   assert.equal(shared.wrongWords.length, 1);
   assert.deepEqual(shared.wrongWords[0], { word: "  DON’T   WORRY ", bookId: "book-a", translation: "别担心" });
   assert.deepEqual(shared.troubleWords.map(({ errorAttempts }) => errorAttempts), [2]);
-  assert.deepEqual(buildLearningStats(rows, now, true).troubleWords.map(({ errorAttempts }) => errorAttempts), [2]);
+  assert.deepEqual(buildLearningStats(rows, "UTC", now, true).troubleWords.map(({ errorAttempts }) => errorAttempts), [2]);
 
   const separate = buildLearningProblems(rows, false);
   assert.notEqual(learningProblemKey("book-a", "don't worry", false), learningProblemKey("book-b", "don't worry", false));
   assert.deepEqual(separate.wrongWords.map(({ bookId }) => bookId), ["book-a", "book-b"]);
   assert.deepEqual(separate.troubleWords, []);
-  assert.deepEqual(buildLearningStats(rows, now, false).troubleWords, []);
+  assert.deepEqual(buildLearningStats(rows, "UTC", now, false).troubleWords, []);
 });
 
 test("mistake history stays tied to real errors and stats reads the saved sharing setting", async () => {
@@ -315,7 +384,7 @@ test("book-local trouble needs two different real attempt ids in that book", () 
   ];
   const problems = buildLearningProblems(rows, false);
   assert.deepEqual(problems.troubleWords.map(({ bookId, errorAttempts }) => [bookId, errorAttempts]), [["book-a", 2]]);
-  assert.deepEqual(buildLearningStats(rows, now, false).troubleWords.map(({ bookId, errorAttempts, times }) => [bookId, errorAttempts, times]), [["book-a", 2, 2]]);
+  assert.deepEqual(buildLearningStats(rows, "UTC", now, false).troubleWords.map(({ bookId, errorAttempts, times }) => [bookId, errorAttempts, times]), [["book-a", 2, 2]]);
 });
 
 test("historical problems remain visible beyond 2000 recent attempts and follow scope", () => {
@@ -494,6 +563,7 @@ test("learning-state re-entry waits for pending server writes and restores each 
       attempts: [],
       mastery: [],
       now,
+      timeZone: "UTC",
     });
   });
 
@@ -1692,6 +1762,7 @@ test("spelling review inclusion keeps the tri-state setting", () => {
       attempts: [],
       mastery: [],
       now,
+      timeZone: "UTC",
     });
 
   assert.equal(state(undefined).includeSpellingInReview, null);
@@ -1706,6 +1777,7 @@ test("spelling review inclusion keeps the tri-state setting", () => {
     attempts: [],
     mastery: [],
     now,
+    timeZone: "UTC",
   });
   assert.equal(scoped.shareReviewProgress, false);
   assert.equal(scoped.reviewInclusionByBook["bundled-ngsl"], false);

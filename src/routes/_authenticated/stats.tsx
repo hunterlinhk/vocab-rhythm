@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getStats } from "@/lib/learning.functions";
+import { useLocalCalendar } from "@/hooks/use-local-calendar";
 import { entryKey } from "@/lib/entry-identity";
 
 const STAT_TABS = ["今日数据", "历史记录", "学习分析"] as const;
@@ -34,7 +35,12 @@ function StatsPage() {
   const navigate = useNavigate();
   const setTab = (item: StatTab) => void navigate({ to: "/stats", search: { tab: item } });
   const fetchStats = useServerFn(getStats);
-  const { data, isLoading } = useQuery({ queryKey: ["stats"], queryFn: () => fetchStats() });
+  const calendar = useLocalCalendar();
+  const { data, isLoading } = useQuery({
+    queryKey: ["stats", calendar?.timeZone, calendar?.day],
+    queryFn: () => fetchStats({ data: { timeZone: calendar!.timeZone } }),
+    enabled: !!calendar,
+  });
 
   if (isLoading || !data) return <p className="text-sm text-muted-foreground">载入中…</p>;
 

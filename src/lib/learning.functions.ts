@@ -18,6 +18,7 @@ import {
   buildLearningProblems,
   buildLearningState,
   buildLearningStats,
+  localDayAt,
   type LearningAttemptRow,
   type LearningProblems,
   type LearningState,
@@ -829,7 +830,8 @@ export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
 
 export const getLearningState = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }): Promise<LearningState> => {
+  .inputValidator((input: unknown) => z.object({ timeZone: z.string().min(1).max(100) }).parse(input))
+  .handler(async ({ data, context }): Promise<LearningState> => {
     const [settingsRes, progressRes, attemptsRes, masteryRes, bookReviewSettingsRes] = await Promise.all([
       context.supabase
         .from("user_settings")
@@ -873,6 +875,7 @@ export const getLearningState = createServerFn({ method: "GET" })
       attempts: (attemptsRes.data ?? []) as LearningAttemptRow[],
       mastery: masteryRes.data ?? [],
       bookReviewSettings: bookReviewSettingsRes.data ?? [],
+      timeZone: data.timeZone,
     });
   });
 
@@ -1082,7 +1085,8 @@ export const saveBookCursor = createServerFn({ method: "POST" })
 
 export const getStats = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }): Promise<LearningStats> => {
+  .inputValidator((input: unknown) => z.object({ timeZone: z.string().min(1).max(100) }).parse(input))
+  .handler(async ({ data, context }): Promise<LearningStats> => {
     const settings = await context.supabase
       .from("user_settings")
       .select("share_review_progress")
@@ -1107,6 +1111,7 @@ export const getStats = createServerFn({ method: "GET" })
     }
     return buildLearningStats(
       attempts,
+      data.timeZone,
       new Date(),
       settings.data?.share_review_progress ?? true,
     );
@@ -1142,7 +1147,7 @@ export const AI_ASSISTANT_ENABLED = false;
 export const sendMessage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
-    z.object({ content: z.string().min(1).max(2000) }).parse(input),
+    z.object({ content: z.string().min(1).max(2000), timeZone: z.string().min(1).max(100) }).parse(input),
   )
   .handler(async ({ data, context }) => {
     // AI 助手已暂停：不调用任何模型
@@ -1186,9 +1191,9 @@ export const sendMessage = createServerFn({ method: "POST" })
       ).values(),
     ];
     const skippedWords = distinctEntries(allRows.filter((r) => r.skipped)).slice(0, 30);
-    const today = new Date().toLocaleDateString("en-CA");
+    const today = localDayAt(new Date(), data.timeZone);
     const todayWords = distinctEntries(
-      attempts.filter((r) => new Date(r.created_at).toLocaleDateString("en-CA") === today),
+      attempts.filter((r) => localDayAt(r.created_at, data.timeZone) === today),
     );
     const wrongWords = distinctEntries(
       attempts.filter((r) => (r.typo_count > 0 || !r.correct) && !r.mistouch),
