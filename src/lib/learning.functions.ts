@@ -18,7 +18,7 @@ import {
   buildLearningProblems,
   buildLearningState,
   buildLearningStats,
-  countLearnedByBook,
+  createBookLearnedCounter,
   isValidIanaTimeZone,
   type LearningAttemptRow,
   type LearningProblems,
@@ -159,7 +159,20 @@ export const recordAttempt = createServerFn({ method: "POST" })
         word: saved.word,
         reviewMode: saved.review_mode as ReviewMode,
       }, saved.review_session_id);
-    return { ok: true };
+    if (saved.mode !== "word" || saved.skipped || saved.is_review)
+      return { ok: true, firstLearned: false, reusedAttempt: !inserted };
+    if (!inserted) return { ok: true, firstLearned: false, reusedAttempt: true };
+    const { data: otherAttempts, error: learnedError } = await context.supabase
+      .from("attempts")
+      .select("id")
+      .eq("user_id", context.userId)
+      .eq("book_id", saved.book_id)
+      .eq("word", saved.word)
+      .eq("skipped", false)
+      .neq("id", attemptId)
+      .limit(1);
+    if (learnedError) throw new Error(learnedError.message);
+    return { ok: true, firstLearned: !otherAttempts?.length, reusedAttempt: false };
   });
 
 export const markAttemptMistouch = createServerFn({ method: "POST" })
@@ -226,7 +239,7 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
 export const getBookLearnedCounts = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<Record<string, number>> => {
-    const rows: { book_id: string; word: string; skipped: boolean }[] = [];
+    const counter = createBookLearnedCounter();
     let afterId: string | null = null;
     for (;;) {
       let query = context.supabase
@@ -240,11 +253,11 @@ export const getBookLearnedCounts = createServerFn({ method: "GET" })
       const { data, error } = await query;
       if (error) throw new Error(error.message);
       if (!data?.length) break;
-      rows.push(...data);
+      counter.add(data);
       afterId = data[data.length - 1]!.id;
       if (data.length < 1000) break;
     }
-    return countLearnedByBook(rows);
+    return counter.counts();
   });
 
 const StartMemorizeInput = z
@@ -875,9 +888,8 @@ export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
 
 export const getLearningState = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: unknown) => z.object({ timeZone: z.string().min(1).max(100).refine(isValidIanaTimeZone) }).parse(input))
-  .handler(async ({ data, context }): Promise<LearningState> => {
-    const [settingsRes, progressRes, attemptsRes, masteryRes, bookReviewSettingsRes] = await Promise.all([
+  .handler(async ({ context }): Promise<LearningState> => {
+    const [settingsRes, progressRes, masteryRes, bookReviewSettingsRes] = await Promise.all([
       context.supabase
         .from("user_settings")
         .select(
@@ -889,12 +901,6 @@ export const getLearningState = createServerFn({ method: "GET" })
         .from("book_progress")
         .select("book_id, mode, cursor_index, revision, session_state")
         .eq("user_id", context.userId),
-      context.supabase
-        .from("attempts")
-        .select("id, word, translation, book_id, typo_count, mistouch, correct, skipped, created_at")
-        .eq("user_id", context.userId)
-        .order("created_at", { ascending: false })
-        .limit(2000),
       context.supabase
         .from("word_mastery")
         .select("word, book_id")
@@ -909,7 +915,6 @@ export const getLearningState = createServerFn({ method: "GET" })
     const errors = [
       settingsRes.error,
       progressRes.error,
-      attemptsRes.error,
       masteryRes.error,
       bookReviewSettingsRes.error,
     ].flatMap((error) => (error ? [error.message] : []));
@@ -917,10 +922,8 @@ export const getLearningState = createServerFn({ method: "GET" })
     return buildLearningState({
       settings: settingsRes.data,
       progress: (progressRes.data ?? []).map((row) => ({ ...row, mode: row.mode as LearningMode })),
-      attempts: (attemptsRes.data ?? []) as LearningAttemptRow[],
       mastery: masteryRes.data ?? [],
       bookReviewSettings: bookReviewSettingsRes.data ?? [],
-      timeZone: data.timeZone,
     });
   });
 

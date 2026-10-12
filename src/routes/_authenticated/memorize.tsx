@@ -268,7 +268,7 @@ function NormalMemorizePage() {
         }),
       )
         .then((result) => {
-          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY });
+          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY, refetchType: "none" });
           window.setTimeout(
             () => {
               if (result.session) setSession(result.session);
@@ -327,7 +327,7 @@ function NormalMemorizePage() {
         }),
       )
         .then((result) => {
-          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY });
+          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY, refetchType: "none" });
           window.setTimeout(() => {
             if (result.session) setSession(result.session);
             setSessionRevision(result.revision);

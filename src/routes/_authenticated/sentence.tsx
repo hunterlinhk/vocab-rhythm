@@ -260,7 +260,7 @@ function SentencePage() {
           }),
         );
         if (result.attempt && !result.attempt.skipped)
-          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY });
+          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY, refetchType: "none" });
         if (!result.accepted || !result.checkpoint) {
           setIndex(result.cursorIndex);
           setCheckpoint(

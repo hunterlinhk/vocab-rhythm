@@ -30,6 +30,7 @@ import { useLibrary, type BookSummary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
 import { useBookLearnedCounts } from "@/hooks/use-book-learned-counts";
 import { saveBookReviewSetting, saveSettings } from "@/lib/learning.functions";
+import { bookLearnedCount } from "@/lib/learning-state.shared";
 import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
 import { createCustomBook, deleteCustomBook } from "@/lib/library.functions";
 import { parsePastedWords, type EntryInputT } from "@/lib/library.shared";
@@ -64,7 +65,7 @@ function BooksPage() {
   const persistBookReviewSetting = useServerFn(saveBookReviewSetting);
   const remove = useServerFn(deleteCustomBook);
   const { data: state } = useLearningState();
-  const { data: learnedCounts } = useBookLearnedCounts();
+  const { confirmedCounts: learnedCounts, isError: learnedCountsError } = useBookLearnedCounts();
   const { official, custom } = useLibrary();
   const activeBook = state?.activeBook ?? "core";
   const [creating, setCreating] = useState(false);
@@ -142,9 +143,9 @@ function BooksPage() {
       {list.length ? (
         <div className="grid gap-4 sm:grid-cols-2">
           {list.map((b) => {
-            const learned = learnedCounts?.[b.id] ?? 0;
+            const learned = bookLearnedCount(learnedCounts, b.id);
             const cursor = state?.cursors[b.id]?.word ?? 0;
-            const pct = Math.round((learned / Math.max(1, b.wordCount)) * 100);
+            const pct = learned === null ? null : Math.round((learned / Math.max(1, b.wordCount)) * 100);
             const active = b.id === activeBook;
             const includedInReview = state?.reviewInclusionByBook?.[b.id] ?? true;
             return (
@@ -166,9 +167,9 @@ function BooksPage() {
                 </div>
                 <p className="mt-5 font-display text-2xl">{b.name}</p>
                 {b.desc && <p className="mt-1 text-sm text-muted-foreground">{b.desc}</p>}
-                <Progress value={pct} className="mt-5 h-1.5 bg-secondary/70" />
+                {pct !== null && <Progress value={pct} className="mt-5 h-1.5 bg-secondary/70" />}
                 <p className="mt-2 font-mono text-xs text-muted-foreground">
-                  已学 {learned} / {b.wordCount} · 位置 {b.wordCount ? (cursor % b.wordCount) + 1 : 0}
+                  {learned === null ? learnedCountsError ? "进度读取失败" : "进度读取中" : `已学 ${learned} / ${b.wordCount}`} · 位置 {b.wordCount ? (cursor % b.wordCount) + 1 : 0}
                 </p>
                 <div className="mt-4 flex items-center justify-between border-t border-border/50 pt-4">
                   <div className="flex items-center gap-1.5 text-sm font-medium">

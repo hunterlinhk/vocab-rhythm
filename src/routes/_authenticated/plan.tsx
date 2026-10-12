@@ -10,6 +10,7 @@ import { SectionHeading } from "@/components/SectionHeading";
 import { SettingInfo } from "@/components/setting-info";
 import { cn } from "@/lib/utils";
 import { getStats, saveSettings } from "@/lib/learning.functions";
+import { bookLearnedCount } from "@/lib/learning-state.shared";
 import { useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
 import { useBookLearnedCounts } from "@/hooks/use-book-learned-counts";
@@ -39,7 +40,7 @@ function PlanPage() {
   const calendar = useLocalCalendar();
   const persist = useServerFn(saveSettings);
   const { data: state, isAuthoritative } = useLearningState();
-  const { data: learnedCounts } = useBookLearnedCounts();
+  const { confirmedCounts: learnedCounts, isError: learnedCountsError } = useBookLearnedCounts();
   const { data: stats } = useQuery({
     queryKey: ["stats", calendar?.timeZone, calendar?.day],
     queryFn: () => fetchStats({ data: { timeZone: calendar!.timeZone } }),
@@ -211,15 +212,15 @@ function PlanPage() {
         <SectionHeading eyebrow="BOOKS" title="词书进度" action={<Button asChild variant="ghost" size="sm"><Link to="/books">管理词库</Link></Button>} />
         <div className="mt-5 space-y-4">
           {allBooks.map((b) => {
-            const learned = learnedCounts?.[b.id] ?? 0;
-            const pct = Math.round((learned / Math.max(1, b.wordCount)) * 100);
+            const learned = bookLearnedCount(learnedCounts, b.id);
+            const pct = learned === null ? null : Math.round((learned / Math.max(1, b.wordCount)) * 100);
             return (
               <div key={b.id}>
                 <div className="flex items-center justify-between text-sm">
                   <span className={cn(b.id === activeBook.id && "font-semibold text-primary")}>{b.name}</span>
-                  <span className="font-mono text-xs text-muted-foreground">{learned} / {b.wordCount}</span>
+                  <span className="font-mono text-xs text-muted-foreground">{learned === null ? learnedCountsError ? "读取失败" : "读取中" : `${learned} / ${b.wordCount}`}</span>
                 </div>
-                <Progress value={pct} className="mt-2 h-1.5 bg-secondary/70" />
+                {pct !== null && <Progress value={pct} className="mt-2 h-1.5 bg-secondary/70" />}
               </div>
             );
           })}

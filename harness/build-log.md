@@ -1,14 +1,15 @@
 # Learning progress and mistouch integrity
 
 - `bugfix/learning-progress-mistouch-integrity` starts from `origin/main` at `c9a02f314bb12959aa5c113838ad12bc7c97b6f0`.
-- Book progress reads full non-skipped attempt history through a separate paginated server function and returns per-book distinct-word counts; ordinary learning state remains capped at 2000 attempts. The count cache is scoped by signed-in user. Successful word, memorize, and sentence saves invalidate it.
+- Book progress reads full non-skipped attempt history only when needed through a separate paginated server function that aggregates each page. The count cache is scoped by signed-in user. Newly inserted normal word attempts use a one-word existence check and update confirmed cached counts once per attempt; reused attempts trigger a needed refresh instead of a second increment. Review spelling only marks the cache stale. Memorize and sentence saves defer full refresh until progress is next viewed. Unavailable or stale counts render as unknown, not zero.
+- `getLearningState` now reads settings, cursors/sessions, mastery, and book review settings only. Dead attempt-derived arrays and its timezone/midnight query path are removed; Stats and Plan retain local calendar behavior.
 - Mistouch UI and mutation use the current attempt ID. Mutation validates owner, book, word, and word mode; retries are idempotent and replay Review projections. Failed UI saves roll back the optimistic mark and show an error.
-- Validation: `npm test` 91/91, `npx tsc --noEmit`, and `npm run build` passed. No migration, AI, or Scheduler changes.
+- Validation: `npm test` 92/92, `npx tsc --noEmit`, and `npm run build` passed. No migration, AI, or Scheduler changes.
 
 # Local calendar statistics
 
 - `bugfix/local-timezone-learning-stats` starts from `origin/main` at `429c060ca1f0ede02ee90d63bfed2a4971d5e8e3`.
-- Stats, plan progress, and `LearningState.todayItems` receive the browser's validated IANA time zone. Calendar dates use explicit zone formatting; streaks step through date keys with UTC date arithmetic, independent of the server zone. Query keys include zone and local day; mounted pages refresh at local midnight, on focus, and after visibility returns. Review's 04:00 learning day is unchanged. AI assistant code matches main.
+- Stats and plan progress receive the browser's validated IANA time zone. Calendar dates use explicit zone formatting; streaks step through date keys with UTC date arithmetic, independent of the server zone. Query keys include zone and local day; mounted pages refresh at local midnight, on focus, and after visibility returns. Review's 04:00 learning day is unchanged. AI assistant code matches main.
 - Validation: `npm test` 87/87, `npx tsc --noEmit`, `npm run build`, and `git diff --check` passed, including invalid IANA zones, cross-zone midnight, and DST cases. No migration or database operation.
 
 # Learning plan settings cleanup

@@ -6,7 +6,7 @@ import { createServer } from "vite";
 const vite = await createServer({ configFile: false, server: { middlewareMode: true } });
 after(() => vite.close());
 
-const { buildLearningProblems, buildLearningState, buildLearningStats, countLearnedByBook, isCurrentAttemptMistouched, isValidIanaTimeZone, learningProblemKey, localDayAt, nextLearningCursor, shouldRunSpellingRound } =
+const { applyFirstLearnedCount, bookLearnedCount, buildLearningProblems, buildLearningState, buildLearningStats, createBookLearnedCounter, isCurrentAttemptMistouched, isValidIanaTimeZone, learningProblemKey, localDayAt, nextLearningCursor, shouldRunSpellingRound } =
   await vite.ssrLoadModule("/src/lib/learning-state.shared.ts");
 const {
   clearPendingWordAttempt,
@@ -100,24 +100,10 @@ test("learning queues isolate the same word by book and keep skips out of study 
         },
       },
     ],
-    attempts: [
-      attempt({ book_id: "book-a", correct: false, typo_count: 2 }),
-      attempt({
-        book_id: "book-a",
-        translation: "苹果（旧版）",
-        correct: false,
-        typo_count: 3,
-        created_at: "2026-09-26T12:00:00Z",
-      }),
-      attempt({ book_id: "book-b", translation: "苹果（词书二）", typo_count: 1, mistouch: true }),
-      attempt({ book_id: "book-a", word: "skip", skipped: true, correct: true }),
-    ],
     mastery: [
       { book_id: "book-a", word: "apple" },
       { book_id: "book-b", word: "apple" },
     ],
-    now,
-    timeZone: "UTC",
   });
 
   assert.deepEqual(state.cursors, {
@@ -131,23 +117,9 @@ test("learning queues isolate the same word by book and keep skips out of study 
   assert.equal(state.memorizeSessions["book-a"].phase, "recall");
   assert.equal(state.sentenceSessions["book-a"].activeWord, "apple");
   assert.deepEqual(state.masteredByBook, { "book-a": ["apple"], "book-b": ["apple"] });
-  assert.deepEqual(state.learnedWords, ["apple"]);
-  assert.deepEqual(state.learnedByBook, { "book-a": ["apple"], "book-b": ["apple"] });
-  assert.deepEqual(
-    state.todayItems.map(({ bookId, word }) => [bookId, word]),
-    [
-      ["book-a", "apple"],
-      ["book-b", "apple"],
-    ],
-  );
-  assert.deepEqual(
-    state.mistouchWords.map(({ bookId, word }) => [bookId, word]),
-    [["book-b", "apple"]],
-  );
-  assert.deepEqual(
-    state.skippedWords.map(({ bookId, word }) => [bookId, word]),
-    [["book-a", "skip"]],
-  );
+  for (const field of ["learnedByBook", "learnedWords", "todayItems", "mistouchWords", "skippedWords"]) {
+    assert.equal(field in state, false, field);
+  }
 });
 
 test("stats exclude skips, separate per-book trouble, and do not count wrong recall as clean", () => {
@@ -185,8 +157,24 @@ test("book progress counts complete history beyond 2000 attempts without duplica
     { book_id: "book-b", word: "word-0", skipped: false },
     { book_id: "book-b", word: "word-0", skipped: false },
   );
-  assert.deepEqual(countLearnedByBook(rows), { "book-a": 2005, "book-b": 1 });
-  assert.equal(countLearnedByBook(rows.slice(-2000))["book-a"], 1997);
+  const counter = createBookLearnedCounter();
+  counter.add(rows.slice(0, 1000));
+  counter.add(rows.slice(1000, 2000));
+  counter.add(rows.slice(2000));
+  assert.deepEqual(counter.counts(), { "book-a": 2005, "book-b": 1 });
+  const recent = createBookLearnedCounter();
+  recent.add(rows.slice(-2000));
+  assert.equal(recent.counts()["book-a"], 1997);
+});
+
+test("book count cache only grows once for a first learned attempt and keeps unknown separate from zero", () => {
+  assert.equal(bookLearnedCount(undefined, "book-a"), null);
+  assert.equal(bookLearnedCount({}, "book-a"), 0);
+  const applied = new Set();
+  const first = applyFirstLearnedCount({ "book-a": 2 }, "book-a", "attempt-one", applied);
+  assert.deepEqual(first, { "book-a": 3 });
+  assert.equal(applyFirstLearnedCount(first, "book-a", "attempt-one", applied), first);
+  assert.deepEqual(applyFirstLearnedCount(first, "book-b", "attempt-two", applied), { "book-a": 3, "book-b": 1 });
 });
 
 test("mistouch status follows the attempt id even when the word is repeated", () => {
@@ -198,7 +186,7 @@ test("mistouch status follows the attempt id even when the word is repeated", ()
   assert.equal(isCurrentAttemptMistouched("first-attempt", false, marked), false);
 });
 
-test("book progress uses a separate paginated count query and refreshes after saved attempts", async () => {
+test("book progress aggregates pages and updates normal spelling without a full-history rescan", async () => {
   const [functions, learnedHook, learn, memorize, sentence, books, plan] = await Promise.all([
     readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/hooks/use-book-learned-counts.ts", import.meta.url), "utf8"),
@@ -213,17 +201,38 @@ test("book progress uses a separate paginated count query and refreshes after sa
   assert.match(countsRead, /\.eq\("skipped", false\)/);
   assert.match(countsRead, /\.limit\(1000\)/);
   assert.match(countsRead, /query\.gt\("id", afterId\)/);
-  assert.match(countsRead, /return countLearnedByBook\(rows\)/);
-  assert.match(stateRead, /\.limit\(2000\)/);
+  assert.match(countsRead, /counter\.add\(data\)/);
+  assert.match(countsRead, /return counter\.counts\(\)/);
+  assert.doesNotMatch(countsRead, /rows\.push|const rows:/);
+  assert.doesNotMatch(stateRead, /\.from\("attempts"\)/);
   assert.match(learnedHook, /staleTime: 5 \* 60 \* 1000/);
-  assert.match(learnedHook, /queryKey: \[\.\.\.BOOK_LEARNED_COUNTS_QUERY_KEY, userId\]/);
-  for (const page of [learn, books, plan]) {
+  assert.match(learnedHook, /confirmedCounts: query\.isFetching \|\| query\.isError \|\| query\.isStale \? undefined : query\.data/);
+  assert.match(learnedHook, /const cacheKey = useMemo\(\(\) => \[\.\.\.BOOK_LEARNED_COUNTS_QUERY_KEY, userId\]/);
+  assert.match(learnedHook, /enabled: !!userId && \(options\.enabled \?\? true\)/);
+  for (const page of [books, plan]) {
     assert.match(page, /useBookLearnedCounts\(\)/);
     assert.doesNotMatch(page, /state\?\.learnedByBook/);
+    assert.match(page, /bookLearnedCount\(learnedCounts, b\.id\)/);
+    assert.match(page, /learned === null/);
+    assert.match(page, /confirmedCounts: learnedCounts/);
   }
-  for (const page of [learn, memorize, sentence]) {
-    assert.match(page, /qc\.invalidateQueries\(\{ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY \}\)/);
+  assert.match(learn, /useBookLearnedCounts\(\{ enabled: !queueKind \}\)/);
+  assert.match(learn, /bookLearnedCount\(learnedCounts, bookId\)/);
+  assert.match(learn, /learnedProgress\.confirmedCounts/);
+  assert.match(learn, /savedAttempt\.firstLearned/);
+  assert.match(learn, /savedAttempt\.reusedAttempt && !countedAttemptIdsRef\.current\.has\(nextCompletion\.attemptId\)/);
+  assert.match(learn, /qc\.setQueryData<Record<string, number>>/);
+  assert.match(learn, /countWasConfirmed[\s\S]*!countQueryState\.isInvalidated/);
+  assert.match(learn, /进度读取失败/);
+  assert.doesNotMatch(learn, /invalidateQueries\(\{ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY \}\)/);
+  const recordAttemptRead = functions.slice(functions.indexOf("export const recordAttempt"), functions.indexOf("export const markAttemptMistouch"));
+  assert.match(recordAttemptRead, /if \(!inserted\) return \{ ok: true, firstLearned: false, reusedAttempt: true \}/);
+  assert.match(recordAttemptRead, /firstLearned: !otherAttempts\?\.length, reusedAttempt: false/);
+  assert.match(recordAttemptRead, /\.eq\("book_id", saved\.book_id\)[\s\S]*\.eq\("word", saved\.word\)[\s\S]*\.neq\("id", attemptId\)[\s\S]*\.limit\(1\)/);
+  for (const page of [memorize, sentence]) {
+    assert.match(page, /qc\.invalidateQueries\(\{ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY, refetchType: "none" \}\)/);
   }
+  assert.match(learn, /nextCompletion\.isReview[\s\S]*refetchType: "none"/);
 });
 
 test("mistouch writes target the current owned spelling attempt and failed saves roll back", async () => {
@@ -262,16 +271,6 @@ test("today counts and streaks follow the user's calendar across time zones", ()
   assert.deepEqual(east.todayWords.map(({ word }) => word), ["west-yesterday", "west-today"]);
   assert.equal(east.streakDays, 1);
 
-  const state = (timeZone) => buildLearningState({
-    settings: null,
-    progress: [],
-    attempts: rows,
-    mastery: [],
-    now: instant,
-    timeZone,
-  });
-  assert.deepEqual(state("America/Los_Angeles").todayItems.map(({ word }) => word), ["west-today"]);
-  assert.deepEqual(state("Asia/Tokyo").todayItems.map(({ word }) => word), ["west-yesterday", "west-today"]);
 });
 
 test("calendar dates and streaks survive DST without changing Review's 04:00 day", () => {
@@ -333,7 +332,7 @@ test("progress statistics read every attempt page before counting distinct words
   assert.doesNotMatch(statsRead, /\.limit\(1000\)/);
 });
 
-test("stats and learning state send the browser zone and refresh at local midnight", async () => {
+test("stats keeps local midnight refresh while learning state no longer needs a zone", async () => {
   const [functions, stateHook, calendarHook, statsPage, planPage] = await Promise.all([
     readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/hooks/use-learning-state.ts", import.meta.url), "utf8"),
@@ -343,12 +342,11 @@ test("stats and learning state send the browser zone and refresh at local midnig
   ]);
   const stateRead = functions.slice(functions.indexOf("export const getLearningState"), functions.indexOf("export const getLearningProblems"));
   const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
-  for (const read of [stateRead, statsRead]) {
-    assert.match(read, /\.inputValidator\(\(input: unknown\) => z\.object\(\{ timeZone: z\.string\(\)\.min\(1\)\.max\(100\)\.refine\(isValidIanaTimeZone\) \}\)\.parse\(input\)\)/);
-  }
-  assert.match(stateRead, /timeZone: data\.timeZone/);
+  assert.doesNotMatch(stateRead, /timeZone|attemptsRes|\.from\("attempts"\)/);
+  assert.match(statsRead, /\.inputValidator\(\(input: unknown\) => z\.object\(\{ timeZone: z\.string\(\)\.min\(1\)\.max\(100\)\.refine\(isValidIanaTimeZone\) \}\)\.parse\(input\)\)/);
   assert.match(statsRead, /buildLearningStats\(\s*attempts,\s*data\.timeZone/);
-  assert.match(stateHook, /fetchState\(\{ data: \{ timeZone: calendar!\.timeZone \} \}\)/);
+  assert.match(stateHook, /fetchAfterLearningStateWrites\(\(\) => fetchState\(\)\)/);
+  assert.doesNotMatch(stateHook, /useLocalCalendar|calendar\?\.day|timeZone/);
   for (const page of [statsPage, planPage]) {
     assert.match(page, /queryKey: \["stats", calendar\?\.timeZone, calendar\?\.day\]/);
     assert.match(page, /fetchStats\(\{ data: \{ timeZone: calendar!\.timeZone \} \}\)/);
@@ -373,14 +371,6 @@ test("mistakes include typo and wrong-answer attempts; shared trouble counts dis
     attempt({ id: "duplicate-attempt", word: "duplicate", typo_count: 5 }),
     attempt({ id: "duplicate-attempt", word: "duplicate", typo_count: 5 }),
   ];
-  const state = buildLearningState({
-    settings: null,
-    progress: [],
-    attempts: rows,
-    mastery: [],
-    now,
-    timeZone: "UTC",
-  });
   const stats = buildLearningStats(rows, "UTC", now);
   const problems = buildLearningProblems(rows, true);
   const identities = (items) => items.map(({ bookId, word }) => `${bookId}:${word}`);
@@ -413,7 +403,6 @@ test("mistakes include typo and wrong-answer attempts; shared trouble counts dis
       identities(problems.wrongWords).includes(`${item.bookId}:${item.word}`),
     ),
   );
-  assert.deepEqual(identities(state.mistouchWords), ["book-a:mistouch"]);
   assert.ok(!identities(problems.wrongWords).some((key) => key.endsWith(":skip")));
 });
 
@@ -498,7 +487,7 @@ test("historical problems remain visible beyond 2000 recent attempts and follow 
   assert.ok(crowded.wrongKeys.includes(learningProblemKey("book-a", "growth", true)));
 });
 
-test("problem reads scan only real errors while ordinary learning state stays bounded", async () => {
+test("problem reads scan only real errors while ordinary learning state reads no attempt history", async () => {
   const [functions, hook, learn, review] = await Promise.all([
     readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/hooks/use-learning-problems.ts", import.meta.url), "utf8"),
@@ -508,7 +497,7 @@ test("problem reads scan only real errors while ordinary learning state stays bo
   const stateRead = functions.slice(functions.indexOf("export const getLearningState"), functions.indexOf("export const getLearningProblems"));
   const problemRead = functions.slice(functions.indexOf("export const getLearningProblems"), functions.indexOf("export const getDueReviewItems"));
   const dueCountRead = functions.slice(functions.indexOf("export const getDueReviewCount"), functions.indexOf("export const saveSettings"));
-  assert.match(stateRead, /\.limit\(2000\)/);
+  assert.doesNotMatch(stateRead, /\.from\("attempts"\)/);
   assert.match(problemRead, /\.eq\("skipped", false\)[\s\S]*\.eq\("mistouch", false\)[\s\S]*\.or\("correct\.eq\.false,typo_count\.gt\.0"\)/);
   assert.match(problemRead, /\.range\(offset, offset \+ 999\)/);
   assert.match(hook, /fetchAfterLearningStateWrites/);
@@ -638,10 +627,7 @@ test("learning-state re-entry waits for pending server writes and restores each 
           },
         },
       ],
-      attempts: [],
       mastery: [],
-      now,
-      timeZone: "UTC",
     });
   });
 
@@ -1837,10 +1823,7 @@ test("spelling review inclusion keeps the tri-state setting", () => {
     buildLearningState({
       settings: include === undefined ? base : { ...base, include_spelling_in_review: include },
       progress: [],
-      attempts: [],
       mastery: [],
-      now,
-      timeZone: "UTC",
     });
 
   assert.equal(state(undefined).includeSpellingInReview, null);
@@ -1852,10 +1835,7 @@ test("spelling review inclusion keeps the tri-state setting", () => {
     settings: { ...base, share_review_progress: false },
     bookReviewSettings: [{ book_id: "bundled-ngsl", include_in_review: false }],
     progress: [],
-    attempts: [],
     mastery: [],
-    now,
-    timeZone: "UTC",
   });
   assert.equal(scoped.shareReviewProgress, false);
   assert.equal(scoped.reviewInclusionByBook["bundled-ngsl"], false);

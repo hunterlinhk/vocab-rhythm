@@ -1,4 +1,3 @@
-import { entryKey } from "./entry-identity";
 import { normalizeReviewWord } from "./review-scheduler.shared";
 import { reviewScopeForBook } from "./review-scope.shared";
 import {
@@ -24,11 +23,6 @@ export type LearningState = {
   progressRevisions: BookRevisionMap;
   memorizeSessions: Record<string, MemorizeSession | null>;
   sentenceSessions: Record<string, SentenceCheckpoint | null>;
-  learnedByBook: Record<string, string[]>;
-  learnedWords: string[];
-  todayItems: { word: string; bookId: string; translation: string | null }[];
-  mistouchWords: { word: string; bookId: string; translation: string | null; at: string }[];
-  skippedWords: { word: string; bookId: string; translation: string | null; at: string }[];
 };
 
 export type LearningProblems = {
@@ -81,15 +75,36 @@ export type LearningAttemptRow = {
   mode?: string;
 };
 
-export function countLearnedByBook(rows: { book_id: string; word: string; skipped: boolean }[]): Record<string, number> {
+export function createBookLearnedCounter() {
   const wordsByBook = new Map<string, Set<string>>();
-  for (const row of rows) {
-    if (row.skipped) continue;
-    const words = wordsByBook.get(row.book_id) ?? new Set<string>();
-    words.add(row.word);
-    wordsByBook.set(row.book_id, words);
-  }
-  return Object.fromEntries([...wordsByBook].map(([bookId, words]) => [bookId, words.size]));
+  return {
+    add(rows: { book_id: string; word: string; skipped: boolean }[]) {
+      for (const row of rows) {
+        if (row.skipped) continue;
+        const words = wordsByBook.get(row.book_id) ?? new Set<string>();
+        words.add(row.word);
+        wordsByBook.set(row.book_id, words);
+      }
+    },
+    counts(): Record<string, number> {
+      return Object.fromEntries([...wordsByBook].map(([bookId, words]) => [bookId, words.size]));
+    },
+  };
+}
+
+export function bookLearnedCount(counts: Record<string, number> | undefined, bookId: string): number | null {
+  return counts ? counts[bookId] ?? 0 : null;
+}
+
+export function applyFirstLearnedCount(
+  counts: Record<string, number>,
+  bookId: string,
+  attemptId: string,
+  appliedAttemptIds: Set<string>,
+): Record<string, number> {
+  if (appliedAttemptIds.has(attemptId)) return counts;
+  appliedAttemptIds.add(attemptId);
+  return { ...counts, [bookId]: (counts[bookId] ?? 0) + 1 };
 }
 
 export function isCurrentAttemptMistouched(
@@ -207,15 +222,9 @@ export function buildLearningState(input: {
     revision?: number | null;
     session_state?: unknown;
   }[];
-  attempts: LearningAttemptRow[];
   mastery: { book_id: string; word: string }[];
   bookReviewSettings?: { book_id: string; include_in_review: boolean }[];
-  now?: Date;
-  timeZone: string;
 }): LearningState {
-  const rows = input.attempts;
-  const studied = rows.filter((row) => !row.skipped);
-  const today = localDayAt(input.now ?? new Date(), input.timeZone);
   const cursors: BookProgressMap = {};
   const progressRevisions: BookRevisionMap = {};
   const memorizeSessions: Record<string, MemorizeSession | null> = {};
@@ -231,44 +240,10 @@ export function buildLearningState(input: {
       sentenceSessions[progress.book_id] = parseSentenceCheckpoint(progress.session_state);
   }
 
-  const learnedByBook: Record<string, string[]> = {};
-  for (const row of studied) {
-    const words = (learnedByBook[row.book_id] ??= []);
-    if (!words.includes(row.word)) words.push(row.word);
-  }
-
-  const identity = (row: { book_id: string; word: string }) =>
-    entryKey({ bookId: row.book_id, word: row.word });
   const shareAcrossBooks = input.settings?.share_review_progress ?? true;
-  const mistouch: LearningState["mistouchWords"] = [];
-  for (const row of studied) {
-    if (row.mistouch) {
-      if (mistouch.length < 40)
-        mistouch.push({
-          word: row.word,
-          bookId: row.book_id,
-          translation: row.translation,
-          at: row.created_at,
-        });
-      continue;
-    }
-  }
 
   const masteredByBook: Record<string, string[]> = {};
   for (const mastery of input.mastery) (masteredByBook[mastery.book_id] ??= []).push(mastery.word);
-
-  const todayItems = new Map<
-    string,
-    { word: string; bookId: string; translation: string | null }
-  >();
-  for (const row of studied) {
-    if (localDayAt(row.created_at, input.timeZone) === today && !todayItems.has(identity(row)))
-      todayItems.set(identity(row), {
-        word: row.word,
-        bookId: row.book_id,
-        translation: row.translation,
-      });
-  }
 
   return {
     dailyGoal: input.settings?.daily_goal ?? 20,
@@ -285,19 +260,6 @@ export function buildLearningState(input: {
     progressRevisions,
     memorizeSessions,
     sentenceSessions,
-    learnedByBook,
-    learnedWords: [...new Set(studied.map((row) => row.word))],
-    todayItems: [...todayItems.values()],
-    mistouchWords: mistouch,
-    skippedWords: rows
-      .filter((row) => row.skipped)
-      .slice(0, 40)
-      .map((row) => ({
-        word: row.word,
-        bookId: row.book_id,
-        translation: row.translation,
-        at: row.created_at,
-      })),
   };
 }
 

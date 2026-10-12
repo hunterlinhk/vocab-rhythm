@@ -12,7 +12,7 @@ import { useLearningProblems } from "@/hooks/use-learning-problems";
 import { useDueReview } from "@/hooks/use-due-review";
 import { resolveEntries } from "@/lib/library.functions";
 import { entryKey, parseFavorites, type EntryIdentity } from "@/lib/entry-identity";
-import { isCurrentAttemptMistouched } from "@/lib/learning-state.shared";
+import { applyFirstLearnedCount, bookLearnedCount, isCurrentAttemptMistouched } from "@/lib/learning-state.shared";
 import {
   markAttemptMistouch,
   recordAttempt,
@@ -229,7 +229,8 @@ function LearnPage() {
   const persistSettings = useServerFn(saveSettings);
   const qc = useQueryClient();
   const { data: state, isAuthoritative: stateIsAuthoritative } = useLearningState();
-  const { data: learnedCounts } = useBookLearnedCounts();
+  const learnedProgress = useBookLearnedCounts({ enabled: !queueKind });
+  const learnedCounts = learnedProgress.confirmedCounts;
   const problems = useLearningProblems({ enabled: problemQueue });
   const dueSpelling = useDueReview("spelling", queueKind === "today");
   const [todayQueue, setTodayQueue] = useState<{ word: string; bookId: string; translation: null }[] | null>(null);
@@ -251,6 +252,7 @@ function LearnPage() {
   const savingProgressRef = useRef(false);
   const completionQueueRef = useRef<PendingWordCompletion[]>([]);
   const completionWriteActiveRef = useRef(false);
+  const countedAttemptIdsRef = useRef(new Set<string>());
   const [sessionDone, setSessionDone] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [reviewIndex, setReviewIndex] = useState<number | null>(null);
@@ -421,7 +423,10 @@ function LearnPage() {
       completionWriteActiveRef.current = true;
       let persisted = false;
       void queueLearningStateWrite(async () => {
-        await save({
+        const countQueryState = qc.getQueryState(learnedProgress.cacheKey);
+        const countVersion = countQueryState?.dataUpdatedAt ?? 0;
+        const countWasConfirmed = learnedProgress.confirmedCounts !== undefined;
+        const savedAttempt = await save({
           data: {
             attemptId: nextCompletion.attemptId,
             mode: "word" as const,
@@ -440,7 +445,25 @@ function LearnPage() {
         timeZone: nextCompletion.timeZone,
           },
         });
-        void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY });
+        if (nextCompletion.isReview) {
+          void qc.invalidateQueries({ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY, refetchType: "none" });
+        } else if (savedAttempt.reusedAttempt && !countedAttemptIdsRef.current.has(nextCompletion.attemptId)) {
+          countedAttemptIdsRef.current.add(nextCompletion.attemptId);
+          void qc.invalidateQueries({ queryKey: learnedProgress.cacheKey });
+        } else if (savedAttempt.firstLearned && !countedAttemptIdsRef.current.has(nextCompletion.attemptId)) {
+          const latestCountState = qc.getQueryState(learnedProgress.cacheKey);
+          if (countWasConfirmed && countVersion && countQueryState?.fetchStatus === "idle" &&
+            !countQueryState.isInvalidated && latestCountState?.fetchStatus === "idle" &&
+            !latestCountState.isInvalidated && latestCountState.dataUpdatedAt === countVersion &&
+            Date.now() - countVersion < 5 * 60 * 1000) {
+            qc.setQueryData<Record<string, number>>(learnedProgress.cacheKey, (counts) =>
+              counts ? applyFirstLearnedCount(counts, nextCompletion.entryBook, nextCompletion.attemptId, countedAttemptIdsRef.current) : counts,
+            );
+          } else {
+            countedAttemptIdsRef.current.add(nextCompletion.attemptId);
+            void qc.invalidateQueries({ queryKey: learnedProgress.cacheKey });
+          }
+        }
         if (nextCompletion.cursor)
           await persistCursor({
             data: { ...nextCompletion.cursor, mode: "word" },
@@ -475,7 +498,7 @@ function LearnPage() {
             persistCompletion(completionQueueRef.current[0]);
         });
     },
-    [save, persistCursor, qc],
+    [save, persistCursor, qc, learnedProgress.cacheKey],
   );
 
   const onComplete = useCallback(
@@ -715,7 +738,7 @@ function LearnPage() {
   }, []);
 
   const progress = queue.length ? (index / queue.length) * 100 : 0;
-  const learnedInBook = !queueKind && bookId ? (learnedCounts?.[bookId] ?? 0) : 0;
+  const learnedInBook = !queueKind && bookId ? bookLearnedCount(learnedCounts, bookId) : null;
 
   if (!ready || !entry) {
     if (queueKind === "today" && dueSpelling.isError)
@@ -781,7 +804,7 @@ function LearnPage() {
         </div>
         <div className="font-mono text-sm text-muted-foreground">
           {index + 1} / {queue.length} · 本次 {sessionDone}
-          {queueKind ? "" : ` · 已学 ${learnedInBook}`}
+          {queueKind ? "" : learnedInBook === null ? ` · ${learnedProgress.isError ? "进度读取失败" : "进度读取中"}` : ` · 已学 ${learnedInBook}`}
         </div>
       </div>
 
