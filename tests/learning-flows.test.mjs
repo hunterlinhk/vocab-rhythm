@@ -6,7 +6,7 @@ import { createServer } from "vite";
 const vite = await createServer({ configFile: false, server: { middlewareMode: true } });
 after(() => vite.close());
 
-const { applyFirstLearnedCount, bookLearnedCount, buildLearningProblems, buildLearningState, buildLearningStats, createBookLearnedCounter, isCurrentAttemptMistouched, isValidIanaTimeZone, learningProblemKey, localDayAt, nextLearningCursor, shouldRunSpellingRound } =
+const { applyFirstLearnedCount, bookLearnedCount, buildLearningProblems, buildLearningState, buildLearningStats, createBookLearnedCounter, firstLearnedForAttempt, isCurrentAttemptMistouched, isValidIanaTimeZone, learningProblemKey, localDayAt, nextLearningCursor, shouldRunSpellingRound } =
   await vite.ssrLoadModule("/src/lib/learning-state.shared.ts");
 const {
   clearPendingWordAttempt,
@@ -226,12 +226,13 @@ test("book progress aggregates pages and updates normal spelling without a full-
   assert.match(learn, /进度读取失败/);
   assert.doesNotMatch(learn, /invalidateQueries\(\{ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY \}\)/);
   const recordAttemptRead = functions.slice(functions.indexOf("export const recordAttempt"), functions.indexOf("export const markAttemptMistouch"));
-  assert.match(recordAttemptRead, /if \(!inserted\) return \{ ok: true, firstLearned: false, reusedAttempt: true \}/);
-  assert.match(recordAttemptRead, /firstLearned: !otherAttempts\?\.length, reusedAttempt: false/);
+  assert.doesNotMatch(recordAttemptRead, /if \(!inserted\) return \{ ok: true, firstLearned: false/);
+  assert.match(recordAttemptRead, /firstLearned: learnedError \? null : firstLearnedForAttempt\(attemptId, earliestAttempt\?\.id \?\? null\)/);
+  assert.match(recordAttemptRead, /reusedAttempt: !inserted/);
   assert.doesNotMatch(recordAttemptRead, /saved\.is_review\)\s*return \{ ok: true, firstLearned: false/);
-  assert.match(recordAttemptRead, /if \(learnedError\) return \{ ok: true, firstLearned: null, reusedAttempt: false \}/);
   assert.doesNotMatch(recordAttemptRead, /if \(learnedError\) throw/);
-  assert.match(recordAttemptRead, /\.eq\("book_id", saved\.book_id\)[\s\S]*\.eq\("word", saved\.word\)[\s\S]*\.neq\("id", attemptId\)[\s\S]*\.limit\(1\)/);
+  assert.match(recordAttemptRead, /\.eq\("book_id", saved\.book_id\)[\s\S]*\.eq\("word", saved\.word\)[\s\S]*\.order\("created_at", \{ ascending: true \}\)[\s\S]*\.order\("id", \{ ascending: true \}\)[\s\S]*\.limit\(1\)/);
+  assert.doesNotMatch(recordAttemptRead, /\.neq\("id", attemptId\)/);
   for (const page of [memorize, sentence]) {
     assert.match(page, /qc\.invalidateQueries\(\{ queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY, refetchType: "none" \}\)/);
   }
@@ -239,6 +240,17 @@ test("book progress aggregates pages and updates normal spelling without a full-
   assert.match(savedCountFlow, /firstLearned === null[\s\S]*invalidateQueries\(\{ queryKey: learnedProgress\.cacheKey, refetchType: "none" \}\)/);
   assert.match(savedCountFlow, /nextCompletion\.isReview\) \{\s*if \(savedAttempt\.firstLearned\)\s*void qc\.invalidateQueries/);
   assert.doesNotMatch(savedCountFlow, /queryKey: BOOK_LEARNED_COUNTS_QUERY_KEY/);
+});
+
+test("the earliest learned attempt stays first on retry and concurrent first writes have one winner", () => {
+  const firstId = "00000000-0000-0000-0000-000000000001";
+  const secondId = "00000000-0000-0000-0000-000000000002";
+  assert.equal(firstLearnedForAttempt(firstId, firstId), true);
+  assert.equal(firstLearnedForAttempt(firstId, firstId), true);
+  assert.equal(firstLearnedForAttempt(secondId, firstId), false);
+  assert.equal([firstId, secondId].filter((id) => firstLearnedForAttempt(id, firstId)).length, 1);
+  assert.equal(firstLearnedForAttempt(firstId, "older-attempt"), false);
+  assert.equal(firstLearnedForAttempt(firstId, null), null);
 });
 
 test("mistouch writes target the current owned spelling attempt and failed saves roll back", async () => {

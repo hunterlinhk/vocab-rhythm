@@ -96,6 +96,10 @@ export function bookLearnedCount(counts: Record<string, number> | undefined, boo
   return counts ? counts[bookId] ?? 0 : null;
 }
 
+export function firstLearnedForAttempt(attemptId: string, earliestAttemptId: string | null): boolean | null {
+  return earliestAttemptId === null ? null : earliestAttemptId === attemptId;
+}
+
 export function applyFirstLearnedCount(
   counts: Record<string, number>,
   bookId: string,

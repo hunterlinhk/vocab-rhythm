@@ -1,10 +1,10 @@
 # Learning progress and mistouch integrity
 
 - `bugfix/learning-progress-mistouch-integrity` starts from `origin/main` at `c9a02f314bb12959aa5c113838ad12bc7c97b6f0`.
-- Book progress reads full non-skipped attempt history only when needed through a separate paginated server function that aggregates each page. The count cache is scoped by signed-in user. Newly inserted word attempts, including Review spelling, use a one-word existence check; Review only invalidates counts on confirmed first learning. An auxiliary lookup failure leaves counts unknown without failing attempt or cursor persistence. Reused normal attempts trigger a needed refresh instead of a second increment. Memorize and sentence saves defer full refresh until progress is next viewed. Unavailable or stale counts render as unknown, not zero.
+- Book progress reads full non-skipped attempt history only when needed through a separate paginated server function that aggregates each page. The count cache is scoped by signed-in user. New and reused word attempts compare against the earliest non-skipped attempt ordered by `created_at, id`, so retries and concurrent first writes have a stable winner; Review only invalidates counts when that attempt is confirmed first. An auxiliary lookup failure leaves counts unknown without failing attempt or cursor persistence. Reused normal attempts trigger a needed refresh instead of a second increment. Memorize and sentence saves defer full refresh until progress is next viewed. Unavailable or stale counts render as unknown, not zero.
 - `getLearningState` now reads settings, cursors/sessions, mastery, and book review settings only. Dead attempt-derived arrays and its timezone/midnight query path are removed; Stats and Plan retain local calendar behavior.
 - Mistouch UI and mutation use the current attempt ID. Mutation validates owner, book, word, word spelling stage, non-skip, and a real typo; retries are idempotent and replay Review projections. Failed UI saves roll back the optimistic mark and show an error.
-- Validation: `npm test` 92/92, `npx tsc --noEmit`, and `npm run build` passed. No migration, AI, or Scheduler changes.
+- Validation: `npm test` 93/93, `npx tsc --noEmit`, and `npm run build` passed. No migration, AI, or Scheduler changes.
 
 # Local calendar statistics
 

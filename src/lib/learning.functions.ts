@@ -19,6 +19,7 @@ import {
   buildLearningState,
   buildLearningStats,
   createBookLearnedCounter,
+  firstLearnedForAttempt,
   isValidIanaTimeZone,
   type LearningAttemptRow,
   type LearningProblems,
@@ -161,18 +162,22 @@ export const recordAttempt = createServerFn({ method: "POST" })
       }, saved.review_session_id);
     if (saved.mode !== "word" || saved.skipped)
       return { ok: true, firstLearned: false, reusedAttempt: !inserted };
-    if (!inserted) return { ok: true, firstLearned: false, reusedAttempt: true };
-    const { data: otherAttempts, error: learnedError } = await context.supabase
+    const { data: earliestAttempt, error: learnedError } = await context.supabase
       .from("attempts")
       .select("id")
       .eq("user_id", context.userId)
       .eq("book_id", saved.book_id)
       .eq("word", saved.word)
       .eq("skipped", false)
-      .neq("id", attemptId)
-      .limit(1);
-    if (learnedError) return { ok: true, firstLearned: null, reusedAttempt: false };
-    return { ok: true, firstLearned: !otherAttempts?.length, reusedAttempt: false };
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    return {
+      ok: true,
+      firstLearned: learnedError ? null : firstLearnedForAttempt(attemptId, earliestAttempt?.id ?? null),
+      reusedAttempt: !inserted,
+    };
   });
 
 export const markAttemptMistouch = createServerFn({ method: "POST" })
