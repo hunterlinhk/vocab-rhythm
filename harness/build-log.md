@@ -1,8 +1,8 @@
 # Local calendar statistics
 
 - `bugfix/local-timezone-learning-stats` starts from `origin/main` at `429c060ca1f0ede02ee90d63bfed2a4971d5e8e3`.
-- Stats, plan progress, and `LearningState.todayItems` receive the browser's IANA time zone. Calendar dates use explicit zone formatting; streaks step through date keys with UTC date arithmetic, independent of the server zone. Query keys include zone and local day; mounted pages refresh at local midnight, on focus, and after visibility returns. The dormant AI prompt's "today" calculation now uses the same zone. Review's 04:00 learning day is unchanged.
-- Validation: `npm test` 86/86, `npx tsc --noEmit`, `npm run build`, and `git diff --check` passed, including cross-zone midnight and DST cases. No migration or database operation.
+- Stats, plan progress, and `LearningState.todayItems` receive the browser's validated IANA time zone. Calendar dates use explicit zone formatting; streaks step through date keys with UTC date arithmetic, independent of the server zone. Query keys include zone and local day; mounted pages refresh at local midnight, on focus, and after visibility returns. Review's 04:00 learning day is unchanged. AI assistant code matches main.
+- Validation: `npm test` 87/87, `npx tsc --noEmit`, `npm run build`, and `git diff --check` passed, including invalid IANA zones, cross-zone midnight, and DST cases. No migration or database operation.
 
 # Learning plan settings cleanup
 

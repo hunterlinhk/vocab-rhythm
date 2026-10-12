@@ -81,6 +81,16 @@ export type LearningAttemptRow = {
   mode?: string;
 };
 
+export function isValidIanaTimeZone(timeZone: string): boolean {
+  if (!/^[A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+)*$/.test(timeZone)) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function localDayAt(date: Date | string, timeZone: string): string {
   const value = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(value.valueOf())) throw new Error("Invalid learning timestamp");

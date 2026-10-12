@@ -6,7 +6,7 @@ import { createServer } from "vite";
 const vite = await createServer({ configFile: false, server: { middlewareMode: true } });
 after(() => vite.close());
 
-const { buildLearningProblems, buildLearningState, buildLearningStats, learningProblemKey, localDayAt, nextLearningCursor, shouldRunSpellingRound } =
+const { buildLearningProblems, buildLearningState, buildLearningStats, isValidIanaTimeZone, learningProblemKey, localDayAt, nextLearningCursor, shouldRunSpellingRound } =
   await vite.ssrLoadModule("/src/lib/learning-state.shared.ts");
 const {
   clearPendingWordAttempt,
@@ -219,6 +219,15 @@ test("calendar dates and streaks survive DST without changing Review's 04:00 day
   assert.equal(buildLearningStats(rows, timeZone, new Date("2026-03-09T09:00:00.000Z")).streakDays, 3);
 });
 
+test("calendar input accepts IANA zones and rejects invalid or offset zones", () => {
+  for (const zone of ["UTC", "America/Los_Angeles", "Asia/Tokyo", "Etc/GMT+1"]) {
+    assert.equal(isValidIanaTimeZone(zone), true, zone);
+  }
+  for (const zone of ["", "Mars/Olympus", "UTC+25", "+01:00", " America/Los_Angeles "]) {
+    assert.equal(isValidIanaTimeZone(zone), false, zone);
+  }
+});
+
 test("progress word counts use normalized Review scope for all-time and today", () => {
   const rows = [
     attempt({ id: "a-today", book_id: "book-a", word: "  DON’T   WORRY ", typo_count: 1 }),
@@ -256,16 +265,18 @@ test("progress statistics read every attempt page before counting distinct words
 });
 
 test("stats and learning state send the browser zone and refresh at local midnight", async () => {
-  const [functions, stateHook, calendarHook, statsPage, planPage, assistantPage] = await Promise.all([
+  const [functions, stateHook, calendarHook, statsPage, planPage] = await Promise.all([
     readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/hooks/use-learning-state.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/hooks/use-local-calendar.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/routes/_authenticated/stats.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/routes/_authenticated/plan.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../src/routes/_authenticated/assistant.tsx", import.meta.url), "utf8"),
   ]);
   const stateRead = functions.slice(functions.indexOf("export const getLearningState"), functions.indexOf("export const getLearningProblems"));
   const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
+  for (const read of [stateRead, statsRead]) {
+    assert.match(read, /\.inputValidator\(\(input: unknown\) => z\.object\(\{ timeZone: z\.string\(\)\.min\(1\)\.max\(100\)\.refine\(isValidIanaTimeZone\) \}\)\.parse\(input\)\)/);
+  }
   assert.match(stateRead, /timeZone: data\.timeZone/);
   assert.match(statsRead, /buildLearningStats\(\s*attempts,\s*data\.timeZone/);
   assert.match(stateHook, /fetchState\(\{ data: \{ timeZone: calendar!\.timeZone \} \}\)/);
@@ -275,8 +286,6 @@ test("stats and learning state send the browser zone and refresh at local midnig
   }
   assert.match(calendarHook, /midnight\.setHours\(24, 0, 0, 0\)/);
   assert.match(calendarHook, /window\.addEventListener\("focus", update\)/);
-  assert.match(functions, /const today = localDayAt\(new Date\(\), data\.timeZone\)/);
-  assert.match(assistantPage, /send\(\{ data: \{ content, timeZone: getUserTimeZone\(\) \} \}\)/);
 });
 
 test("mistakes include typo and wrong-answer attempts; shared trouble counts distinct real attempts", () => {

@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { AI_ASSISTANT_ENABLED, clearMessages, getMessages, sendMessage } from "@/lib/learning.functions";
-import { getUserTimeZone } from "@/lib/learning-state.runtime";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/assistant")({
@@ -56,7 +55,7 @@ function AssistantPage() {
     setPending(content);
     setError(null);
     try {
-      await send({ data: { content, timeZone: getUserTimeZone() } });
+      await send({ data: { content } });
       await qc.invalidateQueries({ queryKey: ["messages"] });
     } catch {
       setError("助手暂时无法回复，请稍后再试。");
