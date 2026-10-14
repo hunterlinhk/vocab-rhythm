@@ -1,3 +1,9 @@
+# Learning statistics aggregation
+
+- `perf/learning-stats-aggregation` starts from `origin/main` at `af024e16aa94904f98b2beb2561f25ba8ea6ed02`.
+- `0017_learning_stats_rpc.sql` adds authenticated, invoker-rights RPCs: a local-midnight bounded count for `/plan`, and a database aggregate for `/stats` using `review_word_key` and the saved sharing preference. The full stats RPC returns the existing result shape; recent reads only 20 rows. No production database operation was performed.
+- PGlite tests execute 0017 in an isolated database and compare its output with `buildLearningStats` across scope, error, skip, time zone, DST, streak, and 2,000+ attempt cases, plus owner/anon access. Current validation: `npm test` 97/97, `npx tsc --noEmit`, and `npm run build` passed.
+
 # Learning progress and mistouch integrity
 
 - `bugfix/learning-progress-mistouch-integrity` starts from `origin/main` at `c9a02f314bb12959aa5c113838ad12bc7c97b6f0`.

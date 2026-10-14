@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { SectionHeading } from "@/components/SectionHeading";
 import { SettingInfo } from "@/components/setting-info";
 import { cn } from "@/lib/utils";
-import { getStats, saveSettings } from "@/lib/learning.functions";
+import { getTodayPracticeCount, saveSettings } from "@/lib/learning.functions";
 import { bookLearnedCount } from "@/lib/learning-state.shared";
 import { useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
@@ -36,14 +36,14 @@ const PRESETS = [20, 30, 50];
 
 function PlanPage() {
   const qc = useQueryClient();
-  const fetchStats = useServerFn(getStats);
+  const fetchTodayCount = useServerFn(getTodayPracticeCount);
   const calendar = useLocalCalendar();
   const persist = useServerFn(saveSettings);
   const { data: state, isAuthoritative } = useLearningState();
   const { confirmedCounts: learnedCounts, isError: learnedCountsError } = useBookLearnedCounts();
-  const { data: stats } = useQuery({
-    queryKey: ["stats", calendar?.timeZone, calendar?.day],
-    queryFn: () => fetchStats({ data: { timeZone: calendar!.timeZone } }),
+  const { data: todayCount, isError: todayCountError } = useQuery({
+    queryKey: ["stats", "today-count", calendar?.timeZone, calendar?.day],
+    queryFn: () => fetchTodayCount({ data: { timeZone: calendar!.timeZone } }),
     enabled: !!calendar,
   });
 
@@ -117,8 +117,8 @@ function PlanPage() {
       });
   };
 
-  const todayCount = stats?.todayCount ?? 0;
-  const progress = Math.min(100, Math.round((todayCount / goal) * 100));
+  const confirmedTodayCount = todayCountError ? undefined : todayCount;
+  const progress = confirmedTodayCount === undefined ? null : Math.min(100, Math.round((confirmedTodayCount / goal) * 100));
   const { all: allBooks } = useLibrary();
   const activeBook = { id: state?.activeBook ?? "core" };
 
@@ -180,12 +180,14 @@ function PlanPage() {
         <div className="mt-8">
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span className="flex items-center gap-2"><Target className="size-4 text-primary" />今天进度</span>
-            <span className="font-mono">{todayCount} / {goal} 次</span>
+            <span className="font-mono">{confirmedTodayCount === undefined ? todayCountError ? "读取失败" : "载入中…" : `${confirmedTodayCount} / ${goal} 次`}</span>
           </div>
-          <Progress value={progress} className="mt-3 h-2.5 bg-secondary/70" />
-          <p className="mt-3 text-sm text-muted-foreground">
-            {progress >= 100 ? "今天的目标已完成。" : `还差 ${Math.max(0, goal - todayCount)} 次达成今日目标。`}
-          </p>
+          {progress !== null && <>
+            <Progress value={progress} className="mt-3 h-2.5 bg-secondary/70" />
+            <p className="mt-3 text-sm text-muted-foreground">
+              {progress >= 100 ? "今天的目标已完成。" : `还差 ${Math.max(0, goal - confirmedTodayCount!)} 次达成今日目标。`}
+            </p>
+          </>}
         </div>
       </section>
 

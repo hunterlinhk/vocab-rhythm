@@ -17,7 +17,6 @@ import {
 import {
   buildLearningProblems,
   buildLearningState,
-  buildLearningStats,
   createBookLearnedCounter,
   firstLearnedForAttempt,
   isValidIanaTimeZone,
@@ -1152,34 +1151,20 @@ export const getStats = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) => z.object({ timeZone: z.string().min(1).max(100).refine(isValidIanaTimeZone) }).parse(input))
   .handler(async ({ data, context }): Promise<LearningStats> => {
-    const settings = await context.supabase
-      .from("user_settings")
-      .select("share_review_progress")
-      .eq("user_id", context.userId)
-      .maybeSingle();
-    if (settings.error) throw new Error(settings.error.message);
+    const result = await context.supabase.rpc("get_learning_stats_v1", { p_time_zone: data.timeZone });
+    if (result.error) throw new Error(result.error.message);
+    if (!result.data) throw new Error("Learning stats unavailable");
+    return result.data as unknown as LearningStats;
+  });
 
-    const attempts: LearningAttemptRow[] = [];
-    for (let offset = 0; ; offset += 1000) {
-      const page = await context.supabase
-        .from("attempts")
-        .select(
-          "id, word, book_id, translation, mode, typo_count, mistouch, correct, skipped, created_at",
-        )
-        .eq("user_id", context.userId)
-        .order("created_at", { ascending: false })
-        .order("id", { ascending: false })
-        .range(offset, offset + 999);
-      if (page.error) throw new Error(page.error.message);
-      attempts.push(...((page.data ?? []) as LearningAttemptRow[]));
-      if (!page.data || page.data.length < 1000) break;
-    }
-    return buildLearningStats(
-      attempts,
-      data.timeZone,
-      new Date(),
-      settings.data?.share_review_progress ?? true,
-    );
+export const getTodayPracticeCount = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ timeZone: z.string().min(1).max(100).refine(isValidIanaTimeZone) }).parse(input))
+  .handler(async ({ data, context }): Promise<number> => {
+    const result = await context.supabase.rpc("get_today_practice_count_v1", { p_time_zone: data.timeZone });
+    if (result.error) throw new Error(result.error.message);
+    if (result.data === null) throw new Error("Today's practice count unavailable");
+    return result.data;
   });
 
 export const getMessages = createServerFn({ method: "GET" })

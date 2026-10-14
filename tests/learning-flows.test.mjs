@@ -344,13 +344,12 @@ test("progress history names all three learning modes", async () => {
   assert.match(page, /r\.mode === "word" \? "单词拼写" : r\.mode === "sentence" \? "句子拼写" : "背单词"/);
 });
 
-test("progress statistics read every attempt page before counting distinct words", async () => {
+test("progress statistics use database aggregation while the plan reads only today's count", async () => {
   const functions = await readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8");
   const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
-  assert.match(statsRead, /for \(let offset = 0; ; offset \+= 1000\)/);
-  assert.match(statsRead, /\.order\("created_at", \{ ascending: false \}\)[\s\S]*\.order\("id", \{ ascending: false \}\)[\s\S]*\.range\(offset, offset \+ 999\)/);
-  assert.match(statsRead, /if \(!page\.data \|\| page\.data\.length < 1000\) break/);
-  assert.doesNotMatch(statsRead, /\.limit\(1000\)/);
+  assert.match(statsRead, /\.rpc\("get_learning_stats_v1", \{ p_time_zone: data\.timeZone \}\)/);
+  assert.match(statsRead, /\.rpc\("get_today_practice_count_v1", \{ p_time_zone: data\.timeZone \}\)/);
+  assert.doesNotMatch(statsRead, /\.from\("attempts"\)|\.range\(/);
 });
 
 test("stats keeps local midnight refresh while learning state no longer needs a zone", async () => {
@@ -365,13 +364,14 @@ test("stats keeps local midnight refresh while learning state no longer needs a 
   const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
   assert.doesNotMatch(stateRead, /timeZone|attemptsRes|\.from\("attempts"\)/);
   assert.match(statsRead, /\.inputValidator\(\(input: unknown\) => z\.object\(\{ timeZone: z\.string\(\)\.min\(1\)\.max\(100\)\.refine\(isValidIanaTimeZone\) \}\)\.parse\(input\)\)/);
-  assert.match(statsRead, /buildLearningStats\(\s*attempts,\s*data\.timeZone/);
+  assert.match(statsRead, /get_learning_stats_v1/);
   assert.match(stateHook, /fetchAfterLearningStateWrites\(\(\) => fetchState\(\)\)/);
   assert.doesNotMatch(stateHook, /useLocalCalendar|calendar\?\.day|timeZone/);
-  for (const page of [statsPage, planPage]) {
-    assert.match(page, /queryKey: \["stats", calendar\?\.timeZone, calendar\?\.day\]/);
-    assert.match(page, /fetchStats\(\{ data: \{ timeZone: calendar!\.timeZone \} \}\)/);
-  }
+  assert.match(statsPage, /queryKey: \["stats", calendar\?\.timeZone, calendar\?\.day\]/);
+  assert.match(planPage, /queryKey: \["stats", "today-count", calendar\?\.timeZone, calendar\?\.day\]/);
+  assert.match(statsPage, /fetchStats\(\{ data: \{ timeZone: calendar!\.timeZone \} \}\)/);
+  assert.match(planPage, /fetchTodayCount\(\{ data: \{ timeZone: calendar!\.timeZone \} \}\)/);
+  assert.doesNotMatch(planPage, /useServerFn\(getStats\)/);
   assert.match(calendarHook, /midnight\.setHours\(24, 0, 0, 0\)/);
   assert.match(calendarHook, /window\.addEventListener\("focus", update\)/);
 });
@@ -458,8 +458,9 @@ test("mistake history stays tied to real errors and stats reads the saved sharin
   const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
   assert.doesNotMatch(learn, /加入错题本|已加入错题本|addToMistakes/);
   assert.match(learn, /onFav=\{\(\) => toggleFavorite/);
-  assert.match(statsRead, /\.select\("share_review_progress"\)/);
-  assert.match(statsRead, /settings\.data\?\.share_review_progress \?\? true/);
+  const migration = await readFile(new URL("../drizzle/migrations/0017_learning_stats_rpc.sql", import.meta.url), "utf8");
+  assert.match(migration, /coalesce\(s\.share_review_progress, true\)/);
+  assert.match(migration, /CASE WHEN v_share THEN '' ELSE a\.book_id END AS scope_key/);
   assert.match(profile, /invalidateQueries\(\{ queryKey: \["stats"\] \}\)/);
 });
 
@@ -572,7 +573,7 @@ test("plan labels attempts as daily practice and rolls back failed settings", as
   const plan = await readFile(new URL("../src/routes/_authenticated/plan.tsx", import.meta.url), "utf8");
   assert.match(plan, /title="每日练习次数"/);
   assert.match(plan, /每天 \{p\} 次/);
-  assert.match(plan, /还差 \$\{Math\.max\(0, goal - todayCount\)\} 次/);
+  assert.match(plan, /还差 \$\{Math\.max\(0, goal - confirmedTodayCount!\)\} 次/);
   assert.doesNotMatch(plan, /单词数量|每天 \{p\} 个| 个达成今日目标/);
   assert.match(plan, /<SettingInfo text="选对词义后再拼写一次，完成三轮强化。"/);
   assert.match(plan, /<Switch[\s\S]*aria-label="第三轮拼写"[\s\S]*onCheckedChange=\{toggleSpelling\}/);
@@ -1765,10 +1766,8 @@ test("Review scope settings migration preserves history and supports bundled or 
     functions.indexOf("export const saveSettings"),
   );
 
-  assert.equal(journal.entries.at(-2).idx, 15);
-  assert.equal(journal.entries.at(-2).tag, "0015_review_scope_settings");
-  assert.equal(journal.entries.at(-1).idx, 16);
-  assert.equal(journal.entries.at(-1).tag, "0016_apply_pending_0015_marker");
+  assert.equal(journal.entries.find(({ tag }) => tag === "0015_review_scope_settings")?.idx, 15);
+  assert.equal(journal.entries.find(({ tag }) => tag === "0016_apply_pending_0015_marker")?.idx, 16);
   assert.equal(snapshot.prevId, priorSnapshot.id);
   assert.match(migrationText, /share_review_progress boolean NOT NULL DEFAULT true/);
   assert.match(migrationText, /include_in_review boolean NOT NULL DEFAULT true/);

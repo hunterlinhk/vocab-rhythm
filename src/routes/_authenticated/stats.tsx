@@ -36,12 +36,13 @@ function StatsPage() {
   const setTab = (item: StatTab) => void navigate({ to: "/stats", search: { tab: item } });
   const fetchStats = useServerFn(getStats);
   const calendar = useLocalCalendar();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["stats", calendar?.timeZone, calendar?.day],
     queryFn: () => fetchStats({ data: { timeZone: calendar!.timeZone } }),
     enabled: !!calendar,
   });
 
+  if (isError) return <p className="text-sm text-muted-foreground">读取失败，请重试。</p>;
   if (isLoading || !data) return <p className="text-sm text-muted-foreground">载入中…</p>;
 
   return (
