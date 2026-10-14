@@ -777,6 +777,8 @@ export type Database = {
     }
     Functions: {
       can_read_book: { Args: { _book_id: string }; Returns: boolean }
+      get_learning_stats_v1: { Args: { p_time_zone: string }; Returns: Json }
+      get_today_practice_count_v1: { Args: { p_time_zone: string }; Returns: number }
       owns_book: { Args: { _book_id: string }; Returns: boolean }
     }
     Enums: {
