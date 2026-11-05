@@ -1,0 +1,6 @@
+ngsl_rank	headword	alternate_headwords	alternate_sense_count	alternate_sense_ids	explanation	imported
+9	it	IT	1	it%1:09:00::	IT 缩写，不能作为代词 it。	false
+29	or	OR	1	or%1:06:00::	OR 缩写，不能作为连词 or。	false
+44	who	WHO	1	who%1:14:00::	WHO 缩写，不能作为疑问词 who。	false
+478	TRUE	true	15	true%3:00:00::; true%5:00:00:accurate:00; true%5:00:02:faithful:00; true%3:00:04::; true%5:00:00:typical:00; true%5:00:00:trustworthy:00; true%5:00:00:sincere:00; true%5:00:00:real:02; true%5:00:00:geographic:00; true%5:00:00:legitimate:00; true%5:00:00:harmonious:00; true%5:00:00:even:01; true%1:07:00::; true%4:02:00::; true%2:30:00::	仅匹配小写 true；需确认原大写词头的语义与大小写身份。	false
+2098	FALSE	false	11	false%3:00:00::; false%5:00:00:incorrect:00; false%5:00:00:invalid:00; false%5:00:00:insincere:00; false%5:00:00:unrealistic:00; false%5:00:00:artificial:00; false%5:00:00:dishonest:00; false%5:00:00:inharmonious:00; false%5:00:00:counterfeit:00; false%5:00:00:inconstant:00; false%4:02:00::	仅匹配小写 false；需确认原大写词头的语义与大小写身份。	false

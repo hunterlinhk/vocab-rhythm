@@ -1,0 +1,115 @@
+{
+  "files": [
+    {
+      "name": "AI_REVIEW_INSTRUCTIONS.md",
+      "bytes": 5951,
+      "sha256": "d8b69ae92832f328811a9cd8d4743969893bd0d3b365298c520a45437ed9b4bf"
+    },
+    {
+      "name": "canonical.json",
+      "bytes": 18228078,
+      "sha256": "a4d3ed1cd8f5136e6eefcd4504cf795368c684f5d439f7ae5fdc59a13e5dd2b2"
+    },
+    {
+      "name": "case_only_headwords.csv",
+      "bytes": 1146,
+      "sha256": "1eb4f292dd8a03c0bc0b212c38119c0e60607e10456cbb7d21a6d6cad30b0ddd"
+    },
+    {
+      "name": "case_only_headwords.tsv",
+      "bytes": 1146,
+      "sha256": "a4093c506ec5e74fd41b625aea5564887ea5399f6794289af4323c3f4d01cf43"
+    },
+    {
+      "name": "case_only_senses.csv",
+      "bytes": 7499,
+      "sha256": "abded57c874eb2898edc59c22d6ffd3cc9c277d478f6a3cdc1eba8cc6aa8d613"
+    },
+    {
+      "name": "case_only_senses.tsv",
+      "bytes": 7495,
+      "sha256": "f06a0899554f555c23e07f7a678de5e31022f71d71f04138a93a49327369fd6b"
+    },
+    {
+      "name": "exact_senses.csv",
+      "bytes": 6720862,
+      "sha256": "85a083a0a78f59e226d6b34037db27e7897791822cb1222dc0aa5b956034d971"
+    },
+    {
+      "name": "exact_senses.tsv",
+      "bytes": 6717576,
+      "sha256": "8324fa149faaadfcc268ba2e8e1436e8a48cc31dce4e48c202511d365c55eab9"
+    },
+    {
+      "name": "NGSL-SOURCE.md",
+      "bytes": 1216,
+      "sha256": "6486da190b73ba98a317b7fe4526cfba9c2090b35ba87cc3c6a94dee8191f18b"
+    },
+    {
+      "name": "ngsl_headwords.csv",
+      "bytes": 246014,
+      "sha256": "770c8c708ac0f227c6772d20f1db837782651a1f1cb2ac9980a3a894d80acedf"
+    },
+    {
+      "name": "ngsl_headwords.tsv",
+      "bytes": 246014,
+      "sha256": "790b2f3bac8f21127131461db2d2c27e0d7471a2e9876f49ccde3f7c6f7d7ed9"
+    },
+    {
+      "name": "OEWN-WNDB-LICENSE.txt",
+      "bytes": 1690,
+      "sha256": "69ad60925606bf9896f454408a058d1f236a0dc510aeed256521dd15f62dced4"
+    },
+    {
+      "name": "OEWN_AI_Review_Full.xlsx",
+      "bytes": 2472888,
+      "sha256": "eedf0be1d21f30da6306b70fd2f54df6fe8fee974bb452377d6bc912fd9c4cc9"
+    },
+    {
+      "name": "original_import_manifest.json",
+      "bytes": 4463,
+      "sha256": "7865f13f0339912dddc66afd5d9d98187c5b6e63ab54af74615f5075a679ac19"
+    },
+    {
+      "name": "original_ngsl_1.2_stats.csv",
+      "bytes": 62566,
+      "sha256": "2098bab8955a120a9766c6282a51d7d578c6cb0a7d946600d2ffb73ba25a0b44"
+    },
+    {
+      "name": "provenance.json",
+      "bytes": 962,
+      "sha256": "d45645e391a559269451f6caee3cd99f28e6305677b56c3b3bc75da2f7537672"
+    },
+    {
+      "name": "README.md",
+      "bytes": 3013,
+      "sha256": "c914ac0bc5f114321c44c4300e4ca3327f9898ad32cb3c2846ce8235de1095ec"
+    },
+    {
+      "name": "reviewed_pilot.csv",
+      "bytes": 10129,
+      "sha256": "e022a29aa4b3483d5b09879f562eaf115e66173b5978312116dbb115c107130e"
+    },
+    {
+      "name": "reviewed_pilot.tsv",
+      "bytes": 10121,
+      "sha256": "462bd86efc14dee18a8577aa95e1bf0b351db13bbe6380e9a38203778e97a91b"
+    },
+    {
+      "name": "unmatched_headwords.csv",
+      "bytes": 8164,
+      "sha256": "d21bfd5f1da0c1b5badcc41583f54e88f8bc069aaa5491cc3bc5ecb61be4d96a"
+    },
+    {
+      "name": "unmatched_headwords.tsv",
+      "bytes": 8164,
+      "sha256": "376f7d06c5788fb3732abcb20c2130dd3a68f0123dec4d911779977b497ca21e"
+    },
+    {
+      "name": "validation_report.json",
+      "bytes": 5210,
+      "sha256": "125e7d8c98bf207f4aeeebe487bb7cb619d956ff00a0ff5150e0b20a797ed3c2"
+    }
+  ],
+  "note": "Covers every file in full/ except this manifest itself."
+}

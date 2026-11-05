@@ -1,0 +1,196 @@
+{
+  "format_version": 1,
+  "source_id": "oewn-2025",
+  "source_version": "2025-12-31",
+  "archive_sha256": "7d749f6e2c39e6970e4997839dcf6e42fd281f3c2fae0171d2192bae8cfa4b51",
+  "expected": {
+    "lexemes": 2742,
+    "senses": 19028,
+    "reviewed": 26,
+    "unreviewed": 19002
+  },
+  "staging": {
+    "schema": "oewn_stage_2025",
+    "rows_per_statement": 1000,
+    "insert_statements": 20,
+    "batch_files": 10,
+    "statements_per_file": 2
+  },
+  "files": [
+    {
+      "name": "00-stage-setup.sql",
+      "bytes": 4138,
+      "sha256": "cbace1af0a042bb32d708a5d78b1009e34f3a4337309a335d38a017d77bbe657"
+    },
+    {
+      "name": "01-stage-batches.sql",
+      "bytes": 329191,
+      "sha256": "c24c6aa47b3ab7c0ac723c300440dcb0ab7206e146018397a8c487f5cb27a0de",
+      "batches": [
+        {
+          "batch_no": 1,
+          "rows": 1000
+        },
+        {
+          "batch_no": 2,
+          "rows": 1000
+        }
+      ]
+    },
+    {
+      "name": "02-stage-batches.sql",
+      "bytes": 347565,
+      "sha256": "b744c0ba5f96f2a10e659d74b737c7c985b3c121417f475aba41aaf23182e782",
+      "batches": [
+        {
+          "batch_no": 3,
+          "rows": 1000
+        },
+        {
+          "batch_no": 4,
+          "rows": 1000
+        }
+      ]
+    },
+    {
+      "name": "03-stage-batches.sql",
+      "bytes": 350755,
+      "sha256": "0a45b6115b68fc377b2188180b956cf2d6156be27f4a25a693105ead833bae0a",
+      "batches": [
+        {
+          "batch_no": 5,
+          "rows": 1000
+        },
+        {
+          "batch_no": 6,
+          "rows": 1000
+        }
+      ]
+    },
+    {
+      "name": "04-stage-batches.sql",
+      "bytes": 356398,
+      "sha256": "db9e73c5392ae8b523ed8aac2e1030741734dd122afaccd6a31825bd87183d9f",
+      "batches": [
+        {
+          "batch_no": 7,
+          "rows": 1000
+        },
+        {
+          "batch_no": 8,
+          "rows": 1000
+        }
+      ]
+    },
+    {
+      "name": "05-stage-batches.sql",
+      "bytes": 355568,
+      "sha256": "e40aea748420c0cf1953d97b721d23068035ddc5d84bba117ef56b15c0037aa5",
+      "batches": [
+        {
+          "batch_no": 9,
+          "rows": 1000
+        },
+        {
+          "batch_no": 10,
+          "rows": 1000
+        }
+      ]
+    },
+    {
+      "name": "06-stage-batches.sql",
+      "bytes": 349345,
+      "sha256": "a05ecdca3d34605829ae54ccc86b950a8ea2fa875e1ba44055047c5efd8c4cad",
+      "batches": [
+        {
+          "batch_no": 11,
+          "rows": 1000
+        },
+        {
+          "batch_no": 12,
+          "rows": 1000
+        }
+      ]
+    },
+    {
+      "name": "07-stage-batches.sql",
+      "bytes": 356350,
+      "sha256": "b3da9d87e4d3ecbd7756b5f23a0ec8e7d66ed880bb55a8cc0da6c5777a4425a9",
+      "batches": [
+        {
+          "batch_no": 13,
+          "rows": 1000
+        },
+        {
+          "batch_no": 14,
+          "rows": 1000
+        }
+      ]
+    },
+    {
+      "name": "08-stage-batches.sql",
+      "bytes": 358995,
+      "sha256": "4aadb865b3bfba0414e9263b47635883c00963d08e682a7a3ce3b9fc8e996e87",
+      "batches": [
+        {
+          "batch_no": 15,
+          "rows": 1000
+        },
+        {
+          "batch_no": 16,
+          "rows": 1000
+        }
+      ]
+    },
+    {
+      "name": "09-stage-batches.sql",
+      "bytes": 354889,
+      "sha256": "919fa78488a90abecc301e5c84749d8e124e951b6e05dd923155c587bde17830",
+      "batches": [
+        {
+          "batch_no": 17,
+          "rows": 1000
+        },
+        {
+          "batch_no": 18,
+          "rows": 1000
+        }
+      ]
+    },
+    {
+      "name": "10-stage-batches.sql",
+      "bytes": 179260,
+      "sha256": "f747993fb3f3b75a76c72e4f8d75a527a614933df6782ede20e6392c9c9a3bfc",
+      "batches": [
+        {
+          "batch_no": 19,
+          "rows": 1000
+        },
+        {
+          "batch_no": 20,
+          "rows": 28
+        }
+      ]
+    },
+    {
+      "name": "11-stage-validation.sql",
+      "bytes": 8532,
+      "sha256": "5de70a72b8670c1e8acb7317d3ea1c9c2ad1fc9941dc631221018963315784d0"
+    },
+    {
+      "name": "12-final-apply.sql",
+      "bytes": 12088,
+      "sha256": "a730ab1a5cf4d84c47b3ad76be775873dec8d2e1c384342000560f6f1681ec51"
+    },
+    {
+      "name": "13-verification.sql",
+      "bytes": 3903,
+      "sha256": "d0f40e4541f04636cc834922c80b302c96a1d9d3972be3a95f2313aac547b73f"
+    },
+    {
+      "name": "14-cleanup.sql",
+      "bytes": 3572,
+      "sha256": "e63957fa05d5725394caca2a4d0c53701c1df02a09ea3db590ea64dcf6ad4caf"
+    }
+  ]
+}

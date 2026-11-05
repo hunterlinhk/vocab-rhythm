@@ -1,0 +1,12 @@
+{
+  "source_id": "oewn-2025",
+  "source_version": "2025-12-31",
+  "archive_sha256": "7d749f6e2c39e6970e4997839dcf6e42fd281f3c2fae0171d2192bae8cfa4b51",
+  "license_id": "CC-BY-4.0",
+  "source_url": "https://en-word.net/downloads/english-wordnet-2025-json.zip",
+  "license_url": "https://github.com/globalwordnet/english-wordnet/blob/2025-edition/LICENSE.md",
+  "attribution": "Open English Wordnet 2025 © The Open English WordNet Team, CC BY 4.0; derived from Princeton WordNet 3.1 © 2011 Princeton University under the WordNet License. Selected and transformed NGSL senses; no endorsement is implied.",
+  "ngsl_source": "https://www.newgeneralservicelist.com/s/NGSL_12_stats.csv",
+  "ngsl_license": "CC-BY-SA-4.0",
+  "transformation": "Existing import first nonempty synset definition/example; US IPA preferred, then GB, then first. Case-only appendix uses the same extraction. No inferred content. source_pos is read from the verified archive."
+}

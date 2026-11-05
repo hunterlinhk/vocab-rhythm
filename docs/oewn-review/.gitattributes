@@ -1,0 +1,6 @@
+# Preserve audit bytes and checksums on Windows/macOS/Linux checkouts.
+full/** -text whitespace=cr-at-eol
+*.zip -text
+**/*.xlsx -text
+# Trailing tabs represent intentional empty TSV fields.
+full/*.tsv whitespace=cr-at-eol,-blank-at-eol
