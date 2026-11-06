@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { after, test } from "node:test";
-import { createServer } from "vite";
+import { createTestViteServer } from "./vite-test-helper.mjs";
 
-const vite = await createServer({ configFile: false, server: { middlewareMode: true } });
+const vite = await createTestViteServer();
 after(() => vite.close());
 
 const { applyFirstLearnedCount, bookLearnedCount, buildLearningProblems, buildLearningState, buildLearningStats, createBookLearnedCounter, firstLearnedForAttempt, isCurrentAttemptMistouched, isValidIanaTimeZone, learningProblemKey, localDayAt, nextLearningCursor, shouldRunSpellingRound } =
@@ -208,7 +208,7 @@ test("book progress aggregates pages and updates normal spelling without a full-
   assert.match(learnedHook, /staleTime: 5 \* 60 \* 1000/);
   assert.match(learnedHook, /confirmedCounts: query\.isFetching \|\| query\.isError \|\| query\.isStale \? undefined : query\.data/);
   assert.match(learnedHook, /const cacheKey = useMemo\(\(\) => \[\.\.\.BOOK_LEARNED_COUNTS_QUERY_KEY, userId\]/);
-  assert.match(learnedHook, /enabled: !!userId && \(options\.enabled \?\? true\)/);
+  assert.match(learnedHook, /enabled: !session\.isPending && !!userId && \(options\.enabled \?\? true\)/);
   for (const page of [books, plan]) {
     assert.match(page, /useBookLearnedCounts\(\)/);
     assert.doesNotMatch(page, /state\?\.learnedByBook/);
@@ -344,12 +344,14 @@ test("progress history names all three learning modes", async () => {
   assert.match(page, /r\.mode === "word" \? "单词拼写" : r\.mode === "sentence" \? "句子拼写" : "背单词"/);
 });
 
-test("progress statistics use database aggregation while the plan reads only today's count", async () => {
+test("progress statistics use the server database while the plan reads only today's count", async () => {
   const functions = await readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8");
   const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
-  assert.match(statsRead, /\.rpc\("get_learning_stats_v1", \{ p_time_zone: data\.timeZone \}\)/);
-  assert.match(statsRead, /\.rpc\("get_today_practice_count_v1", \{ p_time_zone: data\.timeZone \}\)/);
-  assert.doesNotMatch(statsRead, /\.from\("attempts"\)|\.range\(/);
+  assert.match(statsRead, /\.table\("attempts"\)/);
+  assert.match(statsRead, /\.eq\("user_id", context\.userId\)/);
+  assert.match(statsRead, /buildLearningStats\(rows, data\.timeZone/);
+  assert.match(statsRead, /context\.db\.todayPracticeCount\(data\.timeZone\)/);
+  assert.doesNotMatch(statsRead, /\.rpc\(/);
 });
 
 test("stats keeps local midnight refresh while learning state no longer needs a zone", async () => {
@@ -364,7 +366,9 @@ test("stats keeps local midnight refresh while learning state no longer needs a 
   const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
   assert.doesNotMatch(stateRead, /timeZone|attemptsRes|\.from\("attempts"\)/);
   assert.match(statsRead, /\.inputValidator\(\(input: unknown\) => z\.object\(\{ timeZone: z\.string\(\)\.min\(1\)\.max\(100\)\.refine\(isValidIanaTimeZone\) \}\)\.parse\(input\)\)/);
-  assert.match(statsRead, /get_learning_stats_v1/);
+  assert.match(statsRead, /\.table\("attempts"\)/);
+  assert.match(statsRead, /\.eq\("user_id", context\.userId\)/);
+  assert.match(statsRead, /\.range\(offset, offset \+ 999\)/);
   assert.match(stateHook, /fetchAfterLearningStateWrites\(\(\) => fetchState\(\)\)/);
   assert.doesNotMatch(stateHook, /useLocalCalendar|calendar\?\.day|timeZone/);
   assert.match(statsPage, /queryKey: \["stats", calendar\?\.timeZone, calendar\?\.day\]/);
@@ -458,9 +462,8 @@ test("mistake history stays tied to real errors and stats reads the saved sharin
   const statsRead = functions.slice(functions.indexOf("export const getStats"), functions.indexOf("export const getMessages"));
   assert.doesNotMatch(learn, /加入错题本|已加入错题本|addToMistakes/);
   assert.match(learn, /onFav=\{\(\) => toggleFavorite/);
-  const migration = await readFile(new URL("../drizzle/migrations/0017_learning_stats_rpc.sql", import.meta.url), "utf8");
-  assert.match(migration, /coalesce\(s\.share_review_progress, true\)/);
-  assert.match(migration, /CASE WHEN v_share THEN '' ELSE a\.book_id END AS scope_key/);
+  assert.match(statsRead, /share_review_progress/);
+  assert.match(statsRead, /settings\?\.share_review_progress \?\? true/);
   assert.match(profile, /invalidateQueries\(\{ queryKey: \["stats"\] \}\)/);
 });
 
@@ -527,7 +530,7 @@ test("problem reads scan only real errors while ordinary learning state reads no
   assert.doesNotMatch(learn, /hasLearningProblem|\["learning-problem"\]|addToMistakes/);
   assert.doesNotMatch(functions, /export const hasLearningProblem/);
   assert.match(review, /problems\?\.wrongWords/);
-  assert.match(dueCountRead, /\.from\("review_states"\)[\s\S]*\.select\("word_key", \{ count: "exact", head: true \}\)/);
+  assert.match(dueCountRead, /\.table\("review_states"\)[\s\S]*\.select\("word_key", \{ count: "exact", head: true \}\)/);
   assert.match(dueCountRead, /\.lte\("next_due_at", new Date\(\)\.toISOString\(\)\)/);
   assert.match(dueCountRead, /share_review_progress === false[\s\S]*\.like\("scope_key", "book:%"\)[\s\S]*\.eq\("scope_key", "shared"\)/);
   assert.doesNotMatch(dueCountRead, /\.eq\("review_mode"/);
@@ -541,16 +544,19 @@ test("root and legacy home route send users directly into learning or auth", asy
     readFile(new URL("../src/components/AppShell.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/routes/_authenticated/profile.tsx", import.meta.url), "utf8"),
   ]);
-  assert.match(index, /getSession\(\)[\s\S]*data\.session \? "\/learn" : "\/auth"/);
+  assert.match(index, /authClient\.useSession\(\)/);
+  assert.match(index, /!session\.isPending[\s\S]*session\.data\?\.user \? "\/learn" : "\/auth"/);
   assert.doesNotMatch(index, /HomePage|HomeContent|Dashboard|AppShell/);
   assert.match(home, /redirect\(\{ to: "\/learn" \}\)/);
-  assert.match(auth, /emailRedirectTo: `\$\{window\.location\.origin\}\/learn`/);
-  assert.match(auth, /signInWithOAuth\(\{\s*provider: "google",\s*options: \{ redirectTo: `\$\{window\.location\.origin\}\/learn` \}/);
+  assert.match(auth, /authClient\.signUp\.email/);
+  assert.match(auth, /authClient\.signIn\.email/);
+  assert.match(auth, /authClient\.signIn\.social\([\s\S]*provider: "google",[\s\S]*callbackURL: `\$\{window\.location\.origin\}\/learn`/);
+  assert.match(auth, /authClient\.signIn\.anonymous/);
   assert.doesNotMatch(auth, /lovable|redirect_uri/i);
-  assert.match(auth, /signInWithPassword[\s\S]*navigate\(\{ to: "\/learn", replace: true \}\)/);
+  assert.match(auth, /authClient\.signIn\.email[\s\S]*navigate\(\{ to: "\/learn", replace: true \}\)/);
   assert.doesNotMatch(auth, /\/home|navigate\(\{ to: "\/"/);
   assert.match(shell, /<Link to="\/learn"[\s\S]*aria-label="Cadence 学习"/);
-  assert.match(profile, /signOut\(\); void navigate\(\{ to: "\/auth", replace: true \}\)/);
+  assert.match(profile, /authClient\.signOut\(\); void navigate\(\{ to: "\/auth", replace: true \}\)/);
 });
 
 test("profile shows only working settings with tooltip help", async () => {
@@ -1365,7 +1371,7 @@ test("changing an earlier session recalculates later decisions during full-histo
   assert.equal(after.state.intervalSeconds, 216_000);
 
   const persistence = await readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8");
-  assert.match(persistence, /const attempts = await fetchAttempts\(supabase, identity\)/);
+  assert.match(persistence, /const attempts = await fetchAttempts\(store, identity\)/);
   assert.match(persistence, /const projection = projectReviewScheduleState\([\s\S]*sessions\.map\(sessionFromRow\)/);
   assert.match(persistence, /for \(const decision of projection\.decisions\)/);
   assert.match(persistence, /if \(prior\?\.fingerprint === decision\.inputFingerprint\) continue/);
@@ -1412,7 +1418,7 @@ test("a post-hoc mistouch replays later sessions and supersedes changed decision
   assert.notEqual(oldDecisions[2].inputFingerprint, rebuiltDecisions[2].inputFingerprint);
 
   const persistence = await readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8");
-  assert.match(persistence, /const attempts = await fetchAttempts\(supabase, identity\)/);
+  assert.match(persistence, /const attempts = await fetchAttempts\(store, identity\)/);
   assert.match(persistence, /supersedes_decision_id: prior\?\.decisionId/);
 });
 
@@ -1532,307 +1538,115 @@ test("first spelling choice resolves pending sessions; later changes affect only
   assert.equal(projectReviewScheduleState("spelling", [sessions[2]], switchedPreference).decisions[0].reason, "excluded_by_choice");
 });
 
-test("review integration separates raw attempts, session results, and append-only decisions", async () => {
-  const [learn, memorize, functions, persistence, migration] = await Promise.all([
+test("review integration stores replayable results and append-only scheduler decisions", async () => {
+  const [learn, memorize, functions, persistence, migration, schema] = await Promise.all([
     readFile(new URL("../src/routes/_authenticated/learn.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/routes/_authenticated/memorize.tsx", import.meta.url), "utf8"),
     readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8"),
-    readFile(new URL("../drizzle/migrations/0011_review_system_v1_foundation.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/migrations/0000_cadence_initial.sql", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/schema.ts", import.meta.url), "utf8"),
   ]);
-  const dueQuery = functions.slice(
-    functions.indexOf("export const getDueReviewItems"),
-    functions.indexOf("export const saveSettings"),
-  );
-  const sessionRead = persistence.slice(
-    persistence.indexOf("async function fetchSessions"),
-    persistence.indexOf("async function fetchAttempts"),
-  );
-  const stateProjection = persistence.slice(
-    persistence.indexOf("async function rebuildReviewStateOnce"),
-    persistence.indexOf("export async function rebuildReviewState("),
-  );
-
   assert.match(learn, /sessionId: nextCompletion\.attemptId/);
-  assert.match(learn, /includeInReview: queueKind === "today" \? true : includeSpellingInReview/);
   assert.match(memorize, /stage: "spell" as const/);
-  assert.match(memorize, /timeZone: getUserTimeZone\(\)/);
-  assert.match(functions, /review_mode: data\.stage === "spell" \? null : "recognition"/);
+  assert.match(functions, /await finalizeReviewSession\(context\.db,/);
+  assert.match(functions, /await rebuildPendingSpellingStates\(context\.db, context\.userId\)/);
   assert.match(functions, /counted_for_review: data\.stage === "spell" \? false : true/);
-  assert.match(functions, /data\.stage === "recall" && effectiveAttempt\.review_mode === "recognition"/);
-  assert.match(functions, /review_session_id: data\.stage === "spell" \? null : data\.sessionId/);
-  assert.match(functions, /\.update\(\{ mistouch: true \}\)/);
-  assert.match(functions, /await finalizeReviewSession\(context\.supabase,\s*\{/);
-  assert.match(functions, /export const getDueReviewItems/);
-  assert.match(persistence, /\.from\("review_session_results"\)/);
-  assert.match(persistence, /\.from\("review_schedule_decisions"\)/);
+  assert.match(persistence, /\.table\("review_session_results"\)/);
+  assert.match(persistence, /\.table\("review_schedule_decisions"\)/);
+  assert.match(persistence, /\.table\("review_states"\)/);
   assert.match(persistence, /input_fingerprint: decision\.inputFingerprint/);
-  assert.match(persistence, /include_spelling_in_review_first_choice/);
-  assert.match(functions, /include_spelling_in_review_first_choice/);
-  assert.match(functions, /captureFirstSpellingReviewChoice\(/);
-  assert.match(persistence, /\.from\("review_session_results"\)[\s\S]*\.delete\(\)/);
-  assert.match(persistence, /decision_reason: "no_valid_attempts"/);
-  assert.match(migration, /include_spelling_in_review_first_choice boolean/);
-  assert.match(migration, /counted_for_review boolean,/);
-  assert.ok(
-    migration.includes("review_word_key text GENERATED ALWAYS AS (") &&
-      migration.includes("lower(btrim(regexp_replace(regexp_replace(word, '[[:space:]]+', ' ', 'g'), '[‘’]', chr(39), 'g')))") &&
-      migration.includes("word_key = lower(btrim(regexp_replace(regexp_replace(word, '[[:space:]]+', ' ', 'g'), '[‘’]', chr(39), 'g')))"),
-  );
-  assert.match(migration, /PRIMARY KEY \(user_id, book_id, word_key, review_mode, session_id\)/);
-  assert.match(migration, /PRIMARY KEY \(user_id, word_key, review_mode\)/);
-  assert.match(migration, /source_book_id text REFERENCES public\.word_books\(id\) ON DELETE SET NULL/);
-  assert.match(migration, /book_id text NOT NULL/);
-  assert.match(migration, /ON public\.attempts \(user_id, review_word_key, review_mode, review_session_id, created_at, id\)/);
-  assert.match(migration, /UNIQUE \(user_id, book_id, word_key, review_mode, session_id, decision_revision\)/);
-  assert.match(migration, /supersedes_decision_id uuid REFERENCES public\.review_schedule_decisions/);
-  assert.match(migration, /review_mode = 'recognition' AND mode = 'memorize'/);
-  assert.match(migration, /review_mode = 'spelling' AND mode = 'word'/);
-  assert.match(migration, /attempts_review_stage_owner_check/);
-  assert.ok(migration.includes("session_stage IS NOT NULL AND session_stage IN ('context', 'recall')"));
-  assert.doesNotMatch(migration, /REFERENCES public\.review_session_results/);
   assert.match(persistence, /supersedes_decision_id: prior\?\.decisionId/);
-  assert.match(persistence, /supersedes_decision_id: prior\.decisionId/);
-  assert.match(persistence, /\.order\("decision_revision", \{ ascending: false \}\)/);
-  assert.match(persistence, /if \(!latest\.has\(key\)\)/);
-  assert.match(persistence, /sessionIdentityKey\(row\.book_id, row\.session_id\)/);
-  assert.match(persistence, /normalizeReviewWord\(source\.word\)/);
-  assert.match(persistence, /\.eq\("review_word_key", identity\.wordKey\)/);
-  assert.match(sessionRead, /\.eq\("word_key", identity\.wordKey\)/);
-  assert.match(sessionRead, /bookIdForReviewScope\(identity\.scopeKey\)/);
-  assert.match(sessionRead, /if \(sourceBookId\) query = query\.eq\("book_id", sourceBookId\)/);
-  assert.match(stateProjection, /\.eq\("scope_key", identity\.scopeKey\)/);
-  assert.match(functions, /Memorize stages have fixed review ownership/);
-  assert.match(functions, /Attempt id is already associated with different learning data/);
-  assert.match(persistence, /book_id: decision\.session\.bookId/);
-  assert.match(persistence, /source_book_id: lastIncluded\.session\.bookId/);
+  assert.match(persistence, /\.insert\(\{[\s\S]*decision_revision: revision/);
   assert.match(persistence, /onConflict: "user_id,book_id,word_key,review_mode,session_id"/);
-  assert.match(persistence, /import \{ supabaseAdmin \} from "@\/integrations\/supabase\/client\.server"/);
-  assert.match(persistence, /supabaseAdmin\s*\.from\("review_session_results"\)\s*\.delete/);
-  assert.match(persistence, /supabaseAdmin\s*\.from\("review_session_results"\)\s*\.upsert/);
-  assert.match(persistence, /supabaseAdmin\s*\.from\("review_schedule_decisions"\)\s*\.insert/);
-  assert.match(persistence, /supabaseAdmin\s*\.from\("review_states"\)\s*\.delete/);
-  assert.match(persistence, /supabaseAdmin\s*\.from\("review_states"\)\s*\.insert/);
-  assert.match(persistence, /supabaseAdmin\s*\.from\("review_states"\)\s*\.update/);
-  assert.match(persistence, /export async function finalizeReviewSession\(\s*supabase: Client,[\s\S]*source:/);
-  assert.match(persistence, /export async function rebuildPendingSpellingStates\(supabase: Client, userId:/);
-  assert.match(functions, /finalizeReviewSession\(context\.supabase,/);
-  assert.match(functions, /rebuildPendingSpellingStates\(context\.supabase, context\.userId\)/);
-  assert.match(dueQuery, /"word, word_key, review_mode/);
-  assert.match(dueQuery, /source_book_id/);
-  assert.doesNotMatch(dueQuery, /\.eq\("book_id"/);
-  assert.doesNotMatch(migration, /UPDATE public\.attempts/);
-  assert.match(migration, /review_session_id uuid,/);
-  assert.match(migration, /counted_for_review boolean,/);
-  const sessionTable = migration.split("CREATE TABLE IF NOT EXISTS public.review_session_results (")[1].split("\n);")[0];
-  const decisionTable = migration.split("CREATE TABLE IF NOT EXISTS public.review_schedule_decisions (")[1].split("\n);")[0];
-  assert.match(sessionTable, /book_id text NOT NULL,/);
-  assert.doesNotMatch(sessionTable, /book_id text NOT NULL REFERENCES/);
-  assert.match(decisionTable, /book_id text NOT NULL,/);
-  assert.doesNotMatch(decisionTable, /book_id text NOT NULL REFERENCES/);
+  assert.match(schema, /export const reviewSessionResults = pgTable/);
+  assert.match(schema, /export const reviewScheduleDecisions = pgTable/);
+  assert.match(schema, /export const reviewStates = pgTable/);
+  assert.match(schema, /unique\("review_schedule_decisions_scope_revision_unique"\)/);
+  for (const table of ["review_session_results", "review_schedule_decisions", "review_states"])
+    assert.match(migration, new RegExp('CREATE TABLE "' + table + '"'));
+  assert.doesNotMatch(migration, /ROW LEVEL SECURITY|auth\.uid\(\)|CREATE POLICY/i);
+  assert.doesNotMatch(functions + persistence, /supabase|\.rpc\(/i);
 });
 
-test("review tables have owner-scoped RLS and immutable decision history", async () => {
-  const migration = (
-    await readFile(
-      new URL("../drizzle/migrations/0011_review_system_v1_foundation.sql", import.meta.url),
-      "utf8",
-    )
-  ).replace(/\r\n/g, "\n");
-  for (const table of ["review_session_results", "review_schedule_decisions", "review_states"]) {
-    assert.match(migration, new RegExp(`ALTER TABLE public\\.${table} ENABLE ROW LEVEL SECURITY;`));
-    assert.match(
-      migration,
-      new RegExp(`CREATE POLICY "own [^\\n]+" ON public\\.${table} FOR SELECT TO authenticated\\n  USING \\(auth\\.uid\\(\\) = user_id\\);`),
-    );
-    assert.doesNotMatch(
-      migration,
-      new RegExp(`CREATE POLICY "own [^\\n]+" ON public\\.${table} FOR (INSERT|UPDATE|DELETE) TO authenticated`),
-    );
-  }
-  assert.match(
-    migration,
-    /REVOKE ALL ON public\.review_session_results, public\.review_schedule_decisions, public\.review_states FROM PUBLIC, anon, authenticated/,
-  );
-  assert.match(
-    migration,
-    /GRANT SELECT ON public\.review_session_results, public\.review_schedule_decisions, public\.review_states TO authenticated/,
-  );
-  assert.match(migration, /ALTER TABLE public\.attempts ENABLE ROW LEVEL SECURITY/);
-  assert.match(
-    migration,
-    /CREATE POLICY "own attempts insert" ON public\.attempts FOR INSERT TO authenticated\n  WITH CHECK \(auth\.uid\(\) = user_id\)/,
-  );
-  assert.match(
-    migration,
-    /CREATE POLICY "own attempts update" ON public\.attempts FOR UPDATE TO authenticated\n  USING \(auth\.uid\(\) = user_id\) WITH CHECK \(auth\.uid\(\) = user_id\)/,
-  );
-  assert.match(migration, /GRANT ALL ON public\.review_session_results, public\.review_schedule_decisions, public\.review_states TO service_role/);
-});
-
-test("historical state repair is a bounded one-off and normal reads do not scan history", async () => {
-  const [
-    migration,
-    persistence,
-    functions,
-    reviewRoute,
-    repairScript,
-    types,
-    journalText,
-    snapshotText,
-    priorSnapshotText,
-  ] = await Promise.all([
-    readFile(new URL("../drizzle/migrations/0013_review_source_provenance.sql", import.meta.url), "utf8"),
-    readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/routes/_authenticated/review.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../scripts/repair-review-state-projections.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../src/integrations/supabase/types.ts", import.meta.url), "utf8"),
-    readFile(new URL("../drizzle/migrations/meta/_journal.json", import.meta.url), "utf8"),
-    readFile(new URL("../drizzle/migrations/meta/0013_snapshot.json", import.meta.url), "utf8"),
-    readFile(new URL("../drizzle/migrations/meta/0012_snapshot.json", import.meta.url), "utf8"),
+test("server data access replaces RLS with authenticated owner-scoped queries", async () => {
+  const [auth, store, middleware, migration, tests] = await Promise.all([
+    readFile(new URL("../src/integrations/auth/auth-middleware.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/server/user-store.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/integrations/auth/auth-middleware.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/migrations/0000_cadence_initial.sql", import.meta.url), "utf8"),
+    readFile(new URL("./server-permissions.test.mjs", import.meta.url), "utf8"),
   ]);
-  const recovery = persistence.slice(
-    persistence.indexOf("export async function planMissingReviewStatesInWindow"),
-    persistence.indexOf("async function readAllPages"),
-  );
-  const dueQuery = functions.slice(
-    functions.indexOf("export const getDueReviewItems"),
-    functions.indexOf("export const saveSettings"),
-  );
-  const reviewStateTypes = types.slice(types.indexOf("review_states:"), types.indexOf("user_settings:"));
-  const journal = JSON.parse(journalText);
-  const snapshot = JSON.parse(snapshotText);
-  const priorSnapshot = JSON.parse(priorSnapshotText);
-
-  assert.deepEqual(journal.entries.find(({ tag }) => tag === "0013_review_source_provenance"), {
-    idx: 13,
-    version: "7",
-    when: 1790660328477,
-    tag: "0013_review_source_provenance",
-    breakpoints: true,
-  });
-  assert.deepEqual(journal.entries.find(({ tag }) => tag === "0014_apply_pending_0013_marker"), {
-    idx: 14,
-    version: "7",
-    when: 1790675901270,
-    tag: "0014_apply_pending_0013_marker",
-    breakpoints: true,
-  });
-  assert.equal(snapshot.prevId, priorSnapshot.id);
-  assert.match(migration, /DROP CONSTRAINT IF EXISTS review_states_source_book_id_fkey/);
-  assert.match(migration, /provenance only, may identify a bundled or deleted book/);
-  assert.doesNotMatch(migration, /REFERENCES public\.word_books/);
-  assert.match(recovery, /\.from\("review_session_results"\)/);
-  assert.match(recovery, /\.gte\("completed_at", from\)/);
-  assert.match(recovery, /\.lt\("completed_at", until\)/);
-  assert.match(recovery, /\.from\("review_states"\)[\s\S]*\.eq\("user_id", userId\)[\s\S]*\.in\("word_key"/);
-  assert.match(recovery, /findMissingHistoricalReviewStateIdentities\(/);
-  assert.match(persistence, /export async function applyMissingReviewStateRepairs[\s\S]*await rebuildReviewState\(supabase, identity\)/);
-  assert.match(persistence, /export async function finalizeReviewSession[\s\S]*await rebuildReviewState\(supabase, identity\)/);
-  assert.match(persistence, /if \(prior\?\.fingerprint === decision\.inputFingerprint\) continue/);
-  assert.doesNotMatch(functions, /repairMissingReviewStates|rebuildMissingReviewStates/);
-  assert.doesNotMatch(reviewRoute, /repairMissingReviewStates|recoverReviewStates|useMutation|useEffect/);
-  assert.match(dueQuery, /"word, word_key, review_mode/);
-  assert.doesNotMatch(dueQuery, /repairMissingReviewStates|rebuildMissingReviewStates/);
-  assert.match(dueQuery, /source_book_id/);
-  assert.doesNotMatch(dueQuery, /\.eq\("book_id"/);
-  assert.match(repairScript, /--from/);
-  assert.match(repairScript, /--until/);
-  assert.match(repairScript, /--confirm-0013-applied/);
-  assert.match(repairScript, /options\.apply \? "applying" : "dry-run"/);
-  assert.match(repairScript, /status: "failed"[\s\S]*partialProgressUnknown: true/);
-  assert.match(repairScript, /flag: "wx"/);
-  assert.doesNotMatch(reviewStateTypes, /review_states_source_book_id_fkey/);
+  assert.match(auth, /auth\.api\.getSession/);
+  assert.match(middleware, /if \(!session\?\.user\?\.id\)/);
+  assert.match(store, /userOwnedTables\.has\(name\)/);
+  assert.match(store, /eq\(physicalField\(table, "user_id"\), this\.userId\)/);
+  assert.match(store, /owner_user_id/);
+  assert.match(store, /A user cannot write another user's data/);
+  assert.match(store, /A user can only add entries to their own custom books/);
+  assert.match(tests, /different accounts|another user's data|owner/i);
+  assert.match(migration, /FOREIGN KEY \("user_id"\) REFERENCES "public"\."user"\("id"\)/);
+  assert.doesNotMatch(migration, /ROW LEVEL SECURITY|auth\.uid\(\)|CREATE POLICY/i);
 });
 
-test("Review scope settings migration preserves history and supports bundled or deleted book ids", async () => {
-  const [migrationText, journalText, snapshotText, priorSnapshotText, persistence, functions, books, profile, info] =
-    await Promise.all([
-      readFile(new URL("../drizzle/migrations/0015_review_scope_settings.sql", import.meta.url), "utf8"),
-      readFile(new URL("../drizzle/migrations/meta/_journal.json", import.meta.url), "utf8"),
-      readFile(new URL("../drizzle/migrations/meta/0015_snapshot.json", import.meta.url), "utf8"),
-      readFile(new URL("../drizzle/migrations/meta/0014_snapshot.json", import.meta.url), "utf8"),
-      readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8"),
-      readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
-      readFile(new URL("../src/routes/_authenticated/books.tsx", import.meta.url), "utf8"),
-      readFile(new URL("../src/routes/_authenticated/profile.tsx", import.meta.url), "utf8"),
-      readFile(new URL("../src/components/setting-info.tsx", import.meta.url), "utf8"),
-    ]);
-  const journal = JSON.parse(journalText);
-  const snapshot = JSON.parse(snapshotText);
-  const priorSnapshot = JSON.parse(priorSnapshotText);
+test("the from-zero schema keeps review scope and per-book settings without RLS", async () => {
+  const [schema, migration, functions, books, profile, info] = await Promise.all([
+    readFile(new URL("../drizzle/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/migrations/0000_cadence_initial.sql", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/learning.functions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/books.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/routes/_authenticated/profile.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/setting-info.tsx", import.meta.url), "utf8"),
+  ]);
   const dueQuery = functions.slice(
     functions.indexOf("export const getDueReviewItems"),
     functions.indexOf("export const saveSettings"),
   );
-
-  assert.equal(journal.entries.find(({ tag }) => tag === "0015_review_scope_settings")?.idx, 15);
-  assert.equal(journal.entries.find(({ tag }) => tag === "0016_apply_pending_0015_marker")?.idx, 16);
-  assert.equal(snapshot.prevId, priorSnapshot.id);
-  assert.match(migrationText, /share_review_progress boolean NOT NULL DEFAULT true/);
-  assert.match(migrationText, /include_in_review boolean NOT NULL DEFAULT true/);
-  assert.match(migrationText, /PRIMARY KEY \(user_id, book_id\)/);
-  assert.doesNotMatch(migrationText, /REFERENCES public\.word_books/);
-  assert.match(migrationText, /REVOKE ALL ON public\.user_book_review_settings FROM PUBLIC, anon, authenticated/);
-  assert.match(migrationText, /GRANT SELECT, INSERT, UPDATE ON public\.user_book_review_settings TO authenticated/);
-  assert.match(migrationText, /CREATE POLICY "own book review settings insert"[\s\S]*WITH CHECK \(auth\.uid\(\) = user_id\)/);
-  assert.match(migrationText, /CREATE POLICY "own book review settings update"[\s\S]*WITH CHECK \(auth\.uid\(\) = user_id\)/);
-  assert.match(migrationText, /PRIMARY KEY \(user_id, word_key, review_mode, scope_key\)/);
-  assert.match(migrationText, /UNIQUE \(user_id, scope_key, book_id, word_key, review_mode, session_id, decision_revision\)/);
-  assert.match(migrationText, /excluded_by_book_setting/);
-  assert.match(migrationText, /COMMENT ON COLUMN public\.review_states\.word_key IS[\s\S]*review_mode \+ scope_key/);
-  assert.match(migrationText, /COMMENT ON COLUMN public\.review_session_results\.book_id IS[\s\S]*shared or book-local/);
-  assert.doesNotMatch(migrationText, /DELETE FROM public\.(attempts|review_session_results|review_schedule_decisions)/);
-  assert.match(persistence, /export async function rebuildReviewProjectionsForUser/);
-  assert.match(persistence, /export async function rebuildReviewProjectionsForBook/);
-  assert.match(persistence, /settings writes may enumerate affected sessions/i);
-  assert.match(persistence, /refreshSessionResults\s*\?\s*await rebuildReviewSessionResultsFromAttempts/);
-  assert.match(persistence, /refreshSessionResults: false/);
-  assert.match(functions, /shareReviewProgress: z\.boolean\(\)\.optional\(\)/);
-  assert.match(functions, /export const saveBookReviewSetting/);
+  assert.match(schema, /export const userBookReviewSettings = pgTable/);
+  assert.match(schema, /includeInReview: boolean\("include_in_review"\)/);
+  assert.match(schema, /includeSpellingInReviewFirstChoice/);
+  assert.match(schema, /review_states_pkey/);
+  assert.match(schema, /review_schedule_decisions_scope_revision_unique/);
+  assert.match(migration, /"share_review_progress" boolean DEFAULT true NOT NULL/);
+  assert.match(migration, /"include_in_review" boolean DEFAULT true NOT NULL/);
+  assert.match(migration, /PRIMARY KEY\("user_id","book_id"\)/);
+  assert.match(migration, /PRIMARY KEY\("user_id","word_key","review_mode","scope_key"\)/);
   assert.match(dueQuery, /\.eq\("scope_key", "shared"\)/);
   assert.match(dueQuery, /\.like\("scope_key", "book:%"\)/);
-  assert.doesNotMatch(dueQuery, /collectProjectionIdentities|rebuildReviewState|review_session_results|attempts/);
+  assert.match(functions, /export const saveBookReviewSetting/);
   assert.match(books, /纳入复习计划/);
-  assert.match(books, /SettingInfo text=/);
   assert.match(profile, /跨词书共享复习进度/);
-  assert.match(profile, /SettingInfo text=/);
-  assert.match(books, /saveBookReviewSetting/);
-  assert.match(profile, /shareReviewProgress: on/);
-  assert.match(info, /group-hover:visible/);
-  assert.match(info, /onClick=\{/);
   assert.match(info, /aria-expanded=\{open\}/);
+  assert.doesNotMatch(migration, /ROW LEVEL SECURITY|auth\.uid\(\)|CREATE POLICY/i);
 });
 
-test("local review RLS runner uses only an isolated disposable PostgreSQL container", async () => {
-  const runner = await readFile(new URL("../scripts/verify-review-v1-rls.ps1", import.meta.url), "utf8");
-  assert.match(runner, /--network none/);
-  assert.match(runner, /--rm --name \$containerName/);
-  assert.match(runner, /POSTGRES_DB=review_test/);
-  assert.match(runner, /Invoke-PostgresFile[\s\S]*?-SingleTransaction/);
-  assert.match(runner, /Expected migrations 0000–0015 \(16 files\)/);
-  assert.match(runner, /preScopeFixture[\s\S]*?0015_review_scope_settings\.sql[\s\S]*?scopeChecks/);
-  assert.match(runner, /Reapplying 0015 to verify repeatability/);
-  assert.match(runner, /0015 preserves pre-existing Review rows/);
-  assert.match(runner, /scope_key = 'shared' AND source_book_id = 'deleted-custom-book'/);
-  assert.match(runner, /book review settings enforce owner INSERT\/UPDATE checks and deny DELETE/);
+test("self-hosted PostgreSQL verification uses a disposable embedded database", async () => {
+  const runner = await readFile(new URL("../scripts/test-self-hosted-postgres.mjs", import.meta.url), "utf8");
+  assert.match(runner, /embedded-postgres/);
+  assert.match(runner, /withTimeout\(pg\.initialise\(\)/);
+  assert.match(runner, /withTimeout\(pg\.start\(\), 30_000, "PostgreSQL startup"\)/);
+  assert.match(runner, /await runDatabaseSetup\(env\);[\s\S]*await runDatabaseSetup\(env\)/);
+  assert.match(runner, /sign-in\/anonymous/);
+  assert.match(runner, /sign-in\/social/);
+  assert.match(runner, /accounts\.google\.com/);
+  assert.match(runner, /sign-up\/email/);
+  assert.match(runner, /finalizeReviewSession/);
+  assert.match(runner, /buildLearningStats/);
+  assert.match(runner, /hydrateEntries/);
+  assert.match(runner, /postgresMemory/);
   assert.doesNotMatch(runner, /LOVABLE_DB_MIGRATION_URL|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_URL/);
 });
 
-test("Review architecture comments describe the configurable projection scope", async () => {
-  const [scheduler, persistence, migration] = await Promise.all([
+test("Review scope comments describe book identity as configurable", async () => {
+  const [scheduler, persistence] = await Promise.all([
     readFile(new URL("../src/lib/review-scheduler.shared.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/lib/review-sessions.server.ts", import.meta.url), "utf8"),
-    readFile(new URL("../drizzle/migrations/0015_review_scope_settings.sql", import.meta.url), "utf8"),
   ]);
   assert.doesNotMatch(scheduler, /Review identity is shared across books/);
   assert.doesNotMatch(scheduler, /review state itself is shared across books/);
   assert.match(scheduler, /selected Review scope decides whether state is shared or book-local/);
   assert.match(persistence, /selected scope; book id is scope input or source provenance/);
-  assert.match(migration, /review identity is user_id \+ word_key \+ review_mode \+ scope_key/);
 });
-
 test("spelling review inclusion keeps the tri-state setting", () => {
   const base = {
     daily_goal: null,
@@ -2003,15 +1817,15 @@ test("memorize stages persist one stage at a time, retain wrong recalls, and adv
   assert.equal(completed.cursorIndex, 0);
 });
 
-test("0009 isolates progress per mode while preserving legacy rows as word progress", async () => {
+test("initial schema isolates progress per mode with word as the default", async () => {
   const migration = await readFile(
-    new URL("../drizzle/migrations/0009_book_progress_modes_and_sessions.sql", import.meta.url),
+    new URL("../drizzle/migrations/0000_cadence_initial.sql", import.meta.url),
     "utf8",
   );
-  assert.match(migration, /ADD COLUMN mode text NOT NULL DEFAULT 'word'/);
-  assert.match(migration, /ADD COLUMN session_state jsonb NOT NULL DEFAULT '\{\}'::jsonb/);
-  assert.match(migration, /PRIMARY KEY \(user_id, book_id, mode\)/);
-  assert.match(migration, /mode IN \('word', 'sentence', 'memorize'\)/);
+  assert.match(migration, /"mode" text DEFAULT 'word' NOT NULL/);
+  assert.match(migration, /"session_state" jsonb DEFAULT '\{\}'::jsonb NOT NULL/);
+  assert.match(migration, /PRIMARY KEY\("user_id","book_id","mode"\)/);
+  assert.match(migration, /'word', 'sentence', 'memorize'/);
 });
 
 test("sentence cursors persist independently for each selected book and wrap to the current queue", () => {

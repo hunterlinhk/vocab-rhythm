@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAuth } from "@/integrations/auth/auth-middleware";
 import { z } from "zod";
 import { ENTRY_COLS, EntryInput, rowToEntry, type BookMeta, type EntryRow } from "./library.shared";
 import type { WordEntry } from "@/data/words";
@@ -7,10 +7,10 @@ import { bareEntry, findInBundledBook, getBook, isBundledBook } from "@/data/wor
 
 /** 官方词库（数据库中的正式词库）+ 当前用户的自定义词库 */
 export const listLibrary = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }): Promise<{ official: BookMeta[]; custom: BookMeta[] }> => {
-    const { data, error } = await context.supabase
-      .from("word_books")
+    const { data, error } = await context.db
+      .table("word_books")
       .select("id, name, description, source, owner_user_id, word_count, created_at, updated_at")
       .order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
@@ -22,13 +22,13 @@ export const listLibrary = createServerFn({ method: "GET" })
   });
 
 export const getBookEntries = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => z.object({ bookId: z.string().min(1) }).parse(input))
   .handler(async ({ data, context }): Promise<WordEntry[]> => {
     const out: WordEntry[] = [];
     for (let from = 0; ; from += 1000) {
-      const { data: rows, error } = await context.supabase
-        .from("word_entries")
+      const { data: rows, error } = await context.db
+        .table("word_entries")
         .select(ENTRY_COLS)
         .eq("book_id", data.bookId)
         .order("position", { ascending: true })
@@ -38,22 +38,22 @@ export const getBookEntries = createServerFn({ method: "GET" })
       if (!rows || rows.length < 1000) break;
     }
     const { hydrateEntries } = await import("./lexicon.server");
-    return hydrateEntries(context.supabase, out);
+    return hydrateEntries(context.db, out);
   });
 
 /** Built-in books share the same Lexicon lookup as database books. */
 export const getBundledBookEntries = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => z.object({ bookId: z.string().min(1) }).parse(input))
   .handler(async ({ data, context }): Promise<WordEntry[]> => {
     if (!isBundledBook(data.bookId)) throw new Error("Unknown bundled book");
     const { hydrateEntries } = await import("./lexicon.server");
-    return hydrateEntries(context.supabase, getBook(data.bookId).words);
+    return hydrateEntries(context.db, getBook(data.bookId).words);
   });
 
 /** 按 (book_id, word) 取回数据库词条，用于跨词书的复习队列 */
 export const resolveEntries = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) =>
     z.object({ items: z.array(z.object({ bookId: z.string(), word: z.string() })).max(500) }).parse(input),
   )
@@ -66,8 +66,8 @@ export const resolveEntries = createServerFn({ method: "POST" })
         out.push(...words.map((word) => findInBundledBook(bookId, word)).filter((entry): entry is WordEntry => !!entry));
         continue;
       }
-      const { data: rows, error } = await context.supabase
-        .from("word_entries")
+      const { data: rows, error } = await context.db
+        .table("word_entries")
         .select(ENTRY_COLS)
         .eq("book_id", bookId)
         .in("word", words);
@@ -80,11 +80,11 @@ export const resolveEntries = createServerFn({ method: "POST" })
         out.push(bareEntry(item.word, item.bookId));
     }
     const { hydrateEntries } = await import("./lexicon.server");
-    return hydrateEntries(context.supabase, out);
+    return hydrateEntries(context.db, out);
   });
 
 export const createCustomBook = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) =>
     z
       .object({
@@ -96,8 +96,8 @@ export const createCustomBook = createServerFn({ method: "POST" })
   )
   .handler(async ({ data, context }) => {
     const { insertEntries } = await import("./library.server");
-    const { data: book, error } = await context.supabase
-      .from("word_books")
+    const { data: book, error } = await context.db
+      .table("word_books")
       .insert({
         name: data.name,
         description: data.description || null,
@@ -108,28 +108,28 @@ export const createCustomBook = createServerFn({ method: "POST" })
       .single();
     if (error || !book) throw new Error(error?.message ?? "创建失败");
     try {
-      const count = await insertEntries(context.supabase, book.id, data.entries);
+      const count = await insertEntries(context.db, book.id, data.entries);
       return { bookId: book.id, count };
     } catch (e) {
-      await context.supabase.from("word_books").delete().eq("id", book.id);
+      await context.db.table("word_books").delete().eq("id", book.id);
       throw e;
     }
   });
 
 export const deleteCustomBook = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => z.object({ bookId: z.string().min(1) }).parse(input))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("word_books")
+    const { error } = await context.db
+      .table("word_books")
       .delete()
       .eq("id", data.bookId)
       .eq("source", "custom")
       .eq("owner_user_id", context.userId);
     if (error) throw new Error(error.message);
     // 若删除的是当前词书，回到演示词书
-    await context.supabase
-      .from("user_settings")
+    await context.db
+      .table("user_settings")
       .update({ active_book: "core" })
       .eq("user_id", context.userId)
       .eq("active_book", data.bookId);

@@ -1,10 +1,11 @@
 import type { WordEntry } from "@/data/words";
+import type { UserStore } from "@/server/user-store";
 import { assembleWordEntry, lexemeKey, type LexiconContent } from "./lexicon.shared";
 
-type Client = { from: (table: string) => any }; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Client = UserStore;
 const BATCH = 250;
 const missingLexiconTable = (error: { code?: string }) =>
-  error.code === "42P01" || error.code === "PGRST205";
+  error.code === "42P01";
 
 /** Resolve a whole book/review set in batches; never query Lexicon once per word. */
 export async function hydrateEntries(client: Client, entries: WordEntry[]): Promise<WordEntry[]> {
@@ -13,12 +14,12 @@ export async function hydrateEntries(client: Client, entries: WordEntry[]): Prom
   const lexemes: { id: string; normalized_word: string }[] = [];
   for (let i = 0; i < keys.length; i += BATCH) {
     const { data, error } = await client
-      .from("lexemes")
+      .table("lexemes")
       .select("id, normalized_word")
       .eq("language", "en")
       .in("normalized_word", keys.slice(i, i + BATCH));
     if (error) {
-      // The application may be published before migration 0006 is applied.
+          // Keep the bundled content usable when a local database has not been initialized.
       if (missingLexiconTable(error)) return entries;
       throw new Error(error.message);
     }
@@ -30,7 +31,7 @@ export async function hydrateEntries(client: Client, entries: WordEntry[]): Prom
   for (let i = 0; i < ids.length; i += BATCH) {
     for (let from = 0; ; from += 1000) {
       const { data, error } = await client
-        .from("lexicon_entries")
+        .table("lexicon_entries")
         .select(
           "lexeme_id, source_id, source_entry_ref, sense_key, priority, translation, part_of_speech, phonetic, definition_en, sentence, sentence_translation, subject, verb, object, content_type, sense_role, publication_status, review_decision, related_sense_key, usage_note_zh",
         )

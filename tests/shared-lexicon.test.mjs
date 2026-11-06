@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { readFile } from "node:fs/promises";
-import { createServer } from "vite";
+import { createTestViteServer } from "./vite-test-helper.mjs";
 
-const vite = await createServer({ configFile: false, server: { middlewareMode: true } });
+const vite = await createTestViteServer();
 after(() => vite.close());
 
 const { assembleWordEntry } = await vite.ssrLoadModule("/src/lib/lexicon.shared.ts");
@@ -236,7 +236,7 @@ test("usage notes do not expose candidate sense wording", () => {
 test("batched lookup links bundled and custom words through the same lexeme", async () => {
   const calls = [];
   const client = {
-    from(table) {
+    table(table) {
       const query = {
         select() {
           return this;
@@ -306,8 +306,8 @@ test("batched lookup links bundled and custom words through the same lexeme", as
 test("existing book reads still work before the Lexicon migration is applied", async () => {
   const original = [{ word: "the", bookId: "ngsl-1.2", rank: 1 }];
   const client = {
-    from(table) {
-      assert.equal(table, "lexemes");
+    table(tableName) {
+      assert.equal(tableName, "lexemes");
       return {
         select() {
           return this;
@@ -318,7 +318,7 @@ test("existing book reads still work before the Lexicon migration is applied", a
         in() {
           return Promise.resolve({
             data: null,
-            error: { code: "PGRST205", message: "missing table" },
+            error: { code: "42P01", message: "missing table" },
           });
         },
       };
@@ -327,37 +327,36 @@ test("existing book reads still work before the Lexicon migration is applied", a
   assert.equal(await hydrateEntries(client, original), original);
 });
 
-test("migration stores source licensing and links words without moving learning records", async () => {
+test("initial schema stores lexicon provenance and uses server-side access control", async () => {
   const sql = await readFile(
-    new URL("../drizzle/migrations/0006_shared_lexicon.sql", import.meta.url),
+    new URL("../drizzle/migrations/0000_cadence_initial.sql", import.meta.url),
     "utf8",
   );
-  assert.match(sql, /CREATE TABLE public\.lexicon_sources/);
-  assert.match(sql, /license_id text NOT NULL/);
-  assert.match(sql, /attribution text NOT NULL/);
-  assert.match(sql, /source_url text NOT NULL/);
-  assert.match(sql, /source_entry_ref text/);
-  assert.match(sql, /source_id text NOT NULL REFERENCES public\.lexicon_sources/);
-  assert.match(sql, /ADD COLUMN lexeme_id uuid REFERENCES public\.lexemes/);
+  assert.match(sql, /CREATE TABLE "lexicon_sources"/);
+  assert.match(sql, /"license_id" text/);
+  assert.match(sql, /"attribution" text NOT NULL/);
+  assert.match(sql, /"source_url" text NOT NULL/);
+  assert.match(sql, /"source_entry_ref" text/);
+  assert.match(sql, /FOREIGN KEY \("source_id"\) REFERENCES "public"\."lexicon_sources"/);
+  assert.match(sql, /"lexeme_id" uuid NOT NULL/);
   assert.match(sql, /CREATE TRIGGER word_entries_link_lexeme/);
-  assert.doesNotMatch(sql, /ALTER TABLE public\.(attempts|word_mastery|book_progress)/);
+  assert.doesNotMatch(sql, /ROW LEVEL SECURITY|auth\.uid\(\)|CREATE POLICY/);
 });
 
-test("editorial migration keeps content types separate and published rows gated", async () => {
+test("initial schema separates editorial types and gates visibility in the server store", async () => {
   const sql = await readFile(
-    new URL("../drizzle/migrations/0018_lexicon_editorial_content.sql", import.meta.url),
+    new URL("../drizzle/migrations/0000_cadence_initial.sql", import.meta.url),
     "utf8",
   );
-  assert.match(sql, /ADD COLUMN content_type text NOT NULL DEFAULT 'sense'/);
-  assert.match(sql, /ADD COLUMN publication_status text NOT NULL DEFAULT 'published'/);
-  assert.match(sql, /content_type = 'usage_note'.+sense_role IS NULL/s);
-  assert.match(sql, /publication_status = 'published' AND EXISTS/s);
+  assert.match(sql, /"content_type" text DEFAULT 'sense' NOT NULL/);
+  assert.match(sql, /"publication_status" text DEFAULT 'published' NOT NULL/);
+  assert.match(sql, /"content_type" = 'usage_note'.+"sense_role" is null/s);
+  const userStore = await readFile(new URL("../src/server/user-store.ts", import.meta.url), "utf8");
+  assert.match(userStore, /publication_status.*published/s);
+  assert.match(userStore, /access_tier.*public/s);
   assert.match(
     sql,
-    /source_kind = 'editorial' OR \(license_id IS NOT NULL AND license_url IS NOT NULL\)/,
+    /"source_kind".*'editorial'.*"license_id".*is not null.*"license_url".*is not null/is,
   );
-  assert.doesNotMatch(
-    sql,
-    /ALTER TABLE public\.(attempts|word_mastery|book_progress|word_entries)/,
-  );
+  assert.doesNotMatch(sql, /ROW LEVEL SECURITY|auth\.uid\(\)|CREATE POLICY/);
 });

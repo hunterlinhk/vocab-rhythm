@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
-import { createServer } from "vite";
+import { createTestViteServer } from "./vite-test-helper.mjs";
 
-const vite = await createServer({ configFile: false, server: { middlewareMode: true } });
+const vite = await createTestViteServer();
 after(() => vite.close());
 
 const { ENTRY_COLS, EntryInput, normalizeEntries, parsePastedWords, rowToEntry } =
@@ -36,8 +36,8 @@ test("official and custom imports retain all optional learning fields", async ()
   for (const bookId of ["official-test", "custom-test"]) {
     const inserted = [];
     const client = {
-      from(table) {
-        assert.equal(table, "word_entries");
+      table(tableName) {
+        assert.equal(tableName, "word_entries");
         return {
           async insert(rows) {
             inserted.push(...rows);
@@ -103,8 +103,8 @@ test("bundled official entries keep source statistics and learning fields when i
   const sourceEntry = getBook("ngsl-1.2").words[0];
   const inserted = [];
   const client = {
-    from(table) {
-      assert.equal(table, "word_entries");
+    table(tableName) {
+      assert.equal(tableName, "word_entries");
       return {
         async insert(rows) {
           inserted.push(...rows);

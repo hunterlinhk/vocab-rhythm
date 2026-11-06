@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { authClient } from "@/integrations/auth/client";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -23,39 +23,39 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const session = authClient.useSession();
 
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => {
-      if (data.session) void navigate({ to: "/learn", replace: true });
-    });
-  }, [navigate]);
+    if (session.data?.user) void navigate({ to: "/learn", replace: true });
+  }, [navigate, session.data?.user]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setMsg(null);
     if (mode === "up") {
-      const { error } = await supabase.auth.signUp({
+      const { error } = await authClient.signUp.email({
         email,
         password,
-        options: { emailRedirectTo: `${window.location.origin}/learn` },
+        name: email.split("@")[0] ?? "Cadence learner",
       });
       setLoading(false);
-      setMsg(error ? error.message : "注册成功，请查收邮件完成验证后登录。");
+      if (error) setMsg(error.message ?? "注册失败，请稍后重试。");
+      else void navigate({ to: "/learn", replace: true });
       return;
     }
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await authClient.signIn.email({ email, password });
     setLoading(false);
-    if (error) setMsg(error.message);
+    if (error) setMsg(error.message ?? "登录失败，请检查邮箱和密码。");
     else void navigate({ to: "/learn", replace: true });
   }
 
   async function google() {
     setLoading(true);
     setMsg(null);
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { error } = await authClient.signIn.social({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/learn` },
+      callbackURL: `${window.location.origin}/learn`,
     });
     if (error) {
       setLoading(false);
@@ -66,10 +66,10 @@ function AuthPage() {
   async function guest() {
     setLoading(true);
     setMsg(null);
-    const { error } = await supabase.auth.signInAnonymously();
+    const { error } = await authClient.signIn.anonymous();
     setLoading(false);
     if (error) {
-      setMsg(error.message);
+      setMsg(error.message ?? "访客登录失败，请稍后重试。");
       return;
     }
     void navigate({ to: "/learn", replace: true });

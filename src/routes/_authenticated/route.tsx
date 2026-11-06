@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { authClient } from "@/integrations/auth/client";
 import { AppShell } from "@/components/AppShell";
 
 export const Route = createFileRoute("/_authenticated")({
@@ -9,25 +10,21 @@ export const Route = createFileRoute("/_authenticated")({
 
 function AuthenticatedLayout() {
   const navigate = useNavigate();
-  const [ready, setReady] = useState(false);
+  const queryClient = useQueryClient();
+  const session = authClient.useSession();
+  const previousUserId = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
-    let active = true;
-    void supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      if (!data.session) void navigate({ to: "/auth" });
-      else setReady(true);
-    });
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (!session) void navigate({ to: "/auth" });
-    });
-    return () => {
-      active = false;
-      sub.subscription.unsubscribe();
-    };
-  }, [navigate]);
+    if (session.isPending) return;
+    const userId = session.data?.user.id ?? null;
+    if (previousUserId.current !== userId) {
+      queryClient.clear();
+      previousUserId.current = userId;
+    }
+    if (!userId) void navigate({ to: "/auth", replace: true });
+  }, [navigate, queryClient, session.data?.user.id, session.isPending]);
 
-  if (!ready) {
+  if (session.isPending || !session.data?.user) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">载入中…</div>
     );

@@ -1,2 +1,0 @@
-ALTER TABLE public.attempts ADD COLUMN IF NOT EXISTS skipped BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE public.user_settings ADD COLUMN IF NOT EXISTS strict_spelling BOOLEAN NOT NULL DEFAULT false;

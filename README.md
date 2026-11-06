@@ -81,10 +81,12 @@ AI 的定位是了解用户当前学习状态的英语学习助手，因此它�
 Use Node.js 22.12 or newer with Bun:
 
 ```sh
+copy .env.example .env
 bun install --frozen-lockfile
+bun run db:setup
 bun run dev
 ```
 
 ## Self-hosted Node deployment
 
-The production build uses Nitro's Node server preset. See [self-hosted Node deployment](docs/deployment/self-hosted-node.md) for build-time public Supabase configuration, runtime secrets, Auth setup, and the server handoff checklist.
+The production build uses Nitro's Node server preset with Better Auth, Drizzle ORM, and PostgreSQL. See [self-hosted Node deployment](docs/deployment/self-hosted-node.md) for Docker Compose, OAuth configuration, database initialization, and operations.

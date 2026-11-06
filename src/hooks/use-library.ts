@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { supabase } from "@/integrations/supabase/client";
+import { authClient } from "@/integrations/auth/client";
 import { WORD_BOOKS, getBook, isBundledBook, type WordBook } from "@/data/words";
 import { getBookEntries, getBundledBookEntries, listLibrary } from "@/lib/library.functions";
 
@@ -17,11 +17,13 @@ export type BookSummary = {
 /** Bundled official books and demos, database official books, and custom books. */
 export function useLibrary() {
   const fetchLib = useServerFn(listLibrary);
-  const q = useQuery({ queryKey: ["library"], queryFn: async () => {
-    const { data } = await supabase.auth.getSession();
-    if (!data.session) return { official: [], custom: [] } as unknown as Awaited<ReturnType<typeof fetchLib>>;
-    return fetchLib();
-  } });
+  const session = authClient.useSession();
+  const userId = session.data?.user.id ?? null;
+  const q = useQuery({
+    queryKey: ["library", userId],
+    queryFn: () => userId ? fetchLib() : Promise.resolve({ official: [], custom: [] } as Awaited<ReturnType<typeof fetchLib>>),
+    enabled: !session.isPending,
+  });
   const books = useMemo(() => {
     const demo: BookSummary[] = WORD_BOOKS.map((b) => ({
       id: b.id,
@@ -43,25 +45,25 @@ export function useLibrary() {
     const custom = (q.data?.custom ?? []).map(map);
     return { official, custom, all: [...official, ...custom] };
   }, [q.data]);
-  return { ...books, isLoading: q.isLoading, refetch: q.refetch };
+  return { ...books, isLoading: q.isLoading || session.isPending, refetch: q.refetch, userId };
 }
 
 /** 取一本词书的完整词条；演示词书直接读本地，其余从数据库加载 */
 export function useBook(bookId: string | null | undefined) {
   const fetchEntries = useServerFn(getBookEntries);
   const fetchBundledEntries = useServerFn(getBundledBookEntries);
-  const { all } = useLibrary();
+  const { all, userId } = useLibrary();
   const bundled = !!bookId && isBundledBook(bookId);
   const q = useQuery({
-    queryKey: ["book-entries", bookId],
+    queryKey: ["book-entries", userId, bookId],
     queryFn: () => fetchEntries({ data: { bookId: bookId! } }),
-    enabled: !!bookId && !bundled,
+    enabled: !!userId && !!bookId && !bundled,
     staleTime: 5 * 60_000,
   });
   const bundledQuery = useQuery({
-    queryKey: ["bundled-book-entries", bookId],
+    queryKey: ["bundled-book-entries", userId, bookId],
     queryFn: () => fetchBundledEntries({ data: { bookId: bookId! } }),
-    enabled: !!bookId && bundled,
+    enabled: !!userId && !!bookId && bundled,
     staleTime: 5 * 60_000,
   });
   const book: WordBook | undefined = useMemo(() => {

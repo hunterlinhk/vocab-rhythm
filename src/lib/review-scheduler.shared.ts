@@ -1,4 +1,4 @@
-import type { Json } from "@/integrations/supabase/types";
+import type { Json } from "@/lib/json";
 import { reviewScopeIncludesBook, type ReviewScopeKey } from "./review-scope.shared";
 
 export type ReviewMode = "recognition" | "spelling";

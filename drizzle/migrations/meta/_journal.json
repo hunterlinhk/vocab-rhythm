@@ -5,141 +5,15 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1790091809743,
-      "tag": "0000_create_learning_schema",
+      "when": 1793973495305,
+      "tag": "0000_cadence_initial",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "7",
-      "when": 1790138522105,
-      "tag": "0001_create_learning_state",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1790147287779,
-      "tag": "0002_create_word_mastery",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1790157899837,
-      "tag": "0003_add_skip_and_strict_spelling",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1790209180776,
-      "tag": "0004_word_library_and_mastery_per_book",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1790210000000,
-      "tag": "0005_add_word_entry_part_of_speech",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1790290000000,
-      "tag": "0006_shared_lexicon",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1790370000000,
-      "tag": "0007_seed_oewn_2025_pilot",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1790445145377,
-      "tag": "0008_apply_pending_marker",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1790501060118,
-      "tag": "0009_book_progress_modes_and_sessions",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1790557756797,
-      "tag": "0010_apply_pending_0009_marker",
-      "breakpoints": true
-    },
-    {
-      "idx": 11,
-      "version": "7",
-      "when": 1790575662388,
-      "tag": "0011_review_system_v1_foundation",
-      "breakpoints": true
-    },
-    {
-      "idx": 12,
-      "version": "7",
-      "when": 1790654871837,
-      "tag": "0012_apply_pending_0011_marker",
-      "breakpoints": true
-    },
-    {
-      "idx": 13,
-      "version": "7",
-      "when": 1790660328477,
-      "tag": "0013_review_source_provenance",
-      "breakpoints": true
-    },
-    {
-      "idx": 14,
-      "version": "7",
-      "when": 1790675901270,
-      "tag": "0014_apply_pending_0013_marker",
-      "breakpoints": true
-    },
-    {
-      "idx": 15,
-      "version": "7",
-      "when": 1790729462000,
-      "tag": "0015_review_scope_settings",
-      "breakpoints": true
-    },
-    {
-      "idx": 16,
-      "version": "7",
-      "when": 1790734176100,
-      "tag": "0016_apply_pending_0015_marker",
-      "breakpoints": true
-    },
-    {
-      "idx": 17,
-      "version": "7",
-      "when": 1791700000000,
-      "tag": "0017_learning_stats_rpc",
-      "breakpoints": true
-    },
-    {
-      "idx": 18,
-      "version": "7",
-      "when": 1793954967078,
-      "tag": "0018_lexicon_editorial_content",
-      "breakpoints": true
-    },
-    {
-      "idx": 19,
-      "version": "7",
-      "when": 1793954967079,
-      "tag": "0019_apply_pending_0018_marker",
+      "when": 1793975307613,
+      "tag": "0001_short_review_decision_fk",
       "breakpoints": true
     }
   ]

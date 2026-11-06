@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAuth } from "@/integrations/auth/auth-middleware";
 import { z } from "zod";
+import type { Json } from "@/lib/json";
 import { entryKey } from "@/lib/entry-identity";
 import {
   captureFirstSpellingReviewChoice,
@@ -17,6 +18,7 @@ import {
 import {
   buildLearningProblems,
   buildLearningState,
+  buildLearningStats,
   createBookLearnedCounter,
   firstLearnedForAttempt,
   isValidIanaTimeZone,
@@ -36,6 +38,25 @@ import {
 } from "@/lib/learning-session.shared";
 
 export type { LearningProblems, LearningState, LearningStats };
+
+type DueReviewRow = {
+  word: string;
+  word_key: string;
+  review_mode: "recognition" | "spelling";
+  scope_key: string;
+  source_book_id: string | null;
+  last_reviewed_at: string | null;
+  next_due_at: string | null;
+  interval_seconds: number | null;
+  consecutive_correct: number;
+  total_wrong: number;
+  hint_count: number;
+  difficulty: string | null;
+  scheduler_data: Json;
+  last_attempt_id: string | null;
+  revision: number;
+  updated_at: string;
+};
 
 const AttemptInput = z
   .object({
@@ -89,7 +110,7 @@ const AttemptInput = z
   });
 
 export const recordAttempt = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => AttemptInput.parse(input))
   .handler(async ({ data, context }) => {
     const attemptId = data.attemptId ?? globalThis.crypto.randomUUID();
@@ -115,16 +136,16 @@ export const recordAttempt = createServerFn({ method: "POST" })
       session_stage: data.sessionStage ?? (data.mode === "word" ? "word_spelling" : null),
       time_zone: data.timeZone,
     };
-    const { data: inserted, error } = await context.supabase
-      .from("attempts")
+    const { data: inserted, error } = await context.db
+      .table("attempts")
       .upsert(attempt, { onConflict: "id", ignoreDuplicates: true })
       .select("id, mode, book_id, word, translation, correct, typo_count, duration_ms, is_review, skipped, review_mode, counted_for_review, hint_count, review_session_id, session_stage, time_zone")
       .maybeSingle();
     if (error) throw new Error(error.message);
     let saved = inserted;
     if (!saved) {
-      const { data: existing, error: existingError } = await context.supabase
-        .from("attempts")
+      const { data: existing, error: existingError } = await context.db
+        .table("attempts")
         .select("id, mode, book_id, word, translation, correct, typo_count, duration_ms, is_review, skipped, review_mode, counted_for_review, hint_count, review_session_id, session_stage, time_zone")
         .eq("id", attemptId)
         .eq("user_id", context.userId)
@@ -153,7 +174,7 @@ export const recordAttempt = createServerFn({ method: "POST" })
       throw new Error("Attempt id is already associated with different learning data");
     if (saved?.review_mode && saved.review_session_id && !data.skipped &&
       (saved.mode !== "memorize" || saved.session_stage === "recall"))
-      await finalizeReviewSession(context.supabase, {
+      await finalizeReviewSession(context.db, {
         userId: context.userId,
         bookId: saved.book_id,
         word: saved.word,
@@ -161,8 +182,8 @@ export const recordAttempt = createServerFn({ method: "POST" })
       }, saved.review_session_id);
     if (saved.mode !== "word" || saved.skipped)
       return { ok: true, firstLearned: false, reusedAttempt: !inserted };
-    const { data: earliestAttempt, error: learnedError } = await context.supabase
-      .from("attempts")
+    const { data: earliestAttempt, error: learnedError } = await context.db
+      .table("attempts")
       .select("id")
       .eq("user_id", context.userId)
       .eq("book_id", saved.book_id)
@@ -180,13 +201,13 @@ export const recordAttempt = createServerFn({ method: "POST" })
   });
 
 export const markAttemptMistouch = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) =>
     z.object({ word: z.string(), bookId: z.string(), attemptId: z.string().uuid() }).parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { data: row, error: lookupError } = await context.supabase
-      .from("attempts")
+    const { data: row, error: lookupError } = await context.db
+      .table("attempts")
       .select("id, book_id, word, mode, session_stage, skipped, typo_count, mistouch, review_mode, review_session_id")
       .eq("user_id", context.userId)
       .eq("id", data.attemptId)
@@ -202,7 +223,7 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
       throw new Error("Attempt id is associated with a different learning entry");
     const rebuildReview = async (reviewMode: string | null, reviewSessionId: string | null) => {
       if (reviewMode && reviewSessionId)
-        await finalizeReviewSession(context.supabase, {
+        await finalizeReviewSession(context.db, {
           userId: context.userId,
           bookId: data.bookId,
           word: data.word,
@@ -213,8 +234,8 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
       await rebuildReview(row.review_mode, row.review_session_id);
       return { ok: true };
     }
-    const { data: updated, error } = await context.supabase
-      .from("attempts")
+    const { data: updated, error } = await context.db
+      .table("attempts")
       .update({ mistouch: true })
       .eq("id", row.id)
       .eq("user_id", context.userId)
@@ -229,8 +250,8 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!updated) {
-      const { data: latest, error: latestError } = await context.supabase
-        .from("attempts")
+      const { data: latest, error: latestError } = await context.db
+        .table("attempts")
         .select("mistouch")
         .eq("id", row.id)
         .eq("user_id", context.userId)
@@ -253,13 +274,13 @@ export const markAttemptMistouch = createServerFn({ method: "POST" })
   });
 
 export const getBookLearnedCounts = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }): Promise<Record<string, number>> => {
     const counter = createBookLearnedCounter();
     let afterId: string | null = null;
     for (;;) {
-      let query = context.supabase
-        .from("attempts")
+      let query = context.db
+        .table("attempts")
         .select("id, book_id, word, skipped")
         .eq("user_id", context.userId)
         .eq("skipped", false)
@@ -318,19 +339,19 @@ function createMemorizeSession(data: z.infer<typeof StartMemorizeInput>): Memori
 }
 
 export const startMemorizeSession = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => StartMemorizeInput.parse(input))
   .handler(async ({ data, context }) => {
     const [progressRes, wordProgressRes] = await Promise.all([
-      context.supabase
-        .from("book_progress")
+      context.db
+        .table("book_progress")
         .select("book_id, cursor_index, mode, revision, session_state")
         .eq("user_id", context.userId)
         .eq("book_id", data.bookId)
         .eq("mode", "memorize")
         .maybeSingle(),
-      context.supabase
-        .from("book_progress")
+      context.db
+        .table("book_progress")
         .select("cursor_index")
         .eq("user_id", context.userId)
         .eq("book_id", data.bookId)
@@ -383,11 +404,11 @@ export const startMemorizeSession = createServerFn({ method: "POST" })
     };
 
     if (!current) {
-      const { error } = await context.supabase.from("book_progress").insert(row);
+      const { error } = await context.db.table("book_progress").insert(row);
       if (error) {
         if (error.code !== "23505") throw new Error(error.message);
-        const { data: winner, error: winnerError } = await context.supabase
-          .from("book_progress")
+        const { data: winner, error: winnerError } = await context.db
+          .table("book_progress")
           .select("cursor_index, revision, session_state")
           .eq("user_id", context.userId)
           .eq("book_id", data.bookId)
@@ -404,8 +425,8 @@ export const startMemorizeSession = createServerFn({ method: "POST" })
       return { session, revision: row.revision, cursorIndex, accepted: true };
     }
 
-    const { data: updated, error } = await context.supabase
-      .from("book_progress")
+    const { data: updated, error } = await context.db
+      .table("book_progress")
       .update({
         cursor_index: cursorIndex,
         session_state: session,
@@ -420,8 +441,8 @@ export const startMemorizeSession = createServerFn({ method: "POST" })
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!updated) {
-      const { data: latest, error: latestError } = await context.supabase
-        .from("book_progress")
+      const { data: latest, error: latestError } = await context.db
+        .table("book_progress")
         .select("cursor_index, revision, session_state")
         .eq("user_id", context.userId)
         .eq("book_id", data.bookId)
@@ -469,11 +490,11 @@ const StageInput = z.object({
 
 /** records one reinforcement round of the 背单词 flow (context → recall → spell) */
 export const recordMemorizeStage = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => StageInput.parse(input))
   .handler(async ({ data, context }) => {
-    const { data: progress, error: progressError } = await context.supabase
-      .from("book_progress")
+    const { data: progress, error: progressError } = await context.db
+      .table("book_progress")
       .select("cursor_index, revision, session_state")
       .eq("user_id", context.userId)
       .eq("book_id", data.bookId)
@@ -484,8 +505,8 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
     const session = parseMemorizeSession(progress.session_state);
     if (!session) throw new Error("Memorize session data is invalid; reload the page");
 
-    const { data: priorAttempt, error: priorError } = await context.supabase
-      .from("attempts")
+    const { data: priorAttempt, error: priorError } = await context.db
+      .table("attempts")
       .select(
         "id, book_id, word, mode, correct, typo_count, duration_ms, review_mode, counted_for_review, hint_count, created_at, review_session_id, session_stage, time_zone",
       )
@@ -536,7 +557,7 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
 
     let effectiveAttempt = priorAttempt;
     if (!effectiveAttempt) {
-      const { error } = await context.supabase.from("attempts").insert({
+      const { error } = await context.db.table("attempts").insert({
         id: data.attemptId,
         user_id: context.userId,
         mode: "memorize",
@@ -556,8 +577,8 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
         time_zone: data.timeZone,
       });
       if (error && error.code !== "23505") throw new Error(error.message);
-      const { data: stored, error: storedError } = await context.supabase
-        .from("attempts")
+      const { data: stored, error: storedError } = await context.db
+        .table("attempts")
         .select(
           "id, book_id, word, mode, correct, typo_count, duration_ms, review_mode, counted_for_review, hint_count, created_at, review_session_id, session_stage, time_zone",
         )
@@ -571,15 +592,15 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
     }
 
     if (data.stage === "recall" && effectiveAttempt.review_mode === "recognition")
-      await finalizeReviewSession(context.supabase, {
+      await finalizeReviewSession(context.db, {
         userId: context.userId,
         bookId: data.bookId,
         word: data.word,
         reviewMode: "recognition",
       }, data.sessionId);
 
-    const { data: existing, error: existingError } = await context.supabase
-      .from("word_mastery")
+    const { data: existing, error: existingError } = await context.db
+      .table("word_mastery")
       .select("context_ok, recall_ok, spell_ok")
       .eq("user_id", context.userId)
       .eq("book_id", data.bookId)
@@ -599,7 +620,7 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
     }
     const rounds = Number(flags.context_ok) + Number(flags.recall_ok) + Number(flags.spell_ok);
 
-    const { error: masteryError } = await context.supabase.from("word_mastery").upsert(
+    const { error: masteryError } = await context.db.table("word_mastery").upsert(
       {
         user_id: context.userId,
         word: data.word,
@@ -620,8 +641,8 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
       spellingEnabled: data.spellingEnabled,
     });
     const nextRevision = progress.revision + 1;
-    const { data: updated, error: updateError } = await context.supabase
-      .from("book_progress")
+    const { data: updated, error: updateError } = await context.db
+      .table("book_progress")
       .update({
         cursor_index:
           advanced.session.status === "completed" ? advanced.cursorIndex : progress.cursor_index,
@@ -637,8 +658,8 @@ export const recordMemorizeStage = createServerFn({ method: "POST" })
       .maybeSingle();
     if (updateError) throw new Error(updateError.message);
     if (!updated) {
-      const { data: latest, error: latestError } = await context.supabase
-        .from("book_progress")
+      const { data: latest, error: latestError } = await context.db
+        .table("book_progress")
         .select("cursor_index, revision, session_state")
         .eq("user_id", context.userId)
         .eq("book_id", data.bookId)
@@ -685,11 +706,11 @@ function sentenceProgressResult(
 }
 
 export const startSentenceCheckpoint = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => StartSentenceInput.parse(input))
   .handler(async ({ data, context }) => {
-    const { data: current, error } = await context.supabase
-      .from("book_progress")
+    const { data: current, error } = await context.db
+      .table("book_progress")
       .select("cursor_index, revision, session_state")
       .eq("user_id", context.userId)
       .eq("book_id", data.bookId)
@@ -722,7 +743,7 @@ export const startSentenceCheckpoint = createServerFn({ method: "POST" })
     };
     const nextRevision = revision + (current ? 1 : 0);
     if (!current) {
-      const { error: insertError } = await context.supabase.from("book_progress").insert({
+      const { error: insertError } = await context.db.table("book_progress").insert({
         user_id: context.userId,
         book_id: data.bookId,
         mode: "sentence",
@@ -733,8 +754,8 @@ export const startSentenceCheckpoint = createServerFn({ method: "POST" })
       });
       if (insertError) {
         if (insertError.code !== "23505") throw new Error(insertError.message);
-        const { data: winner, error: winnerError } = await context.supabase
-          .from("book_progress")
+        const { data: winner, error: winnerError } = await context.db
+          .table("book_progress")
           .select("cursor_index, revision, session_state")
           .eq("user_id", context.userId)
           .eq("book_id", data.bookId)
@@ -750,8 +771,8 @@ export const startSentenceCheckpoint = createServerFn({ method: "POST" })
     }
 
     if (revision !== data.expectedRevision) return sentenceProgressResult(current, false);
-    const { data: updated, error: updateError } = await context.supabase
-      .from("book_progress")
+    const { data: updated, error: updateError } = await context.db
+      .table("book_progress")
       .update({
         cursor_index: cursorIndex,
         session_state: nextCheckpoint,
@@ -766,8 +787,8 @@ export const startSentenceCheckpoint = createServerFn({ method: "POST" })
       .maybeSingle();
     if (updateError) throw new Error(updateError.message);
     if (updated) return sentenceProgressResult(updated, true);
-    const { data: latest, error: latestError } = await context.supabase
-      .from("book_progress")
+    const { data: latest, error: latestError } = await context.db
+      .table("book_progress")
       .select("cursor_index, revision, session_state")
       .eq("user_id", context.userId)
       .eq("book_id", data.bookId)
@@ -793,11 +814,11 @@ const CompleteSentenceInput = z.object({
 });
 
 export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => CompleteSentenceInput.parse(input))
   .handler(async ({ data, context }) => {
-    const { data: progress, error: progressError } = await context.supabase
-      .from("book_progress")
+    const { data: progress, error: progressError } = await context.db
+      .table("book_progress")
       .select("cursor_index, revision, session_state")
       .eq("user_id", context.userId)
       .eq("book_id", data.bookId)
@@ -806,8 +827,8 @@ export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
     if (progressError) throw new Error(progressError.message);
     if (!progress) throw new Error("Sentence checkpoint is missing; reload the page");
     const currentCheckpoint = parseSentenceCheckpoint(progress.session_state);
-    const { data: existingAttempt, error: attemptLookupError } = await context.supabase
-      .from("attempts")
+    const { data: existingAttempt, error: attemptLookupError } = await context.db
+      .table("attempts")
       .select("id, book_id, word, mode, correct, mistouch, typo_count, duration_ms, skipped")
       .eq("id", data.attemptId)
       .eq("user_id", context.userId)
@@ -839,7 +860,7 @@ export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
 
     let storedAttempt = existingAttempt;
     if (!storedAttempt) {
-      const { error: insertError } = await context.supabase.from("attempts").insert({
+      const { error: insertError } = await context.db.table("attempts").insert({
         id: data.attemptId,
         user_id: context.userId,
         mode: "sentence",
@@ -857,8 +878,8 @@ export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
         hint_count: 0,
       });
       if (insertError && insertError.code !== "23505") throw new Error(insertError.message);
-      const { data: stored, error: storedError } = await context.supabase
-        .from("attempts")
+      const { data: stored, error: storedError } = await context.db
+        .table("attempts")
         .select("id, book_id, word, mode, correct, mistouch, typo_count, duration_ms, skipped")
         .eq("id", data.attemptId)
         .eq("user_id", context.userId)
@@ -875,8 +896,8 @@ export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
       activeWord: data.nextWord,
       queueLength: data.queueLength,
     };
-    const { data: updated, error: updateError } = await context.supabase
-      .from("book_progress")
+    const { data: updated, error: updateError } = await context.db
+      .table("book_progress")
       .update({
         cursor_index: nextCursor,
         session_state: nextCheckpoint,
@@ -891,8 +912,8 @@ export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
       .maybeSingle();
     if (updateError) throw new Error(updateError.message);
     if (updated) return { ...sentenceProgressResult(updated, true), attempt: storedAttempt };
-    const { data: latest, error: latestError } = await context.supabase
-      .from("book_progress")
+    const { data: latest, error: latestError } = await context.db
+      .table("book_progress")
       .select("cursor_index, revision, session_state")
       .eq("user_id", context.userId)
       .eq("book_id", data.bookId)
@@ -903,27 +924,27 @@ export const completeSentenceCheckpoint = createServerFn({ method: "POST" })
   });
 
 export const getLearningState = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }): Promise<LearningState> => {
     const [settingsRes, progressRes, masteryRes, bookReviewSettingsRes] = await Promise.all([
-      context.supabase
-        .from("user_settings")
+      context.db
+        .table("user_settings")
         .select(
           "daily_goal, active_book, memorize_spelling, strict_spelling, include_spelling_in_review, share_review_progress",
         )
         .eq("user_id", context.userId)
         .maybeSingle(),
-      context.supabase
-        .from("book_progress")
+      context.db
+        .table("book_progress")
         .select("book_id, mode, cursor_index, revision, session_state")
         .eq("user_id", context.userId),
-      context.supabase
-        .from("word_mastery")
+      context.db
+        .table("word_mastery")
         .select("word, book_id")
         .eq("user_id", context.userId)
         .gte("rounds", 3),
-      context.supabase
-        .from("user_book_review_settings")
+      context.db
+        .table("user_book_review_settings")
         .select("book_id, include_in_review")
         .eq("user_id", context.userId),
     ]);
@@ -935,19 +956,26 @@ export const getLearningState = createServerFn({ method: "GET" })
       bookReviewSettingsRes.error,
     ].flatMap((error) => (error ? [error.message] : []));
     if (errors.length) throw new Error(errors.join("; "));
+    const progress = (progressRes.data ?? []) as Array<{
+      book_id: string;
+      mode: LearningMode;
+      cursor_index: number;
+      revision: number;
+      session_state: unknown;
+    }>;
     return buildLearningState({
       settings: settingsRes.data,
-      progress: (progressRes.data ?? []).map((row) => ({ ...row, mode: row.mode as LearningMode })),
+      progress: progress.map((row) => ({ ...row, mode: row.mode as LearningMode })),
       mastery: masteryRes.data ?? [],
       bookReviewSettings: bookReviewSettingsRes.data ?? [],
     });
   });
 
 export const getLearningProblems = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }): Promise<LearningProblems> => {
-    const { data: settings, error: settingsError } = await context.supabase
-      .from("user_settings")
+    const { data: settings, error: settingsError } = await context.db
+      .table("user_settings")
       .select("share_review_progress")
       .eq("user_id", context.userId)
       .maybeSingle();
@@ -955,8 +983,8 @@ export const getLearningProblems = createServerFn({ method: "GET" })
 
     const errors: LearningAttemptRow[] = [];
     for (let offset = 0; ; offset += 1000) {
-      const { data, error } = await context.supabase
-        .from("attempts")
+      const { data, error } = await context.db
+        .table("attempts")
         .select("id, word, book_id, translation, typo_count, mistouch, correct, skipped, created_at")
         .eq("user_id", context.userId)
         .eq("skipped", false)
@@ -973,7 +1001,7 @@ export const getLearningProblems = createServerFn({ method: "GET" })
   });
 
 export const getDueReviewItems = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) =>
     z
       .object({
@@ -983,14 +1011,14 @@ export const getDueReviewItems = createServerFn({ method: "GET" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { data: settings, error: settingsError } = await context.supabase
-      .from("user_settings")
+    const { data: settings, error: settingsError } = await context.db
+      .table("user_settings")
       .select("share_review_progress")
       .eq("user_id", context.userId)
       .maybeSingle();
     if (settingsError) throw new Error(settingsError.message);
-    let query = context.supabase
-      .from("review_states")
+    let query = context.db
+      .table("review_states")
       .select(
         "word, word_key, review_mode, scope_key, source_book_id, last_reviewed_at, next_due_at, interval_seconds, consecutive_correct, total_wrong, hint_count, difficulty, scheduler_data, last_attempt_id, revision, updated_at",
       )
@@ -1005,7 +1033,7 @@ export const getDueReviewItems = createServerFn({ method: "GET" })
       .limit(data.limit ?? 100);
     if (error) throw new Error(error.message);
     // The source is provenance, not part of Review identity. It may name a bundled or deleted book.
-    return (dueItems ?? []).map((item) => ({
+    return ((dueItems ?? []) as DueReviewRow[]).map((item) => ({
       ...item,
       bookId: item.source_book_id ??
         (item.scope_key.startsWith("book:") ? item.scope_key.slice(5) : null) ?? "review:unattributed",
@@ -1013,16 +1041,16 @@ export const getDueReviewItems = createServerFn({ method: "GET" })
   });
 
 export const getDueReviewCount = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }) => {
-    const { data: settings, error: settingsError } = await context.supabase
-      .from("user_settings")
+    const { data: settings, error: settingsError } = await context.db
+      .table("user_settings")
       .select("share_review_progress")
       .eq("user_id", context.userId)
       .maybeSingle();
     if (settingsError) throw new Error(settingsError.message);
-    let query = context.supabase
-      .from("review_states")
+    let query = context.db
+      .table("review_states")
       .select("word_key", { count: "exact", head: true })
       .eq("user_id", context.userId)
       .lte("next_due_at", new Date().toISOString());
@@ -1035,7 +1063,7 @@ export const getDueReviewCount = createServerFn({ method: "GET" })
   });
 
 export const saveSettings = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) =>
     z
       .object({
@@ -1072,8 +1100,8 @@ export const saveSettings = createServerFn({ method: "POST" })
     let shouldRebuildPendingSpelling = false;
     let shouldRebuildAllReviewScopes = false;
     if (data.includeSpellingInReview !== undefined) {
-      const { data: previousSettings, error: previousError } = await context.supabase
-        .from("user_settings")
+      const { data: previousSettings, error: previousError } = await context.db
+        .table("user_settings")
         .select("include_spelling_in_review_first_choice")
         .eq("user_id", context.userId)
         .maybeSingle();
@@ -1090,24 +1118,24 @@ export const saveSettings = createServerFn({ method: "POST" })
       patch.share_review_progress = data.shareReviewProgress;
       shouldRebuildAllReviewScopes = true;
     }
-    const { error } = await context.supabase
-      .from("user_settings")
+    const { error } = await context.db
+      .table("user_settings")
       .upsert(patch, { onConflict: "user_id" });
     if (error) throw new Error(error.message);
     if (shouldRebuildPendingSpelling)
-      await rebuildPendingSpellingStates(context.supabase, context.userId);
+      await rebuildPendingSpellingStates(context.db, context.userId);
     if (shouldRebuildAllReviewScopes)
-      await rebuildReviewProjectionsForUser(context.supabase, context.userId);
+      await rebuildReviewProjectionsForUser(context.db, context.userId);
     return { ok: true };
   });
 
 export const saveBookReviewSetting = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) =>
     z.object({ bookId: z.string().trim().min(1), includeInReview: z.boolean() }).parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.from("user_book_review_settings").upsert(
+    const { error } = await context.db.table("user_book_review_settings").upsert(
       {
         user_id: context.userId,
         book_id: data.bookId,
@@ -1117,12 +1145,12 @@ export const saveBookReviewSetting = createServerFn({ method: "POST" })
       { onConflict: "user_id,book_id" },
     );
     if (error) throw new Error(error.message);
-    await rebuildReviewProjectionsForBook(context.supabase, context.userId, data.bookId);
+    await rebuildReviewProjectionsForBook(context.db, context.userId, data.bookId);
     return { ok: true };
   });
 
 export const saveBookCursor = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) =>
     z
       .object({
@@ -1133,7 +1161,7 @@ export const saveBookCursor = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase.from("book_progress").upsert(
+    const { error } = await context.db.table("book_progress").upsert(
       {
         user_id: context.userId,
         book_id: data.bookId,
@@ -1148,43 +1176,57 @@ export const saveBookCursor = createServerFn({ method: "POST" })
   });
 
 export const getStats = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => z.object({ timeZone: z.string().min(1).max(100).refine(isValidIanaTimeZone) }).parse(input))
   .handler(async ({ data, context }): Promise<LearningStats> => {
-    const result = await context.supabase.rpc("get_learning_stats_v1", { p_time_zone: data.timeZone });
-    if (result.error) throw new Error(result.error.message);
-    if (!result.data) throw new Error("Learning stats unavailable");
-    return result.data as unknown as LearningStats;
+    const { data: settings, error: settingsError } = await context.db
+      .table("user_settings")
+      .select("share_review_progress")
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (settingsError) throw new Error(settingsError.message);
+    const rows: LearningAttemptRow[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data: page, error } = await context.db
+        .table("attempts")
+        .select("id, word, book_id, translation, typo_count, mistouch, correct, skipped, created_at, mode")
+        .eq("user_id", context.userId)
+        .eq("skipped", false)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(offset, offset + 999);
+      if (error) throw new Error(error.message);
+      rows.push(...((page ?? []) as LearningAttemptRow[]));
+      if (!page || page.length < 1000) break;
+    }
+    return buildLearningStats(rows, data.timeZone, new Date(), settings?.share_review_progress ?? true);
   });
 
 export const getTodayPracticeCount = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) => z.object({ timeZone: z.string().min(1).max(100).refine(isValidIanaTimeZone) }).parse(input))
   .handler(async ({ data, context }): Promise<number> => {
-    const result = await context.supabase.rpc("get_today_practice_count_v1", { p_time_zone: data.timeZone });
-    if (result.error) throw new Error(result.error.message);
-    if (result.data === null) throw new Error("Today's practice count unavailable");
-    return result.data;
+    return context.db.todayPracticeCount(data.timeZone);
   });
 
 export const getMessages = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { data, error } = await context.supabase
-      .from("assistant_messages")
+  .middleware([requireAuth])
+  .handler(async ({ context }): Promise<{ id: string; role: string; content: string; created_at: string }[]> => {
+    const { data, error } = await context.db
+      .table("assistant_messages")
       .select("id, role, content, created_at")
       .eq("user_id", context.userId)
       .order("created_at", { ascending: true })
       .limit(200);
     if (error) throw new Error(error.message);
-    return data ?? [];
+    return (data ?? []) as { id: string; role: string; content: string; created_at: string }[];
   });
 
 export const clearMessages = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }) => {
-    const { error } = await context.supabase
-      .from("assistant_messages")
+    const { error } = await context.db
+      .table("assistant_messages")
       .delete()
       .eq("user_id", context.userId);
     if (error) throw new Error(error.message);
@@ -1195,7 +1237,7 @@ export const clearMessages = createServerFn({ method: "POST" })
 export const AI_ASSISTANT_ENABLED = false;
 
 export const sendMessage = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input: unknown) =>
     z.object({ content: z.string().min(1).max(2000) }).parse(input),
   )
@@ -1212,27 +1254,37 @@ export const sendMessage = createServerFn({ method: "POST" })
     if (!apiKey || !modelName) throw new Error("AI 服务暂未配置");
 
     const [{ data: history }, { data: rows }, { data: mastery }] = await Promise.all([
-      context.supabase
-        .from("assistant_messages")
+      context.db
+        .table("assistant_messages")
         .select("role, content")
         .eq("user_id", context.userId)
         .order("created_at", { ascending: true })
         .limit(40),
-      context.supabase
-        .from("attempts")
+      context.db
+        .table("attempts")
         .select("id, word, book_id, translation, correct, typo_count, mistouch, mode, skipped, created_at")
         .eq("user_id", context.userId)
         .order("created_at", { ascending: false })
         .limit(200),
-      context.supabase
-        .from("word_mastery")
+      context.db
+        .table("word_mastery")
         .select("word, book_id, translation, rounds, context_ok, recall_ok, spell_ok")
         .eq("user_id", context.userId)
         .order("updated_at", { ascending: false })
         .limit(120),
     ]);
 
-    const allRows = rows ?? [];
+    const historyRows = (history ?? []) as { role: string; content: string }[];
+    const allRows = (rows ?? []) as LearningAttemptRow[];
+    const masteryRows = (mastery ?? []) as Array<{
+      word: string;
+      book_id: string;
+      translation: string | null;
+      rounds: number;
+      context_ok: boolean;
+      recall_ok: boolean;
+      spell_ok: boolean;
+    }>;
     const attempts = allRows.filter((r) => !r.skipped);
     const distinctEntries = (items: { book_id: string; word: string }[]) => [
       ...new Map(
@@ -1251,7 +1303,6 @@ export const sendMessage = createServerFn({ method: "POST" })
       attempts.filter((r) => (r.typo_count > 0 || !r.correct) && !r.mistouch),
     ).slice(0, 20);
     const learned = distinctEntries(attempts).slice(0, 60);
-    const masteryRows = mastery ?? [];
     const mastered = masteryRows
       .filter((m) => m.rounds >= 3)
       .map((m) => `${m.book_id} / ${m.word}`);
@@ -1282,8 +1333,8 @@ export const sendMessage = createServerFn({ method: "POST" })
       "回答中可以据此判断哪些词已被真正巩固、哪些还需要再练。",
     ].join("\n");
 
-    await context.supabase
-      .from("assistant_messages")
+    await context.db
+      .table("assistant_messages")
       .insert({ user_id: context.userId, role: "user", content: data.content });
 
     const { streamText } = await import("ai");
@@ -1297,7 +1348,7 @@ export const sendMessage = createServerFn({ method: "POST" })
       model: openai.responses(modelName),
       system,
       messages: [
-        ...(history ?? []).map((m) => ({
+        ...historyRows.map((m) => ({
           role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
           content: m.content,
         })),
@@ -1307,8 +1358,8 @@ export const sendMessage = createServerFn({ method: "POST" })
 
     const text = (await result.text) || "（这次没有生成内容，请再试一次）";
 
-    await context.supabase
-      .from("assistant_messages")
+    await context.db
+      .table("assistant_messages")
       .insert({ user_id: context.userId, role: "assistant", content: text });
 
     return { reply: text };

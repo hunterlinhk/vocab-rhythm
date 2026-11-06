@@ -1,9 +1,10 @@
 import { normalizeEntries, type EntryInputT } from "./library.shared";
 import type { WordEntry } from "@/data/words";
+import { getDatabase } from "@/server/db";
+import type { UserStore } from "@/server/user-store";
+import { wordBooks, wordEntries } from "../../drizzle/schema";
 
-type Client = {
-  from: (t: string) => any; // eslint-disable-line @typescript-eslint/no-explicit-any
-};
+type Client = UserStore;
 
 const CHUNK = 500;
 
@@ -11,7 +12,7 @@ const CHUNK = 500;
 export async function insertEntries(client: Client, bookId: string, entries: (EntryInputT | WordEntry)[]) {
   const rows = normalizeEntries(entries).map((e) => ({ ...e, book_id: bookId }));
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const { error } = await client.from("word_entries").insert(rows.slice(i, i + CHUNK));
+    const { error } = await client.table("word_entries").insert(rows.slice(i, i + CHUNK));
     if (error) throw new Error(error.message);
   }
   return rows.length;
@@ -29,24 +30,34 @@ export async function importOfficialBook(input: {
   description?: string | null;
   entries: (EntryInputT | WordEntry)[];
 }) {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { data: book, error } = await supabaseAdmin
-    .from("word_books")
-    .insert({
+  const db = getDatabase();
+  return db.transaction(async (tx) => {
+    const [book] = await tx.insert(wordBooks).values({
       ...(input.id ? { id: input.id } : {}),
       name: input.name,
       description: input.description ?? null,
       source: "official",
-      owner_user_id: null,
-    })
-    .select("id")
-    .single();
-  if (error || !book) throw new Error(error?.message ?? "创建词书失败");
-  try {
-    const count = await insertEntries(supabaseAdmin as unknown as Client, book.id, input.entries);
-    return { bookId: book.id, count };
-  } catch (e) {
-    await supabaseAdmin.from("word_books").delete().eq("id", book.id);
-    throw e;
-  }
+      ownerUserId: null,
+    }).returning({ id: wordBooks.id });
+    if (!book) throw new Error("创建词书失败");
+    const rows = normalizeEntries(input.entries).map((entry) => ({
+      bookId: book.id,
+      position: entry.position,
+      word: entry.word,
+      sourceRank: entry.source_rank,
+      sourceSfi: entry.source_sfi?.toString() ?? null,
+      sourceFrequencyPerMillion: entry.source_frequency_per_million?.toString() ?? null,
+      translation: entry.translation,
+      partOfSpeech: entry.part_of_speech,
+      phonetic: entry.phonetic,
+      sentence: entry.sentence,
+      sentenceTranslation: entry.sentence_translation,
+      subject: entry.subject,
+      verb: entry.verb,
+      object: entry.object,
+    }));
+    for (let start = 0; start < rows.length; start += CHUNK)
+      await tx.insert(wordEntries).values(rows.slice(start, start + CHUNK));
+    return { bookId: book.id, count: rows.length };
+  });
 }

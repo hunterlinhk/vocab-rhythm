@@ -9,7 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { saveSettings } from "@/lib/learning.functions";
 import { useLearningState } from "@/hooks/use-learning-state";
 import { queueLearningStateWrite } from "@/lib/learning-state.runtime";
-import { supabase } from "@/integrations/supabase/client";
+import { authClient } from "@/integrations/auth/client";
 import { SettingInfo } from "@/components/setting-info";
 import { toast } from "sonner";
 
@@ -28,6 +28,7 @@ export const Route = createFileRoute("/_authenticated/profile")({
 function ProfilePage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState("学习者");
+  const session = authClient.useSession();
   const persistSettings = useServerFn(saveSettings);
   const qc = useQueryClient();
   const { data: state } = useLearningState();
@@ -41,7 +42,10 @@ function ProfilePage() {
       setShareReviewProgress(state.shareReviewProgress ?? true);
     }
   }, [state]);
-  useEffect(() => { void supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? "学习者")); }, []);
+  useEffect(() => {
+    const user = session.data?.user;
+    if (user) setEmail(user.email ?? (user.isAnonymous ? "访客学习者" : "学习者"));
+  }, [session.data?.user]);
 
   const toggleStrict = (on: boolean) => {
     setStrict(on);
@@ -87,7 +91,7 @@ function ProfilePage() {
         <Setting title="网页键盘" info="手机拼写时显示页面内置键盘。"><Switch aria-label="网页键盘" checked={vk} onCheckedChange={setVirtualKeyboard}/></Setting>
       </section>
 
-      <Button variant="ghost" onClick={async () => { await supabase.auth.signOut(); void navigate({ to: "/auth", replace: true }); }} className="rounded-full text-muted-foreground"><LogOut /> 退出登录</Button>
+      <Button variant="ghost" onClick={async () => { await authClient.signOut(); void navigate({ to: "/auth", replace: true }); }} className="rounded-full text-muted-foreground"><LogOut /> 退出登录</Button>
     </div>
   );
 }

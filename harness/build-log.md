@@ -1,3 +1,13 @@
+# Cadence self-hosted backend rewrite — implementation complete
+
+- Branch `feat/self-hosted-better-auth-postgres` is based on `feat/oewn-round2-content-integration` at `6467cbed0df8eb9ea3ecd8f142e69f743e1e0e59`.
+- Better Auth, Drizzle, PostgreSQL, TanStack server functions, owner-scoped stores, from-zero migrations, idempotent vocabulary import, Docker Compose, and deployment documentation are implemented. Application source, dependencies, and build no longer use Supabase or Lovable runtime integrations.
+- Dataset import verified on real local PostgreSQL: 2,809 NGSL entries; 19,028 OEWN senses including 26 pilots; 88 Round 2 rows (43 senses and 45 usage notes), all pending and restricted.
+- Validation: `bun run test` 105/105; `bunx tsc --noEmit`; `bun run build`; `bun install --frozen-lockfile`; real PostgreSQL E2E passed. E2E covered idempotent setup, Google OAuth initiation, email sign-up/login, anonymous session and data linking, learning and custom-book isolation, cross-account write rejection, review scheduling, local-day stats, OEWN lookup, and pending editorial visibility.
+- E2E memory: production Node process 93 MiB private; PostgreSQL worker processes summed to 62 MiB private (their 275 MiB summed working set includes shared pages). Deployment baseline is documented in `docs/deployment/self-hosted-node.md`.
+- Next action: run final diff/data checks, commit, and push this branch only. No production data, Alibaba Cloud service, domain, or website was accessed or changed; no merge or cutover occurred.
+- Detailed plan and validation record: `harness/build/self-hosted-backend.md`.
+
 # Cadence Round 2 editorial content integration
 
 - Branch: `feat/oewn-round2-content-integration`, based on `origin/main` at `83edf56cbe45fdd95ad7aab54565c6e921fb8e47`.

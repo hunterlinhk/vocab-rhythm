@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { authClient } from "@/integrations/auth/client";
 
 export const Route = createFileRoute("/")({
   component: EntryRoute,
@@ -8,20 +8,11 @@ export const Route = createFileRoute("/")({
 
 function EntryRoute() {
   const navigate = useNavigate();
+  const session = authClient.useSession();
 
   useEffect(() => {
-    let active = true;
-    void supabase.auth.getSession()
-      .then(({ data }) => {
-        if (active) void navigate({ to: data.session ? "/learn" : "/auth", replace: true });
-      })
-      .catch(() => {
-        if (active) void navigate({ to: "/auth", replace: true });
-      });
-    return () => {
-      active = false;
-    };
-  }, [navigate]);
+    if (!session.isPending) void navigate({ to: session.data?.user ? "/learn" : "/auth", replace: true });
+  }, [navigate, session.data?.user, session.isPending]);
 
   return <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">载入中…</div>;
 }

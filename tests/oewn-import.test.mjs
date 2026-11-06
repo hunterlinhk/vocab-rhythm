@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { after, test } from "node:test";
-import { createServer } from "vite";
+import { createTestViteServer } from "./vite-test-helper.mjs";
 
-const vite = await createServer({ configFile: false, server: { middlewareMode: true } });
+const vite = await createTestViteServer();
 after(() => vite.close());
 
 const { assembleWordEntry } = await vite.ssrLoadModule("/src/lib/lexicon.shared.ts");
@@ -11,9 +11,12 @@ const { getBook } = await vite.ssrLoadModule("/src/data/words.ts");
 const rows = JSON.parse(
   await readFile(new URL("../src/data/oewn-2025-pilot.json", import.meta.url), "utf8"),
 );
-const sql = await readFile(
-  new URL("../drizzle/migrations/0007_seed_oewn_2025_pilot.sql", import.meta.url),
+const initializer = await readFile(
+  new URL("../scripts/db-setup.mjs", import.meta.url),
   "utf8",
+);
+const manifest = JSON.parse(
+  await readFile(new URL("../ops/oewn-2025-ngsl/manifest.json", import.meta.url), "utf8"),
 );
 
 function content(row) {
@@ -68,12 +71,18 @@ test("another book reuses OEWN while its private meaning remains intact", () => 
   assert.equal(result.origins.cn, undefined);
 });
 
-test("migration keeps source version, permissions, copyright notice, and exact sense IDs", () => {
-  assert.match(sql, /Open English WordNet 2025/);
-  assert.match(sql, /CC-BY-4\.0/);
-  assert.match(sql, /WordNet 3\.1 Copyright 2011 by Princeton University/);
-  assert.match(sql, /source_sha256/);
-  assert.match(sql, /source_entry_ref/);
-  for (const row of rows) assert.ok(sql.includes(row.source_entry_ref));
-  assert.doesNotMatch(sql, /INSERT INTO public\.(attempts|word_mastery|word_entries)/);
+test("repeatable initialization imports the full pinned OEWN set and preserves the reviewed pilots", () => {
+  assert.equal(manifest.expected.lexemes, 2742);
+  assert.equal(manifest.expected.senses, 19028);
+  assert.equal(manifest.expected.reviewed, 26);
+  assert.match(initializer, /Open English WordNet 2025/);
+  assert.match(initializer, /CC-BY-4\.0/);
+  assert.match(initializer, /Princeton University under the WordNet License/);
+  assert.match(initializer, /source_sha256/);
+  assert.match(initializer, /source_entry_ref/);
+  assert.match(initializer, /ON CONFLICT \(lexeme_id, source_id, sense_key\)/);
+  assert.match(initializer, /for \(const file of manifest\.files\)/);
+  assert.match(initializer, /src\/data\/oewn-2025-pilot\.json/);
+  assert.equal(new Set(rows.map((row) => row.source_entry_ref)).size, 26);
+  assert.match(initializer, /await importPilot\(manifest\)/);
 });

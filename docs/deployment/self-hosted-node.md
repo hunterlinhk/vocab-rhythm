@@ -1,41 +1,54 @@
 # Self-hosted Node deployment
 
-The app builds with Nitro's `node-server` preset and runs on Node.js 22.12 or newer:
+Cadence runs on Node.js 22.12 or newer with PostgreSQL. Better Auth handles email/password accounts, Google OAuth, anonymous sessions, and cookies. Drizzle is the only application database layer. Caddy can terminate HTTPS and proxy requests to the Node process.
+
+## Local setup
+
+Copy `.env.example` to `.env`, set a PostgreSQL connection string and a random `BETTER_AUTH_SECRET` of at least 32 characters, then run:
 
 ```sh
 bun install --frozen-lockfile
-bun run build
-bun run start
+bun run db:setup
+bun run dev
 ```
 
-The build output is `.output/`. The runtime entry is `.output/server/index.mjs`; `start` runs it with Node. Nitro reads `NITRO_PORT` or `PORT` (default `3000`) and `NITRO_HOST` or `HOST`. The actual port, bind address, TLS termination, health checks, and restart policy must match the Alibaba Cloud service and reverse-proxy configuration.
+`db:setup` applies the Drizzle migrations and idempotently imports NGSL 1.2, the full OEWN dataset, the 26 reviewed pilots, and all 88 Round 2 editorial records. Round 2 rows remain restricted and `pending_review`. Re-running the command verifies source hashes and does not duplicate data. `bun run db:migrate` applies only migrations.
 
-## Supabase configuration
+## Docker Compose
 
-The browser and server can use separate API URLs. Browser values are compiled into the client bundle; they must be present during `bun run build`:
+Set `POSTGRES_PASSWORD` to a URL-safe random value such as the output of `openssl rand -hex 32`. Set `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, and `APP_ORIGIN` in `.env`. For Google sign-in, supply both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`; leave both empty to disable Google locally.
 
-| Variable | Scope | Purpose |
+Initialize a new database and its vocabulary data, then start the Node service:
+
+```sh
+docker compose run --rm app node scripts/db-setup.mjs
+docker compose up -d app
+```
+
+PostgreSQL data is stored in the `cadence-postgres` volume. The app listens on `127.0.0.1:3000`, so a host Caddy service can proxy to it. The Node startup command does not run migrations or import data. Back up the PostgreSQL volume or use `pg_dump` before schema changes.
+
+## Environment
+
+| Variable | Required | Purpose |
 | --- | --- | --- |
-| `VITE_SUPABASE_URL` | Build time, public | Supabase API URL reachable by users' browsers |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` or `VITE_SUPABASE_ANON_KEY` | Build time, public | Supabase publishable/legacy anon key |
-| `SUPABASE_URL` | Node runtime | Supabase API URL reachable by the Node service; may be an internal URL |
-| `SUPABASE_PUBLISHABLE_KEY` or `SUPABASE_ANON_KEY` | Node runtime | Public key used by authenticated server functions |
-| `SUPABASE_SERVICE_ROLE_KEY` | Node runtime, secret | Admin operations that intentionally bypass RLS |
-| `DATABASE_URL` | Migration CLI only, secret | Direct PostgreSQL connection for Drizzle migrations; the app runtime does not use it |
+| `DATABASE_URL` | yes | PostgreSQL connection used by the app and migration/data setup commands |
+| `BETTER_AUTH_SECRET` | yes | Random server secret, at least 32 characters |
+| `BETTER_AUTH_URL` | yes in production | Public canonical app URL used for cookies and OAuth callbacks |
+| `APP_ORIGIN` | yes in production | Trusted browser origin, including scheme and host |
+| `GOOGLE_CLIENT_ID` | optional | Google OAuth client ID; configure the Better Auth callback at `/api/auth/callback/google` |
+| `GOOGLE_CLIENT_SECRET` | optional | Google OAuth client secret; supply it together with the client ID |
+| `HOST` / `PORT` | no | Node bind address and port; default to `0.0.0.0:3000` in the container |
+| `DB_POOL_SIZE` | no | Maximum PostgreSQL connections per Node process; defaults to `5` |
+| `OPENAI_API_KEY` / `OPENAI_MODEL` | no | Optional AI integration; the assistant is disabled by default |
 
-Never use a service-role or secret key in a `VITE_` variable. The browser client uses Supabase Auth's normal browser storage and sends the signed-in user's bearer token to TanStack server functions. Those functions validate the token and query Supabase with the user's key and token, preserving RLS. Admin operations use the service-role key only on the server.
+For Caddy, preserve the original `Host` header and forward `X-Forwarded-For` and `X-Forwarded-Proto`. Set `BETTER_AUTH_URL` and `APP_ORIGIN` to the public HTTPS origin. Google OAuth must use that origin with the callback path above. Do not expose PostgreSQL's port publicly.
 
-## Supabase Auth setup
+## Operations
 
-The self-hosted Auth service must allow the sign-in methods the product uses: email/password, Google OAuth, and anonymous sign-in. Set its site URL to the final app origin and allow the app's `/learn` redirect URI. Configure the Google provider and its callback URL in Supabase Auth. Email confirmation links must also return to the app origin. The application now calls Supabase Auth directly; it no longer uses Lovable's OAuth broker.
+Use `node scripts/db-setup.mjs` once against a fresh database or when applying a reviewed vocabulary-data update. Use `bun run db:migrate` for schema-only changes in a development checkout. Production app startup uses `node .output/server/index.mjs` and never migrates automatically. To roll back an application release, restore the previous image; to reverse a database migration, use a reviewed down migration or restore the PostgreSQL backup. Do not delete imported OEWN, pilot, or pending editorial rows as an application rollback.
 
-The public API URL, internal API URL, key format, migration connection, Auth provider settings, redirect allowlist, email delivery, TLS, and reverse-proxy behavior are not known in this repository. `supabase/config.toml` also contains an existing project identifier that must be checked against the target before using Supabase CLI commands. The infrastructure owner must provide and verify these values. Verify sign-up, email confirmation, Google sign-in, anonymous sign-in, token refresh, and an authenticated server-function request against the migrated instance before release.
+The local end-to-end command `bun run test:self-hosted-postgres` starts an isolated PostgreSQL cluster, initializes it twice, exercises the Node server and owner-scoped learning paths, and reports Node/PostgreSQL memory use. It does not read `.env` or connect to a configured database.
 
-## Optional integrations
+On Windows, run this test under a non-administrator token; PostgreSQL refuses to start under an administrator token. The local verification run passed with a restricted token. It measured the production Node process at about 93 MiB private memory and PostgreSQL at about 62 MiB summed private memory across its worker processes. PostgreSQL's summed working set was about 275 MiB and includes shared pages counted by multiple workers.
 
-- The AI assistant is disabled in application code. If it is re-enabled, configure `OPENAI_API_KEY` and `OPENAI_MODEL`; `OPENAI_BASE_URL` is optional. The configured endpoint must support the OpenAI Responses API used by the current adapter. The provider, model, endpoint, and credentials remain an infrastructure/product decision.
-- `CRON_SECRET` and optional `CRON_SECRET_PREVIOUS` are used by the generic cron request authenticator if a scheduled route is enabled. No cron route is currently wired to it.
-
-## Release handoff
-
-Before release, the infrastructure owner should confirm the Node version, service start command, port/bind settings, public and internal Supabase URLs, public and service-role keys, direct `DATABASE_URL`, target Supabase CLI project identifier, database migration status, Auth provider and email settings, domain and TLS, reverse-proxy headers, and backup/restore procedure. Database migrations remain explicit operations and are not run by the Node app's startup command.
+For a fresh, low-traffic deployment, 1 vCPU, 1 GiB RAM, and 10 GiB disk are a reasonable minimum starting point. The measured service processes used about 155 MiB private memory together; the rest allows room for the operating system, Docker, PostgreSQL shared buffers, and short-lived imports. Use 2 GiB RAM when you want more operating headroom. This is a baseline estimate, not a load-test result; monitor memory and database growth after launch.
