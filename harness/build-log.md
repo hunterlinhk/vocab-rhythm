@@ -1,3 +1,15 @@
+# Active task: Cadence server deployment
+
+- Phase: initial deployment and requested live checks succeeded; a repeated-review defect is fixed locally and awaiting commit, push, and redeployment.
+- Target: `38.95.75.66`, Debian 13; 2 vCPU, 1.9 GiB RAM, 40 GiB root disk, no swap.
+- Currently deployed source: `f96b272eca6b8467155113da6ae0ab5a23b10e02`. Node, PostgreSQL, and Caddy are active. HTTPS at `38.95.75.66.nip.io` returns 200; HTTP redirects to HTTPS. App binds to `127.0.0.1:3000`; PostgreSQL is not published on the host.
+- Database counts: NGSL 2,809; OEWN 19,028 including 26 pilots; Round 2 88 (43 senses, 45 usage notes), all `pending_review` from an `editorial`, `restricted` source.
+- Email signup/login, guest use and linking, learning access, cross-account isolation, statistics, dictionary lookup, and initial review scheduling passed. A second review exposed a projection update that incorrectly attempted to update immutable `user_id`; the local fix excludes it from updates.
+- The fix and repeated-review regression coverage pass `bun run test` (105/105), `bunx tsc --noEmit`, and `bun run build`.
+- Pending: commit and push the fix, rebuild/redeploy only the app while preserving PostgreSQL volume, verify review completion removes the due item, remove this run's disposable accounts, then recheck counts, ingress, and resource usage.
+- Keep Round 2 unchanged and restricted. Google OAuth still needs real client credentials; replace the temporary nip.io hostname with an owner-controlled domain when available. Do not read or copy the server `.env`; its mode is 0600.
+- Existing failed `ifup@ens18.service` and `rc-local.service` predate the deployment and remain untouched. The root password is not recorded here.
+
 # Cadence self-hosted backend rewrite — implementation complete
 
 - Branch `feat/self-hosted-better-auth-postgres` is based on `feat/oewn-round2-content-integration` at `6467cbed0df8eb9ea3ecd8f142e69f743e1e0e59`.

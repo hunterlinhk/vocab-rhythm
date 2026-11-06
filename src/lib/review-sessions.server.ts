@@ -564,9 +564,12 @@ async function rebuildReviewStateOnce(
     last_decision_id: lastDecisionId,
     updated_at: new Date().toISOString(),
   };
+  const { user_id: ownerUserId, ...stateValues } = stateRow;
 
   if (!stateResult.data) {
-    const { error } = await createUserStore(getDatabase(), identity.userId).table("review_states").insert({ ...stateRow, revision: 0 });
+    const { error } = await createUserStore(getDatabase(), identity.userId)
+      .table("review_states")
+      .insert({ user_id: ownerUserId, ...stateValues, revision: 0 });
     if (error?.code === "23505") throw new Error("Review state changed concurrently; retry projection");
     if (error) throw new Error(error.message);
     return;
@@ -574,7 +577,7 @@ async function rebuildReviewStateOnce(
 
   const { data, error } = await createUserStore(getDatabase(), identity.userId)
     .table("review_states")
-    .update({ ...stateRow, revision: stateResult.data.revision + 1 })
+    .update({ ...stateValues, revision: stateResult.data.revision + 1 })
     .eq("user_id", identity.userId)
     .eq("word_key", identity.wordKey)
     .eq("review_mode", identity.reviewMode)

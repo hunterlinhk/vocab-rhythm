@@ -246,11 +246,29 @@ try {
     reviewMode: "recognition",
   }, reviewSessionId);
   const reviewRows = await storeA.table("review_states")
-    .select("word, next_due_at, interval_seconds")
+    .select("word, next_due_at, interval_seconds, revision, last_session_id")
     .eq("word_key", "learn")
     .eq("review_mode", "recognition");
   assert.equal(reviewRows.data.length, 1);
   assert.equal(reviewRows.data[0].interval_seconds, 86400);
+
+  const followUpReviewSessionId = crypto.randomUUID();
+  await insertReviewAttempt(storeA, linkedUserId, followUpReviewSessionId, "context");
+  await insertReviewAttempt(storeA, linkedUserId, followUpReviewSessionId, "recall");
+  await review.finalizeReviewSession(storeA, {
+    userId: linkedUserId,
+    bookId: "ngsl-1.2",
+    word: "learn",
+    reviewMode: "recognition",
+  }, followUpReviewSessionId);
+  const advancedReviewRows = await storeA.table("review_states")
+    .select("revision, last_session_id")
+    .eq("word_key", "learn")
+    .eq("review_mode", "recognition");
+  assert.equal(advancedReviewRows.data.length, 1);
+  assert.equal(advancedReviewRows.data[0].revision, 1);
+  assert.equal(advancedReviewRows.data[0].last_session_id, followUpReviewSessionId);
+
   const privateReviewRows = await storeB.table("review_states").select("word_key");
   assert.equal(privateReviewRows.data.length, 0);
 
