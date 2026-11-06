@@ -1,14 +1,16 @@
-# Active task: Cadence server deployment
+# Cadence server deployment - live state
 
-- Phase: initial deployment and requested live checks succeeded; a repeated-review defect is fixed locally and awaiting commit, push, and redeployment.
-- Target: `38.95.75.66`, Debian 13; 2 vCPU, 1.9 GiB RAM, 40 GiB root disk, no swap.
-- Currently deployed source: `f96b272eca6b8467155113da6ae0ab5a23b10e02`. Node, PostgreSQL, and Caddy are active. HTTPS at `38.95.75.66.nip.io` returns 200; HTTP redirects to HTTPS. App binds to `127.0.0.1:3000`; PostgreSQL is not published on the host.
-- Database counts: NGSL 2,809; OEWN 19,028 including 26 pilots; Round 2 88 (43 senses, 45 usage notes), all `pending_review` from an `editorial`, `restricted` source.
-- Email signup/login, guest use and linking, learning access, cross-account isolation, statistics, dictionary lookup, and review scheduling passed. The repeated-review projection fix excludes immutable `user_id` from updates. The live review page also exposed an auth-cache race on first mount; a local guard now clears cache only when switching between known user IDs and gates child queries until the cache is ready.
-- The fix and repeated-review regression coverage pass `bun run test` (105/105), `bunx tsc --noEmit`, and `bun run build`.
-- Pending: commit and push the auth-cache guard, rebuild/redeploy only the app while preserving PostgreSQL volume, verify the review center loads and a completed item leaves the due queue, remove this run's disposable accounts, then recheck counts, ingress, and resource usage.
-- Keep Round 2 unchanged and restricted. Google OAuth still needs real client credentials; replace the temporary nip.io hostname with an owner-controlled domain when available. Do not read or copy the server `.env`; its mode is 0600.
-- Existing failed `ifup@ens18.service` and `rc-local.service` predate the deployment and remain untouched. The root password is not recorded here.
+- Status: live on `38.95.75.66.nip.io`; application source commit `011594b9e24849f8641fa1506a0d599eef9ab346` is deployed on `feat/self-hosted-better-auth-postgres`.
+- Repository hygiene: `.env` is removed from the current Git index and ignored; historical Git objects may still contain its prior contents. The file was not inspected. Rotate any credentials that may have been stored there; no history rewrite was performed.
+- Debian 13 host: 2 vCPU, 1.9 GiB RAM, 40 GiB disk, no swap. Node app and PostgreSQL containers are healthy; Caddy is active and configuration validation passes.
+- HTTPS returns 200 with a valid certificate. Caddy and the host public-IP hairpin return HTTP 308 to HTTPS. A direct workstation curl to public HTTP/80 connected then reset; HTTPS works and TCP 3000/5432 are not reachable externally. If raw HTTP clients must work, check the provider/network path for port 80.
+- App binds to `127.0.0.1:3000`; PostgreSQL is not published on the host. Server `.env` is root-owned mode 0600; it was not read or copied.
+- Database: NGSL 2,809; OEWN 19,028 including 26 pilots; Round 2 88 (43 senses, 45 usage notes), all `pending_review`, `editorial`, and `restricted`. Round 2 published count remains zero.
+- Live email registration/login, guest use/linking, learning, account isolation, statistics, dictionary lookup, and review passed. Repeated review advanced the test schedule revision to 2 and cleared the due queue. The review center now loads correctly after the auth-cache readiness fix.
+- All 10 disposable email/guest test accounts created by this verification were deleted; no test users remain.
+- Local validation on the final source: `bun run test` 105/105, `bunx tsc --noEmit`, and `bun run build` passed. The earlier real PostgreSQL E2E passed; it was not rerun here because the Windows admin token cannot start the embedded PostgreSQL runner.
+- Final host snapshot: 788 MiB RAM used, 1.2 GiB available; root disk 6.3/40 GiB used (17%). App container 65.6 MiB; PostgreSQL 48.9 MiB.
+- Still needed from the owner: an owner-controlled domain, real Google OAuth client credentials and callback configuration, root password rotation and SSH key login, and credential rotation if any secrets were committed in `.env`. The unrelated failed `ifup@ens18.service` and `rc-local.service` remain unchanged.
 
 # Cadence self-hosted backend rewrite — implementation complete
 
@@ -163,3 +165,4 @@
 - Repeated PGlite simulation against migrations `0006–0008` and the 26-row pilot passed: partial batch failure and retry, repeated batch execution without duplicates, public-table isolation during staging, exact counts/provenance/pilot-key validation, guarded early-cleanup refusal, injected final-apply failure with full rollback of source/lexeme/sense writes, final apply twice, read-only verification, and successful cleanup.
 - Validation: `npm test` 25/25 passed; `npx tsc --noEmit` passed; `npm run build` passed; targeted ESLint for changed JS files passed. Repository-wide `npm run lint` reports thousands of pre-existing CRLF/Prettier errors across untouched files.
 - No production import is authorized or needed in this task.
+

@@ -1,36 +1,42 @@
 # Cadence server deployment
 
-## Goal
+## Deployment
 
-Deploy the requested self-hosted Cadence branch to `38.95.75.66`, initialize PostgreSQL, configure Node behind Caddy, and verify live account, learning, review, statistics, and dictionary flows.
+- Host: `38.95.75.66`, Debian 13, 2 vCPU, 1.9 GiB RAM, 40 GiB root disk, no swap.
+- App source commit deployed: `011594b9e24849f8641fa1506a0d599eef9ab346` on `feat/self-hosted-better-auth-postgres`.
+- Repository `.env` tracking was removed and the file is now ignored; its historical Git objects were not rewritten. Its contents were not inspected. Rotate any credentials that may have been committed there.
+- Node app runs in Docker on loopback port 3000. PostgreSQL 17 runs in Docker on the private Compose network with the existing `cadence-postgres` volume. Caddy is active on 80/443 and its config validates.
+- HTTPS at `38.95.75.66.nip.io` returns 200 with a valid certificate. Caddy returns HTTP 308 to HTTPS locally and from the host public-IP hairpin. A direct workstation curl to public HTTP/80 connected then reset; TCP 80/443 connect, while 3000/5432 are externally unreachable. Recheck provider or client-network handling if direct HTTP clients are required.
+- Server `.env` is root-owned mode 0600. It was not read or copied. No database volume reset or migration was needed for the application fixes.
 
-## Constraints
+## Database and verification
 
-- Keep Round 2 at 88 `pending_review` rows under an `editorial` source with `restricted` access; never approve or publish it.
-- Preserve the existing `cadence-postgres` volume during application redeploys.
-- Keep credentials in the root-only server `.env`; do not read, copy, or print that file.
-- Keep Google OAuth disabled until the owner provides real client credentials.
-- Keep `38.95.75.66.nip.io` as a temporary origin until an owner-controlled domain is configured.
-- Leave the unrelated failed `ifup@ens18.service` and `rc-local.service` units unchanged.
+- NGSL: 2,809 entries.
+- OEWN: 19,028 senses, including 26 pilots.
+- Round 2: 88 rows (43 senses and 45 usage notes), all `pending_review` under an `editorial`, `restricted` source; zero published.
+- Live email registration/login, guest use and linking, learning, account isolation, review, statistics, and dictionary reads passed.
+- The repeated-review fix keeps immutable `user_id` out of updates. A live test advanced a test schedule to revision 2, moved its due date into the future, and cleared the review queue.
+- The live review center initially exposed a cache-clear race on authenticated mount. The auth layout now waits until cache handling is complete before mounting account queries; review center loads and shows the empty queue after review.
+- All 10 disposable email/guest accounts created during this deployment verification were deleted.
+- Local final-source checks: `bun run test` 105/105, `bunx tsc --noEmit`, and `bun run build` passed. The earlier real PostgreSQL E2E passed; the embedded runner was not repeated because the current Windows admin token cannot start it.
 
-## Current checkpoint
+## Host resources
 
-- The initial deployment of `f96b272eca6b8467155113da6ae0ab5a23b10e02` is live. The host is Debian 13 with 2 vCPU, 1.9 GiB RAM, a 40 GiB root disk, and no swap.
-- Node, PostgreSQL, and Caddy are active. The app listens on `127.0.0.1:3000`; PostgreSQL is container-only. HTTPS returns 200 and HTTP redirects with 308.
-- Live account, guest/linking, isolation, learning, statistics, dictionary, and review scheduling passed. The repeated-review correction inserts the owner on create and excludes `user_id` from updates. The review center spinner was traced to the auth layout clearing the query cache on first mount; a local readiness gate defers child queries until cache handling completes.
-- `bun run test` passes 105/105; `bunx tsc --noEmit` and `bun run build` pass.
-- Database: NGSL 2,809; OEWN 19,028; Round 2 88 (43 senses, 45 notes), all pending and restricted. Current live-test accounts are disposable and must be removed after the review regression.
-- Google OAuth credentials and an owner-controlled domain are still outstanding.
+- Final snapshot: 788 MiB RAM used and 1.2 GiB available; no swap.
+- Root disk: 6.3 GiB of 40 GiB used (17%).
+- App container: 65.6 MiB; PostgreSQL container: 48.9 MiB.
 
-## Next actions
+## Owner setup still needed
 
-1. Commit and push the review-state and initial auth-cache fixes to `feat/self-hosted-better-auth-postgres`.
-2. Pull that commit on the server; rebuild and recreate only the app service without changing the PostgreSQL volume or `.env`.
-3. Make one review row belonging only to the disposable review test account due; confirm the review center lists it, submit it through the live app, and confirm the schedule advances and the due queue clears.
-4. Delete only disposable accounts created by this verification run. Recheck Round 2 state/counts, HTTPS redirect, public port exposure, and host/container resources.
-5. Update this file and `harness/build-log.md` with the deployed commit and final observed results.
+- Replace `38.95.75.66.nip.io` with an owner-controlled domain and update the app origin.
+- Provide a Google OAuth client ID and secret, then configure its authorized callback URL for the chosen domain. OAuth callback login has not been verified without those credentials.
+- Rotate the root password shared in chat and configure SSH key login.
+- Rotate any application/database credentials that may have been committed in historical `.env` versions. Purging those blobs requires a coordinated Git history rewrite; none was performed.
+- If direct HTTP/80 clients must work, investigate the workstation/provider path: the host-side redirect is correct, but direct workstation curl was reset after connecting.
+- Existing failed `ifup@ens18.service` and `rc-local.service` predate deployment and remain unchanged.
 
 ## Recovery
 
-- Application rollback may use the previous image/source, while retaining the database volume and pending editorial rows.
-- Do not remove Docker volumes or run the Round 2 editorial rollback as deployment recovery.
+- Rebuild or roll back the app container without removing `cadence-postgres` or altering pending Round 2 rows.
+- Do not run the Round 2 editorial rollback for deployment recovery.
+
