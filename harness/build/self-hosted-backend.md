@@ -30,7 +30,7 @@ Replace Supabase Auth, its SDK/PostgREST/RPC access, and all Lovable runtime dep
 - `.env.example`, `Dockerfile`, `compose.yaml`, and `docs/deployment/self-hosted-node.md` provide local and server handoff instructions. Caddy remains a reverse proxy only.
 - Final validation before push: 105/105 tests; TypeScript; production Node build; frozen Bun lockfile; real PostgreSQL E2E including repeated initialization, OAuth redirect generation, email sign-up/login, guest session/linking, permission isolation, learning, review, stats, lexicon, and pending-content gates.
 - E2E process memory: Node 93 MiB private; PostgreSQL 62 MiB summed private across workers. Shared-page working-set sum is higher and should not be treated as unique memory.
-- Next action: inspect final diff and generated files, commit, push the feature branch, and record the resulting HEAD.
+- Pushed to GitHub at `cba51cc17a1c91f601637038e85392e7a10730ff`; local HEAD and upstream tracking ref match. GitHub API was used after local DNS could not resolve `github.com`.
 
 ## Validation log
 
@@ -39,3 +39,4 @@ Replace Supabase Auth, its SDK/PostgREST/RPC access, and all Lovable runtime dep
 - `bun run build`: passed; Nitro output targets `.output/server/index.mjs`.
 - `bun install --frozen-lockfile`: passed with no lockfile changes.
 - `node scripts/test-self-hosted-postgres.mjs`: passed against disposable PostgreSQL under a restricted Windows token; import counts and behavior checks passed.
+- `node scripts/prepare-cadence-round2-editorial.mjs --check`: 88 generated rows verified.

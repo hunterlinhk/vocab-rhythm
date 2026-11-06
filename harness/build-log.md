@@ -5,7 +5,7 @@
 - Dataset import verified on real local PostgreSQL: 2,809 NGSL entries; 19,028 OEWN senses including 26 pilots; 88 Round 2 rows (43 senses and 45 usage notes), all pending and restricted.
 - Validation: `bun run test` 105/105; `bunx tsc --noEmit`; `bun run build`; `bun install --frozen-lockfile`; real PostgreSQL E2E passed. E2E covered idempotent setup, Google OAuth initiation, email sign-up/login, anonymous session and data linking, learning and custom-book isolation, cross-account write rejection, review scheduling, local-day stats, OEWN lookup, and pending editorial visibility.
 - E2E memory: production Node process 93 MiB private; PostgreSQL worker processes summed to 62 MiB private (their 275 MiB summed working set includes shared pages). Deployment baseline is documented in `docs/deployment/self-hosted-node.md`.
-- Next action: run final diff/data checks, commit, and push this branch only. No production data, Alibaba Cloud service, domain, or website was accessed or changed; no merge or cutover occurred.
+- Pushed `feat/self-hosted-better-auth-postgres` to GitHub at HEAD `cba51cc17a1c91f601637038e85392e7a10730ff`; the local branch and upstream tracking ref now match. The GitHub API push was used because local DNS could not resolve `github.com`. No production data, Alibaba Cloud service, domain, website, merge, or cutover was touched.
 - Detailed plan and validation record: `harness/build/self-hosted-backend.md`.
 
 # Cadence Round 2 editorial content integration
