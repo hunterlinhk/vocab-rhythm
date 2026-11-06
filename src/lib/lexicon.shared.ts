@@ -111,16 +111,25 @@ export function assembleWordEntry(entry: WordEntry, content: LexiconContent[]): 
       sourceEntryRef: row.source_entry_ref,
       relatedSenseKey: row.related_sense_key ?? undefined,
     }));
-  const notes: LexiconUsageNote[] = usageNotes.map((row) => ({
-    text: row.usage_note_zh!.trim(),
-    sourceId: row.source_id,
-    sourceEntryRef: row.source_entry_ref,
-    relatedSenseKey: row.related_sense_key ?? undefined,
-  }));
+  const notes: LexiconUsageNote[] = usageNotes.map((row) => {
+    const relatedSense = ordered.find(
+      (candidate) => candidate.content_type !== "usage_note" && candidate.sense_key === row.related_sense_key,
+    );
+    return {
+      text: row.usage_note_zh!.trim(),
+      sourceId: row.source_id,
+      sourceEntryRef: row.source_entry_ref,
+      relatedSenseKey: row.related_sense_key ?? undefined,
+      relatedTranslation: relatedSense?.translation ?? undefined,
+      relatedPartOfSpeech: relatedSense?.part_of_speech ?? undefined,
+      relatedDefinitionEn: relatedSense?.definition_en ?? undefined,
+    };
+  });
 
   return {
     entry: {
       ...entry,
+      senseKey: entry.senseKey ?? meaning?.sense_key,
       cn,
       partOfSpeech,
       phonetic,

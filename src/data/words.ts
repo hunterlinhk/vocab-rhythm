@@ -15,6 +15,9 @@ export type LexiconUsageNote = {
   sourceId: string;
   sourceEntryRef: string | null;
   relatedSenseKey?: string | undefined;
+  relatedTranslation?: string | undefined;
+  relatedPartOfSpeech?: string | undefined;
+  relatedDefinitionEn?: string | undefined;
 };
 
 /** Only the headword is required; study content may be added independently later. */
@@ -26,6 +29,7 @@ export type WordEntry = {
   rank?: number | undefined;
   sfi?: number | undefined;
   frequencyPerMillion?: number | undefined;
+  senseKey?: string | undefined;
   /** Optional editorial learning fields. */
   partOfSpeech?: string | undefined;
   phonetic?: string | undefined;

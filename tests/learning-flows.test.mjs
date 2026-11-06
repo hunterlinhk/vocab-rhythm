@@ -545,7 +545,8 @@ test("root and legacy home route send users directly into learning or auth", asy
   assert.doesNotMatch(index, /HomePage|HomeContent|Dashboard|AppShell/);
   assert.match(home, /redirect\(\{ to: "\/learn" \}\)/);
   assert.match(auth, /emailRedirectTo: `\$\{window\.location\.origin\}\/learn`/);
-  assert.match(auth, /redirect_uri: `\$\{window\.location\.origin\}\/learn`/);
+  assert.match(auth, /signInWithOAuth\(\{\s*provider: "google",\s*options: \{ redirectTo: `\$\{window\.location\.origin\}\/learn` \}/);
+  assert.doesNotMatch(auth, /lovable|redirect_uri/i);
   assert.match(auth, /signInWithPassword[\s\S]*navigate\(\{ to: "\/learn", replace: true \}\)/);
   assert.doesNotMatch(auth, /\/home|navigate\(\{ to: "\/"/);
   assert.match(shell, /<Link to="\/learn"[\s\S]*aria-label="Cadence 学习"/);

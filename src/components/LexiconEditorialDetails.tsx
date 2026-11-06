@@ -36,6 +36,11 @@ export function LexiconEditorialDetails({
           className="rounded-xl border border-border/60 bg-card/45 px-3 py-2"
         >
           <p className="text-xs font-medium text-muted-foreground">用法说明</p>
+          {(note.relatedPartOfSpeech || note.relatedTranslation) && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              对应义项：{[note.relatedPartOfSpeech, note.relatedTranslation].filter(Boolean).join(" ")}
+            </p>
+          )}
           <p className="mt-1 text-sm text-foreground">{note.text}</p>
         </section>
       ))}

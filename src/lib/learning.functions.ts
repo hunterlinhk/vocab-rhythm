@@ -1206,8 +1206,10 @@ export const sendMessage = createServerFn({ method: "POST" })
       void context;
       throw new Error("AI 助手已暂停");
     }
-    const key = process.env["LOVABLE_API_KEY"];
-    if (!key) throw new Error("AI 服务暂未配置");
+    const apiKey = process.env["OPENAI_API_KEY"];
+    const modelName = process.env["OPENAI_MODEL"];
+    const baseURL = process.env["OPENAI_BASE_URL"];
+    if (!apiKey || !modelName) throw new Error("AI 服务暂未配置");
 
     const [{ data: history }, { data: rows }, { data: mastery }] = await Promise.all([
       context.supabase
@@ -1286,14 +1288,13 @@ export const sendMessage = createServerFn({ method: "POST" })
 
     const { streamText } = await import("ai");
     const { createOpenAI } = await import("@ai-sdk/openai");
-    const lovable = createOpenAI({
-      baseURL: "https://ai.gateway.lovable.dev/v1",
-      apiKey: key,
-      headers: { "Lovable-API-Key": key, "X-Lovable-AIG-SDK": "vercel-ai-sdk" },
+    const openai = createOpenAI({
+      apiKey,
+      ...(baseURL ? { baseURL } : {}),
     });
 
     const result = streamText({
-      model: lovable.responses("openai/gpt-6-astra"),
+      model: openai.responses(modelName),
       system,
       messages: [
         ...(history ?? []).map((m) => ({
@@ -1302,15 +1303,6 @@ export const sendMessage = createServerFn({ method: "POST" })
         })),
         { role: "user" as const, content: data.content },
       ],
-      providerOptions: {
-        openai: {
-          forceReasoning: true,
-          reasoningEffort: "low",
-          reasoningSummary: "auto",
-          store: false,
-          include: ["reasoning.encrypted_content"],
-        },
-      },
     });
 
     const text = (await result.text) || "（这次没有生成内容，请再试一次）";

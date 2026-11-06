@@ -1,7 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -52,13 +51,16 @@ function AuthPage() {
   }
 
   async function google() {
-    const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: `${window.location.origin}/learn` });
-    if (result.error) {
+    setLoading(true);
+    setMsg(null);
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: `${window.location.origin}/learn` },
+    });
+    if (error) {
+      setLoading(false);
       setMsg("Google 登录失败，请稍后再试。");
-      return;
     }
-    if (result.redirected) return;
-    void navigate({ to: "/learn", replace: true });
   }
 
   async function guest() {

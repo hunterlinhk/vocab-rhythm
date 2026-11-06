@@ -76,7 +76,7 @@ export function mapEditorialContent(document, decisions, pilotRows) {
       if (senseId && !candidates.includes(senseId))
         throw new Error(`Sense ID is not an audited candidate for ${entry.headword}: ${senseId}`);
     }
-    if (entry.entry_type === "usage_note" && !entry.usage_note_zh?.trim())
+    if (!entry.usage_note_zh?.trim())
       throw new Error(`Missing usage note: ${entry.headword}`);
     if (
       entry.entry_type !== "usage_note" &&
@@ -84,31 +84,48 @@ export function mapEditorialContent(document, decisions, pilotRows) {
     )
       throw new Error(`Missing sense wording: ${entry.headword}`);
 
-    const contentType = entry.entry_type === "usage_note" ? "usage_note" : "sense";
-    const senseRole =
-      entry.entry_type === "additional_common_sense"
-        ? "supplementary"
-        : entry.entry_type === "usage_note"
-          ? null
-          : "primary";
-    const noteOnly = contentType === "usage_note";
-    mapped.push({
+    const common = {
       headword: entry.headword,
       normalizedWord: normalized,
       editorialKind: entry.entry_type,
-      senseKey: `cadence-round2:${normalized}:${entry.entry_type}`,
-      contentType,
-      senseRole,
-      priority: senseRole === "primary" ? 110 : 0,
-      translation: noteOnly ? null : entry.gloss_zh,
-      partOfSpeech: noteOnly ? null : entry.part_of_speech,
-      definitionEn: noteOnly ? null : entry.definition_en,
-      usageNoteZh: noteOnly ? entry.usage_note_zh : null,
-      publicationStatus: "pending_review",
-      reviewDecision: decision.final_decision,
-      relatedSenseKey: entry.current_primary_sense_id,
       oewnSenseId: entry.oewn_sense_id,
       currentPrimarySenseId: entry.current_primary_sense_id,
+    };
+    const senseRow =
+      entry.entry_type === "usage_note"
+        ? null
+        : {
+            ...common,
+            senseKey: `cadence-round2:${normalized}:${entry.entry_type}`,
+            contentType: "sense",
+            senseRole: entry.entry_type === "additional_common_sense" ? "supplementary" : "primary",
+            priority: entry.entry_type === "additional_common_sense" ? 0 : 110,
+            translation: entry.gloss_zh,
+            partOfSpeech: entry.part_of_speech ?? null,
+            definitionEn: entry.definition_en,
+            usageNoteZh: null,
+            publicationStatus: "pending_review",
+            reviewDecision: decision.final_decision,
+            relatedSenseKey: entry.current_primary_sense_id ?? null,
+          };
+    if (senseRow) mapped.push(senseRow);
+
+    const relatedSenseKey = senseRow?.senseKey ?? entry.current_primary_sense_id;
+    if (!relatedSenseKey)
+      throw new Error(`Usage note has no related sense: ${entry.headword}`);
+    mapped.push({
+      ...common,
+      senseKey: `cadence-round2:${normalized}:usage_note`,
+      contentType: "usage_note",
+      senseRole: null,
+      priority: 0,
+      translation: null,
+      partOfSpeech: null,
+      definitionEn: null,
+      usageNoteZh: entry.usage_note_zh,
+      publicationStatus: "pending_review",
+      reviewDecision: senseRow ? null : decision.final_decision,
+      relatedSenseKey,
     });
   }
   if (decisionByWord.size !== entries.length)
@@ -117,14 +134,25 @@ export function mapEditorialContent(document, decisions, pilotRows) {
     if (counts[type] !== expected)
       throw new Error(`Expected ${expected} ${type} rows, got ${counts[type]}`);
   }
+  if (mapped.filter((row) => row.contentType === "sense").length !== 43)
+    throw new Error("Expected 43 editorial sense rows");
+  if (mapped.filter((row) => row.contentType === "usage_note").length !== 45)
+    throw new Error("Expected 45 editorial usage-note rows");
+  if (mapped.length !== 88) throw new Error(`Expected 88 editorial rows, got ${mapped.length}`);
   if (mapped.filter((row) => row.reviewDecision === "defer_no_suitable_sense").length !== 38)
     throw new Error("Expected 38 deferred Round 2 decisions");
   if (mapped.filter((row) => row.reviewDecision === "propose_primary").length !== 7)
     throw new Error("Expected 7 proposed Round 2 decisions");
+  const linkedToNewSense = mapped.filter(
+    (row) => row.contentType === "usage_note" && row.relatedSenseKey.startsWith("cadence-round2:"),
+  ).length;
+  if (linkedToNewSense !== 43)
+    throw new Error(`Expected 43 notes linked to editorial senses, got ${linkedToNewSense}`);
   return mapped;
 }
 
 function renderImportSql({ sourceId, contentHash, decisionsHash, rows }) {
+  const lexemes = [...new Map(rows.map((row) => [row.normalizedWord, row])).values()];
   const values = rows
     .map(
       (row) =>
@@ -161,7 +189,7 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.lexemes (language, normalized_word, lemma)
 VALUES
-${rows.map((row) => `  ('en', ${sql(row.normalizedWord)}, ${sql(row.headword)})`).join(",\n")}
+${lexemes.map((row) => `  ('en', ${sql(row.normalizedWord)}, ${sql(row.headword)})`).join(",\n")}
 ON CONFLICT (language, normalized_word) DO NOTHING;
 
 INSERT INTO public.lexicon_entries
@@ -184,18 +212,35 @@ DECLARE
   v_count integer;
 BEGIN
   SELECT count(*) INTO v_count FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)};
-  IF v_count <> 45 THEN RAISE EXCEPTION 'Expected 45 editorial rows, got %', v_count; END IF;
+  IF v_count <> 88 THEN RAISE EXCEPTION 'Expected 88 editorial rows, got %', v_count; END IF;
   IF EXISTS (SELECT 1 FROM public.lexicon_sources WHERE id = ${sql(sourceId)} AND (source_kind <> 'editorial' OR access_tier <> 'restricted'))
     THEN RAISE EXCEPTION 'Editorial source must remain restricted'; END IF;
   IF EXISTS (SELECT 1 FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)} AND publication_status <> 'pending_review')
     THEN RAISE EXCEPTION 'Editorial rows must remain pending review'; END IF;
+  IF (SELECT count(*) FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)} AND content_type = 'sense') <> 43
+    THEN RAISE EXCEPTION 'Expected 43 sense rows'; END IF;
+  IF (SELECT count(*) FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)} AND content_type = 'usage_note') <> 45
+    THEN RAISE EXCEPTION 'Expected 45 usage-note rows'; END IF;
+  IF (SELECT count(*) FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)} AND content_type = 'sense' AND sense_role = 'primary') <> 40
+    THEN RAISE EXCEPTION 'Expected 40 primary senses'; END IF;
+  IF (SELECT count(*) FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)} AND content_type = 'sense' AND sense_role = 'supplementary') <> 3
+    THEN RAISE EXCEPTION 'Expected 3 supplementary senses'; END IF;
   IF (SELECT count(*) FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)} AND review_decision = 'defer_no_suitable_sense') <> 38
     THEN RAISE EXCEPTION 'Expected 38 deferred audit decisions'; END IF;
   IF (SELECT count(*) FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)} AND review_decision = 'propose_primary') <> 7
     THEN RAISE EXCEPTION 'Expected 7 proposed audit decisions'; END IF;
   IF EXISTS (SELECT 1 FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)} AND content_type = 'usage_note'
-    AND (sense_role IS NOT NULL OR translation IS NOT NULL OR definition_en IS NOT NULL OR part_of_speech IS NOT NULL OR usage_note_zh IS NULL))
+    AND (usage_note_zh IS NULL OR related_sense_key IS NULL))
+    THEN RAISE EXCEPTION 'Every usage note must be non-empty and linked to a sense'; END IF;
+  IF EXISTS (SELECT 1 FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)} AND content_type = 'usage_note'
+    AND (sense_role IS NOT NULL OR translation IS NOT NULL OR definition_en IS NOT NULL OR part_of_speech IS NOT NULL))
     THEN RAISE EXCEPTION 'Usage notes must remain separate from sense fields'; END IF;
+  IF EXISTS (SELECT lexeme_id FROM public.lexicon_entries WHERE source_id = ${sql(sourceId)} AND content_type = 'usage_note' GROUP BY lexeme_id HAVING count(*) <> 1)
+    THEN RAISE EXCEPTION 'Each headword must have exactly one usage note'; END IF;
+  IF (SELECT count(*) FROM public.lexicon_entries n WHERE n.source_id = ${sql(sourceId)} AND n.content_type = 'usage_note'
+      AND n.related_sense_key LIKE 'cadence-round2:%'
+      AND EXISTS (SELECT 1 FROM public.lexicon_entries s WHERE s.source_id = n.source_id AND s.lexeme_id = n.lexeme_id AND s.content_type = 'sense' AND s.sense_key = n.related_sense_key)) <> 43
+    THEN RAISE EXCEPTION 'Expected 43 usage notes linked to their editorial sense'; END IF;
 END $$;
 
 COMMIT;
@@ -233,12 +278,21 @@ export function buildBundle({ contentText, decisionsText, pilotRows }) {
       round2_decisions_jsonl: decisionsHash,
     },
     counts: {
-      input_entries: rows.length,
+      input_entries: document.entries.length,
       input_entry_types: expectedInputCounts,
+      stored_content_rows: rows.length,
       stored_senses: rows.filter((row) => row.contentType === "sense").length,
       stored_primary_senses: rows.filter((row) => row.senseRole === "primary").length,
       stored_supplementary_senses: rows.filter((row) => row.senseRole === "supplementary").length,
       stored_usage_notes: rows.filter((row) => row.contentType === "usage_note").length,
+      usage_note_links: {
+        linked_to_editorial_sense: rows.filter(
+          (row) => row.contentType === "usage_note" && row.relatedSenseKey.startsWith("cadence-round2:"),
+        ).length,
+        linked_to_existing_oewn_sense: rows.filter(
+          (row) => row.contentType === "usage_note" && !row.relatedSenseKey.startsWith("cadence-round2:"),
+        ).length,
+      },
       audit_decisions: {
         defer_no_suitable_sense: rows.filter(
           (row) => row.reviewDecision === "defer_no_suitable_sense",

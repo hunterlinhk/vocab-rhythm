@@ -2,10 +2,11 @@
 
 - Branch: `feat/oewn-round2-content-integration`, based on `origin/main` at `83edf56cbe45fdd95ad7aab54565c6e921fb8e47`.
 - Vendored the 45-entry rewrite JSON and original decisions. The deterministic mapper checks all headwords, 38 deferred/7 proposed decisions, exact primary/candidate IDs, and no overlap with the unchanged 26 pilots. Manifest inputs are SHA-256 tracked.
-- Shared Lexicon now separates primary senses, supplementary senses, and usage notes. The migration adds publication gates; the import source is restricted and all rows are `pending_review`. Local book fields retain precedence.
-- Prepared: 40 primary senses, 3 supplementary senses, and 2 usage notes. No existing OEWN sense ID or pilot row is replaced. Rollback first restricts and removes only this editorial source.
-- Validation: `bun run test` 103/103, `bunx tsc --noEmit`, `bun run build`, generator `--check`, and PGlite migration/import/RLS/rollback simulation passed.
-- No shared/production database migration or SQL, approval, merge, or deployment. Future release order is migration `0018` + marker `0019`, pending-content import, frontend deployment, then explicit approval and publication.
+- Shared Lexicon separates primary senses, supplementary senses, and usage notes. Each of 45 inputs has one note: 43 link to their new editorial sense and 2 to the existing OEWN sense ID. The generated import has 88 rows: 40 primary senses, 3 supplementary senses, and 45 notes. All rows remain `pending_review` under a `restricted` source; local book fields retain precedence.
+- No existing OEWN sense ID, original Round 2 decision, or 26 pilot rows are replaced. Import is idempotent, and rollback restricts then deletes only this editorial source.
+- Self-hosted compatibility uses native Vite/TanStack/Nitro `node-server`, a Node `start` command, standard Supabase browser OAuth/session storage, `DATABASE_URL` for migration tooling, and generic cron secrets. Target URLs, keys, Auth provider settings, migration status, and Node service settings remain for the infrastructure owner to verify; see `docs/deployment/self-hosted-node.md`.
+- Validation: `bun run test` 104/104, `bunx tsc --noEmit`, `bun run build`, generator `--check` (88 rows), and PGlite migration/import/RLS/rollback simulation passed. Build output targets `.output/server/index.mjs`; generated route-tree changes were restored.
+- No SQL, shared/production database migration, editorial approval, merge, deployment, server access, or domain change was performed. Release order: apply reviewed migrations `0018`/`0019`, import pending content, deploy the frontend/server, then separately approve and publish selected rows.
 
 # Learning statistics aggregation
 

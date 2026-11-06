@@ -51,6 +51,8 @@ The staged SQL stores the OEWN source ID, version, URL, archive checksum, CC BY 
 
 ## Lovable Cloud staging operation pack
 
+This section documents the historical Lovable Cloud import format retained for reproducibility. It is not the procedure for importing data into the current self-hosted database; use the target-specific migration plan from the infrastructure owner.
+
 The full import is data-only and targets the existing `0006–0008` Shared Lexicon schema, so it is not a Drizzle migration. Generate the reproducible Lovable Cloud pack from the pinned archive:
 
 ```sh

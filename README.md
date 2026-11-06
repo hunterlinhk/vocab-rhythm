@@ -1,4 +1,4 @@
-# FluentKey Learn
+# Cadence (韵词)
 
 ## Official vocabulary source
 
@@ -76,25 +76,15 @@ AI 的定位是了解用户当前学习状态的英语学习助手，因此它�
 
 我希望整体风格是高端 简约风格 主体可以使用浅色调但绝不能是深色调，你还有什么问题吗
 
-This project was built with [Lovable](https://lovable.dev).
-
-**Live app**: https://vocab-rhythm.lovable.app
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/1f4ce4e8-dfe0-4987-a5e3-b9ebab729f99).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+Use Node.js 22.12 or newer with Bun:
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+bun install --frozen-lockfile
+bun run dev
 ```
+
+## Self-hosted Node deployment
+
+The production build uses Nitro's Node server preset. See [self-hosted Node deployment](docs/deployment/self-hosted-node.md) for build-time public Supabase configuration, runtime secrets, Auth setup, and the server handoff checklist.

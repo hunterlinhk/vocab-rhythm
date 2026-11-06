@@ -15,17 +15,22 @@
       "definition_rewrite": 2,
       "usage_note": 2
     },
+    "stored_content_rows": 88,
     "stored_senses": 43,
     "stored_primary_senses": 40,
     "stored_supplementary_senses": 3,
-    "stored_usage_notes": 2,
+    "stored_usage_notes": 45,
+    "usage_note_links": {
+      "linked_to_editorial_sense": 43,
+      "linked_to_existing_oewn_sense": 2
+    },
     "audit_decisions": {
       "defer_no_suitable_sense": 38,
       "propose_primary": 7
     }
   },
   "output_sha256": {
-    "import_sql": "5cf321a6ef81b3f6a9539311b8b1dc69d498507b36eb7acd46716b5fef581c52",
+    "import_sql": "57c794ec27ba597a908698e57f54f0fa006052cde7bf9d52e14fb87b3ae24afd",
     "rollback_sql": "751594bab18676feea9e939387e4adb106ce296d9cc6065fa934af9864cd02d9"
   }
 }

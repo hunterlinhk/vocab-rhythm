@@ -1,5 +1,7 @@
 # Review v1 rollout
 
+> Historical runbook for the previous Lovable Cloud deployment. Its provider-specific migration, backup, and SQL Editor steps do not apply to the current self-hosted migration; use [the self-hosted Node handoff](deployment/self-hosted-node.md) and the infrastructure owner's target-specific migration plan.
+
 This rollout applies migration `0011_review_system_v1_foundation.sql` before merging the application changes to `main`. No production database has been contacted as part of preparing this runbook.
 
 ## Follow-up: source-book provenance migration 0013
@@ -14,7 +16,7 @@ The remaining steps below document the original 0011 rollout and are historical 
 
 ## Migration registration and runner
 
-The migration is registered as index 11 in `drizzle/migrations/meta/_journal.json`. `drizzle.config.ts` points Drizzle Kit at `drizzle/migrations` and reads `LOVABLE_DB_MIGRATION_URL`; there is no repository `migrate` npm script. The SQL file has no explicit `BEGIN`/`COMMIT`. The installed Drizzle PostgreSQL migrator runs pending migrations in a transaction, and records them in `drizzle.__drizzle_migrations`.
+The migration is registered as index 11 in `drizzle/migrations/meta/_journal.json`. `drizzle.config.ts` points Drizzle Kit at `drizzle/migrations` and reads `DATABASE_URL`; there is no repository `migrate` npm script. The SQL file has no explicit `BEGIN`/`COMMIT`. The installed Drizzle PostgreSQL migrator runs pending migrations in a transaction, and records them in `drizzle.__drizzle_migrations`.
 
 Lovable Git sync does not execute migration files. The repository has marker migrations `0008` and `0010` whose comments expect the Drizzle migrator to apply earlier pending files. The available project history does not prove how every production migration was run. Since `0009` was confirmed executed but its execution method and the live migration log have not been checked, it is possible the production database has no Drizzle migration log, or that the log is behind the schema.
 

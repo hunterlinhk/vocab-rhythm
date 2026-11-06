@@ -172,7 +172,7 @@ test("pending editorial senses and notes stay hidden until publication", () => {
   const publishedNote = {
     ...pendingNote,
     publication_status: "published",
-    related_sense_key: "the%1:00:00::",
+    related_sense_key: publishedPrimary.sense_key,
   };
   const result = assembleWordEntry({ word: "the", bookId: "my-book", cn: "词书本地释义" }, [
     publishedPrimary,
@@ -197,10 +197,40 @@ test("pending editorial senses and notes stay hidden until publication", () => {
       text: "alright 是 all right 的非正式拼写形式。",
       sourceId: publishedNote.source_id,
       sourceEntryRef: publishedNote.source_entry_ref,
-      relatedSenseKey: "the%1:00:00::",
+      relatedSenseKey: publishedPrimary.sense_key,
+      relatedTranslation: publishedPrimary.translation,
+      relatedPartOfSpeech: publishedPrimary.part_of_speech,
+      relatedDefinitionEn: publishedPrimary.definition_en,
     },
   ]);
   assert.equal(result.origins.cn, undefined);
+});
+
+test("usage notes do not expose candidate sense wording", () => {
+  const candidate = {
+    ...shared,
+    sense_key: "candidate-sense",
+    translation: "候选释义",
+    publication_status: "published",
+    content_type: "sense",
+    sense_role: "candidate",
+  };
+  const note = {
+    ...shared,
+    sense_key: "usage-note",
+    translation: null,
+    part_of_speech: null,
+    definition_en: null,
+    content_type: "usage_note",
+    sense_role: null,
+    publication_status: "published",
+    usage_note_zh: "用法说明",
+    related_sense_key: candidate.sense_key,
+  };
+  const result = assembleWordEntry({ word: "the" }, [candidate, note]);
+  assert.equal(result.entry.usageNotes?.[0]?.text, "用法说明");
+  assert.equal(result.entry.usageNotes?.[0]?.relatedTranslation, undefined);
+  assert.equal(result.entry.cn, undefined);
 });
 
 test("batched lookup links bundled and custom words through the same lexeme", async () => {
