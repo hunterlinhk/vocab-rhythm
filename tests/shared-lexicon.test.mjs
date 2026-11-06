@@ -129,6 +129,80 @@ test("unreviewed OEWN senses remain stored without choosing a WordEntry learning
   assert.equal(local.entry.definitionEn, "My own meaning");
 });
 
+test("pending editorial senses and notes stay hidden until publication", () => {
+  const pendingPrimary = {
+    ...shared,
+    source_id: "cadence-round2-editorial-test",
+    sense_key: "cadence-round2:a:missing_core_sense",
+    priority: 110,
+    translation: "不定冠词：一个",
+    definition_en: "Used before a singular countable noun.",
+    publication_status: "pending_review",
+    content_type: "sense",
+    sense_role: "primary",
+    review_decision: "defer_no_suitable_sense",
+  };
+  const pendingSupplement = {
+    ...pendingPrimary,
+    sense_key: "cadence-round2:asset:additional_common_sense",
+    sense_role: "supplementary",
+    review_decision: "propose_primary",
+  };
+  const pendingNote = {
+    ...pendingPrimary,
+    sense_key: "cadence-round2:alright:usage_note",
+    content_type: "usage_note",
+    sense_role: null,
+    translation: null,
+    part_of_speech: null,
+    definition_en: null,
+    usage_note_zh: "alright 是 all right 的非正式拼写形式。",
+  };
+  const pending = assembleWordEntry({ word: "the", bookId: "my-book" }, [
+    pendingPrimary,
+    pendingSupplement,
+    pendingNote,
+  ]);
+  assert.equal(pending.entry.cn, undefined);
+  assert.equal(pending.entry.additionalSenses, undefined);
+  assert.equal(pending.entry.usageNotes, undefined);
+
+  const publishedPrimary = { ...pendingPrimary, publication_status: "published" };
+  const publishedSupplement = { ...pendingSupplement, publication_status: "published" };
+  const publishedNote = {
+    ...pendingNote,
+    publication_status: "published",
+    related_sense_key: "the%1:00:00::",
+  };
+  const result = assembleWordEntry({ word: "the", bookId: "my-book", cn: "词书本地释义" }, [
+    publishedPrimary,
+    publishedSupplement,
+    publishedNote,
+  ]);
+  assert.equal(result.entry.cn, "词书本地释义");
+  assert.equal(result.entry.definitionEn, publishedPrimary.definition_en);
+  assert.deepEqual(result.entry.additionalSenses, [
+    {
+      senseKey: publishedSupplement.sense_key,
+      translation: publishedSupplement.translation,
+      definitionEn: publishedSupplement.definition_en,
+      partOfSpeech: publishedSupplement.part_of_speech,
+      sourceId: publishedSupplement.source_id,
+      sourceEntryRef: publishedSupplement.source_entry_ref,
+      relatedSenseKey: undefined,
+    },
+  ]);
+  assert.deepEqual(result.entry.usageNotes, [
+    {
+      text: "alright 是 all right 的非正式拼写形式。",
+      sourceId: publishedNote.source_id,
+      sourceEntryRef: publishedNote.source_entry_ref,
+      relatedSenseKey: "the%1:00:00::",
+    },
+  ]);
+  assert.equal(result.origins.cn, undefined);
+});
+
 test("batched lookup links bundled and custom words through the same lexeme", async () => {
   const calls = [];
   const client = {
@@ -137,7 +211,9 @@ test("batched lookup links bundled and custom words through the same lexeme", as
         select() {
           return this;
         },
-        eq() {
+        eq(column, value) {
+          if (table === "lexicon_entries" && column === "publication_status")
+            calls.push({ table, equality: [column, value] });
           return this;
         },
         in(column, values) {
@@ -180,6 +256,14 @@ test("batched lookup links bundled and custom words through the same lexeme", as
   assert.equal(calls.filter((call) => call.table === "lexemes").length, 1);
   assert.equal(calls.filter((call) => call.table === "lexicon_entries" && call.column).length, 1);
   assert.ok(calls.some((call) => call.filter === "source_id.neq.oewn-2025,priority.gte.100"));
+  assert.ok(
+    calls.some(
+      (call) =>
+        call.table === "lexicon_entries" &&
+        call.equality?.[0] === "publication_status" &&
+        call.equality[1] === "published",
+    ),
+  );
   assert.equal(entries[0].cn, "这；那");
   assert.equal(entries[1].cn, "私有解释");
   assert.equal(entries[1].partOfSpeech, "determiner");
@@ -227,4 +311,23 @@ test("migration stores source licensing and links words without moving learning 
   assert.match(sql, /ADD COLUMN lexeme_id uuid REFERENCES public\.lexemes/);
   assert.match(sql, /CREATE TRIGGER word_entries_link_lexeme/);
   assert.doesNotMatch(sql, /ALTER TABLE public\.(attempts|word_mastery|book_progress)/);
+});
+
+test("editorial migration keeps content types separate and published rows gated", async () => {
+  const sql = await readFile(
+    new URL("../drizzle/migrations/0018_lexicon_editorial_content.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(sql, /ADD COLUMN content_type text NOT NULL DEFAULT 'sense'/);
+  assert.match(sql, /ADD COLUMN publication_status text NOT NULL DEFAULT 'published'/);
+  assert.match(sql, /content_type = 'usage_note'.+sense_role IS NULL/s);
+  assert.match(sql, /publication_status = 'published' AND EXISTS/s);
+  assert.match(
+    sql,
+    /source_kind = 'editorial' OR \(license_id IS NOT NULL AND license_url IS NOT NULL\)/,
+  );
+  assert.doesNotMatch(
+    sql,
+    /ALTER TABLE public\.(attempts|word_mastery|book_progress|word_entries)/,
+  );
 });

@@ -1,3 +1,12 @@
+# Cadence Round 2 editorial content integration
+
+- Branch: `feat/oewn-round2-content-integration`, based on `origin/main` at `83edf56cbe45fdd95ad7aab54565c6e921fb8e47`.
+- Vendored the 45-entry rewrite JSON and original decisions. The deterministic mapper checks all headwords, 38 deferred/7 proposed decisions, exact primary/candidate IDs, and no overlap with the unchanged 26 pilots. Manifest inputs are SHA-256 tracked.
+- Shared Lexicon now separates primary senses, supplementary senses, and usage notes. The migration adds publication gates; the import source is restricted and all rows are `pending_review`. Local book fields retain precedence.
+- Prepared: 40 primary senses, 3 supplementary senses, and 2 usage notes. No existing OEWN sense ID or pilot row is replaced. Rollback first restricts and removes only this editorial source.
+- Validation: `bun run test` 103/103, `bunx tsc --noEmit`, `bun run build`, generator `--check`, and PGlite migration/import/RLS/rollback simulation passed.
+- No shared/production database migration or SQL, approval, merge, or deployment. Future release order is migration `0018` + marker `0019`, pending-content import, frontend deployment, then explicit approval and publication.
+
 # Learning statistics aggregation
 
 - `perf/learning-stats-aggregation` starts from `origin/main` at `af024e16aa94904f98b2beb2561f25ba8ea6ed02`.

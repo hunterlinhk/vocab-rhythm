@@ -1,5 +1,22 @@
 import { NGSL_BOOK_ID, NGSL_WORDS } from "./ngsl";
 
+export type LexiconSense = {
+  senseKey: string;
+  translation?: string | undefined;
+  partOfSpeech?: string | undefined;
+  definitionEn?: string | undefined;
+  sourceId: string;
+  sourceEntryRef: string | null;
+  relatedSenseKey?: string | undefined;
+};
+
+export type LexiconUsageNote = {
+  text: string;
+  sourceId: string;
+  sourceEntryRef: string | null;
+  relatedSenseKey?: string | undefined;
+};
+
 /** Only the headword is required; study content may be added independently later. */
 export type WordEntry = {
   word: string;
@@ -20,6 +37,8 @@ export type WordEntry = {
   verb?: string | undefined;
   object?: string | undefined;
   svo?: { s: string; v: string; o?: string | undefined } | undefined;
+  additionalSenses?: LexiconSense[] | undefined;
+  usageNotes?: LexiconUsageNote[] | undefined;
 };
 
 export type WordBook = {

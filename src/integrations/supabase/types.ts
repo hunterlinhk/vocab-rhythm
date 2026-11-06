@@ -164,6 +164,7 @@ export type Database = {
       lexicon_entries: {
         Row: {
           created_at: string
+          content_type: string
           definition_en: string | null
           id: string
           lexeme_id: string
@@ -171,17 +172,23 @@ export type Database = {
           part_of_speech: string | null
           phonetic: string | null
           priority: number
+          publication_status: string
+          related_sense_key: string | null
+          review_decision: string | null
           sense_key: string
+          sense_role: string | null
           sentence: string | null
           sentence_translation: string | null
           source_entry_ref: string | null
           source_id: string
           subject: string | null
           translation: string | null
+          usage_note_zh: string | null
           verb: string | null
         }
         Insert: {
           created_at?: string
+          content_type?: string
           definition_en?: string | null
           id?: string
           lexeme_id: string
@@ -189,17 +196,23 @@ export type Database = {
           part_of_speech?: string | null
           phonetic?: string | null
           priority?: number
+          publication_status?: string
+          related_sense_key?: string | null
+          review_decision?: string | null
           sense_key?: string
+          sense_role?: string | null
           sentence?: string | null
           sentence_translation?: string | null
           source_entry_ref?: string | null
           source_id: string
           subject?: string | null
           translation?: string | null
+          usage_note_zh?: string | null
           verb?: string | null
         }
         Update: {
           created_at?: string
+          content_type?: string
           definition_en?: string | null
           id?: string
           lexeme_id?: string
@@ -207,13 +220,18 @@ export type Database = {
           part_of_speech?: string | null
           phonetic?: string | null
           priority?: number
+          publication_status?: string
+          related_sense_key?: string | null
+          review_decision?: string | null
           sense_key?: string
+          sense_role?: string | null
           sentence?: string | null
           sentence_translation?: string | null
           source_entry_ref?: string | null
           source_id?: string
           subject?: string | null
           translation?: string | null
+          usage_note_zh?: string | null
           verb?: string | null
         }
         Relationships: [
@@ -239,9 +257,10 @@ export type Database = {
           attribution: string
           id: string
           imported_at: string
-          license_id: string
+          license_id: string | null
           license_notice: string | null
-          license_url: string
+          license_url: string | null
+          source_kind: string
           source_sha256: string | null
           source_url: string
           title: string
@@ -253,9 +272,10 @@ export type Database = {
           attribution: string
           id: string
           imported_at?: string
-          license_id: string
+          license_id?: string | null
           license_notice?: string | null
-          license_url: string
+          license_url?: string | null
+          source_kind?: string
           source_sha256?: string | null
           source_url: string
           title: string
@@ -267,9 +287,10 @@ export type Database = {
           attribution?: string
           id?: string
           imported_at?: string
-          license_id?: string
+          license_id?: string | null
           license_notice?: string | null
-          license_url?: string
+          license_url?: string | null
+          source_kind?: string
           source_sha256?: string | null
           source_url?: string
           title?: string

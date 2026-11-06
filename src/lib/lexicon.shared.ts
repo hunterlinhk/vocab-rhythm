@@ -1,4 +1,4 @@
-import type { WordEntry } from "@/data/words";
+import type { LexiconSense, LexiconUsageNote, WordEntry } from "@/data/words";
 
 export type LexiconContent = {
   normalized_word: string;
@@ -15,6 +15,12 @@ export type LexiconContent = {
   subject: string | null;
   verb: string | null;
   object: string | null;
+  content_type?: "sense" | "usage_note" | undefined;
+  sense_role?: "primary" | "supplementary" | "candidate" | null | undefined;
+  publication_status?: "pending_review" | "approved" | "published" | "rejected" | undefined;
+  review_decision?: "propose_primary" | "defer_no_suitable_sense" | null | undefined;
+  related_sense_key?: string | null | undefined;
+  usage_note_zh?: string | null | undefined;
 };
 
 export type FieldOrigin = { sourceId: string; sourceEntryRef: string | null };
@@ -30,14 +36,25 @@ export const lexemeKey = (word: string) => word.trim().toLowerCase();
 
 /** Book-local content wins. Shared content fills missing fields without changing book identity or statistics. */
 export function assembleWordEntry(entry: WordEntry, content: LexiconContent[]): LexiconResolution {
+  const published = content.filter(
+    (row) => row.publication_status == null || row.publication_status === "published",
+  );
+  const senses = published.filter(
+    (row) => row.content_type !== "usage_note" && row.sense_role !== "candidate",
+  );
   // The full OEWN import stores every sense at priority 0. Only explicitly reviewed
   // OEWN primaries (including the original 26 pilot senses) may hydrate WordEntry.
-  const eligible = content.filter((row) => row.source_id !== "oewn-2025" || row.priority >= 100);
+  const eligible = senses.filter((row) => row.source_id !== "oewn-2025" || row.priority >= 100);
   const ordered = [...eligible].sort(
     (a, b) =>
       b.priority - a.priority ||
       a.source_id.localeCompare(b.source_id) ||
       a.sense_key.localeCompare(b.sense_key),
+  );
+  const primary = ordered.filter((row) => row.sense_role !== "supplementary");
+  const supplementary = ordered.filter((row) => row.sense_role === "supplementary");
+  const usageNotes = published.filter(
+    (row) => row.content_type === "usage_note" && row.usage_note_zh?.trim(),
   );
   const origins: LexiconResolution["origins"] = {};
   const originOf = (row: LexiconContent): FieldOrigin => ({
@@ -45,7 +62,7 @@ export function assembleWordEntry(entry: WordEntry, content: LexiconContent[]): 
     sourceEntryRef: row.source_entry_ref,
   });
   // Meaning fields stay within one source sense until cross-source sense alignment exists.
-  const meaning = ordered.find(
+  const meaning = primary.find(
     (row) => row.translation?.trim() || row.definition_en?.trim() || row.part_of_speech?.trim(),
   );
   const pickMeaning = (
@@ -62,7 +79,7 @@ export function assembleWordEntry(entry: WordEntry, content: LexiconContent[]): 
   const cn = pickMeaning(entry.cn, "translation", "cn");
   const partOfSpeech = pickMeaning(entry.partOfSpeech, "part_of_speech", "partOfSpeech");
   const definitionEn = pickMeaning(entry.definitionEn, "definition_en", "definitionEn");
-  const pronunciation = ordered.find((row) => row.phonetic?.trim());
+  const pronunciation = primary.find((row) => row.phonetic?.trim());
   const phonetic = entry.phonetic?.trim() ? entry.phonetic : (pronunciation?.phonetic ?? undefined);
   if (!entry.phonetic?.trim() && pronunciation) origins.phonetic = originOf(pronunciation);
 
@@ -74,13 +91,32 @@ export function assembleWordEntry(entry: WordEntry, content: LexiconContent[]): 
     entry.verb,
     entry.object,
   ].some((value) => value?.trim());
-  const example = localExample ? undefined : ordered.find((row) => row.sentence?.trim());
+  const example = localExample ? undefined : primary.find((row) => row.sentence?.trim());
   if (example) origins.sentence = originOf(example);
   const sentence = entry.sentence || example?.sentence || undefined;
   const sentenceCn = entry.sentenceCn ?? example?.sentence_translation ?? undefined;
   const subject = entry.subject ?? example?.subject ?? undefined;
   const verb = entry.verb ?? example?.verb ?? undefined;
   const object = entry.object ?? example?.object ?? undefined;
+  const additionalSenses: LexiconSense[] = supplementary
+    .filter(
+      (row) => row.translation?.trim() || row.definition_en?.trim() || row.part_of_speech?.trim(),
+    )
+    .map((row) => ({
+      senseKey: row.sense_key,
+      translation: row.translation ?? undefined,
+      definitionEn: row.definition_en ?? undefined,
+      partOfSpeech: row.part_of_speech ?? undefined,
+      sourceId: row.source_id,
+      sourceEntryRef: row.source_entry_ref,
+      relatedSenseKey: row.related_sense_key ?? undefined,
+    }));
+  const notes: LexiconUsageNote[] = usageNotes.map((row) => ({
+    text: row.usage_note_zh!.trim(),
+    sourceId: row.source_id,
+    sourceEntryRef: row.source_entry_ref,
+    relatedSenseKey: row.related_sense_key ?? undefined,
+  }));
 
   return {
     entry: {
@@ -95,6 +131,12 @@ export function assembleWordEntry(entry: WordEntry, content: LexiconContent[]): 
       verb,
       object,
       svo: subject && verb ? { s: subject, v: verb, o: object } : entry.svo,
+      additionalSenses: entry.additionalSenses?.length
+        ? entry.additionalSenses
+        : additionalSenses.length
+          ? additionalSenses
+          : undefined,
+      usageNotes: entry.usageNotes?.length ? entry.usageNotes : notes.length ? notes : undefined,
     },
     origins,
   };

@@ -1,0 +1,31 @@
+{
+  "source_id": "cadence-round2-editorial-bccb9a1ab863",
+  "source_kind": "editorial",
+  "access_tier": "restricted",
+  "publication_status": "pending_review",
+  "input_sha256": {
+    "rewritten_learning_content_json": "de9e7a320587e55d439210a2d3c9c41e0a2a1761fae273fc11ae9fa91ef410ae",
+    "round2_decisions_jsonl": "1efbc15ab0576ce3537c7c624f22281f2b7ab6dd04220c9241d4c27b102f4cda"
+  },
+  "counts": {
+    "input_entries": 45,
+    "input_entry_types": {
+      "missing_core_sense": 38,
+      "additional_common_sense": 3,
+      "definition_rewrite": 2,
+      "usage_note": 2
+    },
+    "stored_senses": 43,
+    "stored_primary_senses": 40,
+    "stored_supplementary_senses": 3,
+    "stored_usage_notes": 2,
+    "audit_decisions": {
+      "defer_no_suitable_sense": 38,
+      "propose_primary": 7
+    }
+  },
+  "output_sha256": {
+    "import_sql": "5cf321a6ef81b3f6a9539311b8b1dc69d498507b36eb7acd46716b5fef581c52",
+    "rollback_sql": "751594bab18676feea9e939387e4adb106ce296d9cc6065fa934af9864cd02d9"
+  }
+}

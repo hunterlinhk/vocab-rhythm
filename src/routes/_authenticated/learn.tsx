@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { BookPicker } from "@/components/BookPicker";
+import { LexiconEditorialDetails } from "@/components/LexiconEditorialDetails";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { bareEntry, findInBundledBook, findWord, type WordEntry } from "@/data/words";
 import { useBook, useLibrary } from "@/hooks/use-library";
@@ -930,6 +931,7 @@ function LearnPage() {
                     <SpeakerButton word={entry.word} />
                   </div>
                   {entry.phonetic && <p className="mt-1 font-mono text-sm text-muted-foreground">{entry.phonetic}</p>}
+                  <LexiconEditorialDetails entry={entry} />
                 </div>
               ) : (
                 <SpeakerButton word={entry.word} className="size-9" />

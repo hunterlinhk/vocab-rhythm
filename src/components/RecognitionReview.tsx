@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
+import { LexiconEditorialDetails } from "@/components/LexiconEditorialDetails";
 import { hasMeaning } from "@/data/words";
 import { useDueReview } from "@/hooks/use-due-review";
 import { recordAttempt } from "@/lib/learning.functions";
@@ -239,6 +240,7 @@ export function RecognitionReview() {
                 </button>
               ))}
             </div>
+            {picked && <LexiconEditorialDetails entry={entry} />}
             {error && (
               <p role="alert" className="text-sm text-destructive">
                 {error}

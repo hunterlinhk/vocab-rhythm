@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { CheckCircle2, PenLine, Sparkles, Volume2 } from "lucide-react";
 import { BookPicker } from "@/components/BookPicker";
+import { LexiconEditorialDetails } from "@/components/LexiconEditorialDetails";
 import { RecognitionReview } from "@/components/RecognitionReview";
 import { TypingBoard, type TypingResult } from "@/components/TypingBoard";
 import { hasMeaning, type WordEntry } from "@/data/words";
@@ -485,6 +486,7 @@ function NormalMemorizePage() {
               {entry.phonetic && (
                 <p className="font-mono text-sm text-muted-foreground">{entry.phonetic}</p>
               )}
+              <LexiconEditorialDetails entry={entry} />
             </div>
             <TypingBoard target={entry.word} size="word" onComplete={onSpelled} />
           </div>
@@ -534,11 +536,14 @@ function NormalMemorizePage() {
             </div>
 
             {picked && phase === "context" && (
-              <p className="rise-in text-sm text-muted-foreground">
-                {entry.word}
-                {entry.phonetic ? ` ${entry.phonetic}` : ""}
-                {entry.sentenceCn ? ` · ${entry.sentenceCn}` : ""}
-              </p>
+              <>
+                <p className="rise-in text-sm text-muted-foreground">
+                  {entry.word}
+                  {entry.phonetic ? ` ${entry.phonetic}` : ""}
+                  {entry.sentenceCn ? ` · ${entry.sentenceCn}` : ""}
+                </p>
+                <LexiconEditorialDetails entry={entry} />
+              </>
             )}
           </div>
         )}

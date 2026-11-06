@@ -127,6 +127,20 @@
       "when": 1791700000000,
       "tag": "0017_learning_stats_rpc",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793954967078,
+      "tag": "0018_lexicon_editorial_content",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793954967079,
+      "tag": "0019_apply_pending_0018_marker",
+      "breakpoints": true
     }
   ]
 }
