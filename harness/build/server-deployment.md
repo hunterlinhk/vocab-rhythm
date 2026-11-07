@@ -24,9 +24,9 @@
 
 ## Host resources
 
-- Final snapshot: 788 MiB RAM used and 1.2 GiB available; no swap.
-- Root disk: 6.3 GiB of 40 GiB used (17%).
-- App container: 65.6 MiB; PostgreSQL container: 48.9 MiB.
+- Post-redeploy snapshot: 826 MiB RAM used, 1.1 GiB available; no swap.
+- Root disk: 7.6 GiB of 40 GiB used (21%).
+- App container: 62.37 MiB; PostgreSQL container: 54.5 MiB.
 
 ## Owner setup still needed
 
@@ -41,4 +41,5 @@
 
 - Rebuild or roll back the app container without removing `cadence-postgres` or altering pending Round 2 rows.
 - Do not run the Round 2 editorial rollback for deployment recovery.
+
 

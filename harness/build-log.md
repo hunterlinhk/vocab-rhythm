@@ -2,7 +2,7 @@
 
 - Status: live on `38.95.75.66.nip.io`; security-fix commit `72d766a6c3c8166ed3fd3c4ab29360f47cce66a8` is deployed on `feat/self-hosted-better-auth-postgres`.
 - Security patch: `@tanstack/react-start` 1.168.60 and `better-auth` 1.7.16 are installed; direct TanStack Router/plugin versions are aligned to 1.170.41/1.168.42. The TanStack error component now accepts `unknown` to match the updated router contract. The app alone was rebuilt with `docker compose up -d --build --no-deps app`; local tests 105/105, TypeScript, and production build pass. Live root and auth-session endpoints return 200. PostgreSQL container ID remained unchanged.
-- Server checkout now follows commit `72d766a`; its root `.env` remains on disk, root-owned mode 0600, ignored and untracked. It was not read, copied, or included in the build context.
+- Server checkout now follows `2fa7660` (the deployment-record follow-up); its root `.env` remains on disk, root-owned mode 0600, ignored and untracked. It was not read, copied, or included in the build context.
 - Repository hygiene: `.env` is removed from the current Git index and ignored; historical Git objects may still contain its prior contents. The file was not inspected. Rotate any credentials that may have been stored there; no history rewrite was performed.
 - Debian 13 host: 2 vCPU, 1.9 GiB RAM, 40 GiB disk, no swap. Node app and PostgreSQL containers are healthy; Caddy is active and configuration validation passes.
 - HTTPS returns 200 with a valid certificate. Caddy and the host public-IP hairpin return HTTP 308 to HTTPS. A direct workstation curl to public HTTP/80 connected then reset; HTTPS works and TCP 3000/5432 are not reachable externally. If raw HTTP clients must work, check the provider/network path for port 80.
@@ -11,7 +11,7 @@
 - Live email registration/login, guest use/linking, learning, account isolation, statistics, dictionary lookup, and review passed. Repeated review advanced the test schedule revision to 2 and cleared the due queue. The review center now loads correctly after the auth-cache readiness fix.
 - All 10 disposable email/guest test accounts created by this verification were deleted; no test users remain.
 - Local validation on the final source: `bun run test` 105/105, `bunx tsc --noEmit`, and `bun run build` passed. The earlier real PostgreSQL E2E passed; it was not rerun here because the Windows admin token cannot start the embedded PostgreSQL runner.
-- Final host snapshot: 788 MiB RAM used, 1.2 GiB available; root disk 6.3/40 GiB used (17%). App container 65.6 MiB; PostgreSQL 48.9 MiB.
+- Post-redeploy host snapshot: 826 MiB RAM used, 1.1 GiB available, no swap; root disk 7.6/40 GiB used (21%). App container 62.37 MiB; PostgreSQL 54.5 MiB.
 - Still needed from the owner: an owner-controlled domain, real Google OAuth client credentials and callback configuration, root password rotation and SSH key login, and credential rotation if any secrets were committed in `.env`. The unrelated failed `ifup@ens18.service` and `rc-local.service` remain unchanged.
 
 # Cadence self-hosted backend rewrite — implementation complete
@@ -167,4 +167,5 @@
 - Repeated PGlite simulation against migrations `0006–0008` and the 26-row pilot passed: partial batch failure and retry, repeated batch execution without duplicates, public-table isolation during staging, exact counts/provenance/pilot-key validation, guarded early-cleanup refusal, injected final-apply failure with full rollback of source/lexeme/sense writes, final apply twice, read-only verification, and successful cleanup.
 - Validation: `npm test` 25/25 passed; `npx tsc --noEmit` passed; `npm run build` passed; targeted ESLint for changed JS files passed. Repository-wide `npm run lint` reports thousands of pre-existing CRLF/Prettier errors across untouched files.
 - No production import is authorized or needed in this task.
+
 
