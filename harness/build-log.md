@@ -1,6 +1,8 @@
 # Cadence server deployment - live state
 
-- Status: live on `38.95.75.66.nip.io`; application source commit `011594b9e24849f8641fa1506a0d599eef9ab346` is deployed on `feat/self-hosted-better-auth-postgres`.
+- Status: live on `38.95.75.66.nip.io`; security-fix commit `72d766a6c3c8166ed3fd3c4ab29360f47cce66a8` is deployed on `feat/self-hosted-better-auth-postgres`.
+- Security patch: `@tanstack/react-start` 1.168.60 and `better-auth` 1.7.16 are installed; direct TanStack Router/plugin versions are aligned to 1.170.41/1.168.42. The TanStack error component now accepts `unknown` to match the updated router contract. The app alone was rebuilt with `docker compose up -d --build --no-deps app`; local tests 105/105, TypeScript, and production build pass. Live root and auth-session endpoints return 200. PostgreSQL container ID remained unchanged.
+- Server checkout now follows commit `72d766a`; its root `.env` remains on disk, root-owned mode 0600, ignored and untracked. It was not read, copied, or included in the build context.
 - Repository hygiene: `.env` is removed from the current Git index and ignored; historical Git objects may still contain its prior contents. The file was not inspected. Rotate any credentials that may have been stored there; no history rewrite was performed.
 - Debian 13 host: 2 vCPU, 1.9 GiB RAM, 40 GiB disk, no swap. Node app and PostgreSQL containers are healthy; Caddy is active and configuration validation passes.
 - HTTPS returns 200 with a valid certificate. Caddy and the host public-IP hairpin return HTTP 308 to HTTPS. A direct workstation curl to public HTTP/80 connected then reset; HTTPS works and TCP 3000/5432 are not reachable externally. If raw HTTP clients must work, check the provider/network path for port 80.
