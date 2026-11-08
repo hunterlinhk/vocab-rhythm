@@ -35,7 +35,8 @@ export type MemoryState = {
   forgettingRisk: number;
   /** Predicted unassisted success 30 days from now, NOT measured long-term recall. */
   longTermRecall30d: number;
-  confidence: "cold" | "low" | "developing" | "validated";
+  /** Evidence volume, not statistical validation of forecast accuracy. */
+  confidence: "cold" | "low" | "developing" | "repeated_long_delay";
   nextTestAt: string;
 };
 export type MemoryCalibration = {
@@ -139,8 +140,10 @@ export function projectMemory(observations: MemoryObservation[], now: string, ta
     else {
       const spacingGain = clamp(1 + Math.log1p(elapsed) * (0.6 + (1 - base) * 0.7), 1.04, 3.5);
       const difficultyPenalty = clamp(1.25 - difficulty / 20, 0.7, 1.2);
-      const speedPenalty = o.durationMs && o.durationMs > 0 && o.skill === "spelling"
-        ? (o.durationMs > (2500 + o.word.length * 850) ? 0.95 : 1) : 1;
+      const speedPenalty = o.durationMs && o.durationMs > 0
+        ? (o.skill === "spelling"
+          ? (o.durationMs > (2500 + o.word.length * 850) ? 0.95 : 1)
+          : (o.durationMs > 6000 ? 0.97 : 1)) : 1;
       stability = clamp(previous.stabilityDays * spacingGain * difficultyPenalty * speedPenalty, 0.08, 365);
     }
     memory.set(key, {
@@ -172,7 +175,7 @@ export function projectMemory(observations: MemoryObservation[], now: string, ta
       recallProbability: round(probability),
       forgettingRisk: round(1 - probability),
       longTermRecall30d: round(sigmoid(logit(retentionAt(s.stabilityDays, elapsed + 30)) + offset)),
-      confidence: s.longDelayTests >= 3 ? "validated" : s.delayedTests >= 3 ? "developing" : s.observedCount >= 2 ? "low" : "cold",
+      confidence: s.longDelayTests >= 3 ? "repeated_long_delay" : s.delayedTests >= 3 ? "developing" : s.observedCount >= 2 ? "low" : "cold",
       nextTestAt: new Date(Date.parse(s.lastObservedAt) + days * DAY_MS).toISOString(),
     };
   }).sort((a, b) => b.forgettingRisk - a.forgettingRisk || a.word.localeCompare(b.word) || a.skill.localeCompare(b.skill));
