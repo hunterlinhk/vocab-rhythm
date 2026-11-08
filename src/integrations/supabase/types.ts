@@ -50,6 +50,7 @@ export type Database = {
           is_review: boolean
           mistouch: boolean
           mode: string
+          prompt_visibility: string | null
           review_mode: string | null
           review_session_id: string | null
           review_word_key: string | null
@@ -72,6 +73,7 @@ export type Database = {
           is_review?: boolean
           mistouch?: boolean
           mode?: string
+          prompt_visibility?: string | null
           review_mode?: string | null
           review_session_id?: string | null
           review_word_key?: string | null
@@ -94,6 +96,7 @@ export type Database = {
           is_review?: boolean
           mistouch?: boolean
           mode?: string
+          prompt_visibility?: string | null
           review_mode?: string | null
           review_session_id?: string | null
           review_word_key?: string | null
