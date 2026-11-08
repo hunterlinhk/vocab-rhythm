@@ -52,3 +52,17 @@ test("plan enforces budget and bounded AI parameters, with reasons", () => {
   assert.equal(plan.next.type, "diagnostic_test");
   assert.equal(plan.next.url, "/learn?queue=today&dictation=true");
 });
+
+test("hints never count as clean delayed recall", () => {
+  const clean = projectMemory([e(1, day(0)), e(2, day(7))], day(7));
+  const assisted = projectMemory([e(1, day(0)), e(2, day(7), true, { hintCount: 1 })], day(7));
+  assert.ok(assisted.states[0].stabilityDays < clean.states[0].stabilityDays);
+  assert.equal(assisted.states[0].lastOutcome, "assisted");
+  assert.equal(assisted.calibration.find((c) => c.skill === "spelling").sampleSize, 0);
+});
+test("slow recognition response decreases stability gain without changing outcome", () => {
+  const events = [e(1, day(0), true, { skill: "recognition", prompt: "choice" })];
+  const fast = projectMemory([...events, e(2, day(7), true, { skill: "recognition", prompt: "choice", durationMs: 900 })], day(7));
+  const slow = projectMemory([...events, e(2, day(7), true, { skill: "recognition", prompt: "choice", durationMs: 9000 })], day(7));
+  assert.ok(slow.states[0].stabilityDays < fast.states[0].stabilityDays);
+});
