@@ -10,6 +10,7 @@ import { SectionHeading } from "@/components/SectionHeading";
 import { SettingInfo } from "@/components/setting-info";
 import { cn } from "@/lib/utils";
 import { getTodayPracticeCount, saveSettings } from "@/lib/learning.functions";
+import { getMemorySnapshot } from "@/lib/memory.functions";
 import { bookLearnedCount } from "@/lib/learning-state.shared";
 import { useLibrary } from "@/hooks/use-library";
 import { useLearningState } from "@/hooks/use-learning-state";
@@ -37,6 +38,8 @@ const PRESETS = [20, 30, 50];
 function PlanPage() {
   const qc = useQueryClient();
   const fetchTodayCount = useServerFn(getTodayPracticeCount);
+  const fetchMemory = useServerFn(getMemorySnapshot);
+  const [budgetMinutes, setBudgetMinutes] = useState(15);
   const calendar = useLocalCalendar();
   const persist = useServerFn(saveSettings);
   const { data: state, isAuthoritative } = useLearningState();
@@ -45,6 +48,15 @@ function PlanPage() {
     queryKey: ["stats", "today-count", calendar?.timeZone, calendar?.day],
     queryFn: () => fetchTodayCount({ data: { timeZone: calendar!.timeZone } }),
     enabled: !!calendar,
+  });
+
+  const { data: memory, isError: memoryError } = useQuery({
+    queryKey: ["memory-snapshot", calendar?.timeZone, calendar?.day, budgetMinutes],
+    queryFn: () => fetchMemory({ data: {
+      timeZone: calendar!.timeZone, timeBudgetMinutes: budgetMinutes, targetRetention: 0.9, limit: 30,
+    } }),
+    enabled: !!calendar,
+    staleTime: 60_000,
   });
 
   const [goal, setGoal] = useState(20);
@@ -208,6 +220,65 @@ function PlanPage() {
         <Button asChild variant="ghost" size="sm" className="mt-4 rounded-full">
           <Link to="/memorize">去背单词</Link>
         </Button>
+      </section>
+
+      <section className="glass-panel p-6 sm:p-8">
+        <SectionHeading eyebrow="MEMORY V2 · SHADOW" title="智能记忆建议" />
+        <p className="mt-2 text-sm text-muted-foreground">
+          基于作答证据估计遗忘风险，仍由现有 Review v1 决定实际复习到期时间。
+        </p>
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <span className="mr-2 text-sm text-muted-foreground">可用学习时间</span>
+          {([10, 15, 30] as const).map((minutes) => (
+            <button key={minutes} type="button" onClick={() => setBudgetMinutes(minutes)}
+              aria-pressed={minutes === budgetMinutes}
+              className={cn(
+                "rounded-full border px-4 py-2 text-xs transition-colors",
+                minutes === budgetMinutes
+                  ? "border-primary/40 bg-card text-foreground"
+                  : "border-border text-muted-foreground",
+              )}>
+              {minutes} 分钟
+            </button>
+          ))}
+        </div>
+        {memoryError ? (
+          <p className="mt-5 text-sm text-muted-foreground">
+            记忆预测暂不可用；原学习计划与复习功能不受影响。
+          </p>
+        ) : !memory ? (
+          <p className="mt-5 text-sm text-muted-foreground">正在计算记忆状态…</p>
+        ) : (
+          <div className="mt-5 space-y-3">
+            <div className="flex flex-wrap gap-5 text-sm text-muted-foreground">
+              <span>已建立 {memory.totalModeledStates} 条技能状态</span>
+              <span>识别延迟样本 {memory.calibration[0]?.sampleSize ?? 0}</span>
+              <span>独立拼写延迟样本 {memory.calibration[1]?.sampleSize ?? 0}</span>
+            </div>
+            {memory.dataCoverage.truncated && (
+              <p className="text-xs text-warning">历史记录超过本次读取上限；预测仅基于部分数据。</p>
+            )}
+            <div className="rounded-2xl border border-border bg-card/60 p-4">
+              <p className="text-xs text-muted-foreground">建议下一步</p>
+              <p className="mt-1 font-display text-lg">
+                {memory.plan.next.type === "diagnostic_test" ? "进行独立默写检验" :
+                  memory.plan.next.type === "review" ? "复习已有单词" :
+                  memory.plan.next.type === "new_word" ? "继续学习新词" : "本轮学习结束"}
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">{memory.plan.next.reason}</p>
+              {memory.plan.next.type !== "done" && (
+                <a href={memory.plan.next.url}
+                  className="mt-4 inline-flex rounded-full bg-primary px-5 py-2 text-sm text-primary-foreground">
+                  进入对应学习模式
+                </a>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              当前入口沿用旧版任务队列，并非精准跳转到推荐单词；独立拼写
+              与长期记忆预测还需通过延迟无提示作答验证。
+            </p>
+          </div>
+        )}
       </section>
 
       <section className="glass-panel p-6 sm:p-8">

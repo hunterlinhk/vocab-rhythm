@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { hasMeaning } from "@/data/words";
 import { useDueReview } from "@/hooks/use-due-review";
@@ -43,6 +43,7 @@ export function RecognitionReview() {
   const [error, setError] = useState<string | null>(null);
   const [retryOption, setRetryOption] = useState<string | null>(null);
   const [completed, setCompleted] = useState(false);
+  const stageStartedAt = useRef(0);
   const item = items?.[index];
   const entry = entries.data?.find(
     (candidate) => candidate.bookId === item?.bookId && candidate.word === item?.word,
@@ -52,6 +53,7 @@ export function RecognitionReview() {
     [entry, entries.data],
   );
   const identity = item ? `recognition:${item.scope_key}:${item.word_key}:${item.next_due_at}` : "";
+  useEffect(() => { stageStartedAt.current = performance.now(); }, [identity, stage]);
   useEffect(() => {
     if (!identity) return;
     try {
@@ -116,7 +118,7 @@ export function RecognitionReview() {
             correct,
             mistouch: false,
             typoCount: 0,
-            durationMs: 0,
+            durationMs: Math.max(0, Math.round(performance.now() - stageStartedAt.current)),
             isReview: true,
             reviewMode: "recognition",
             includeInReview: true,
@@ -151,6 +153,7 @@ export function RecognitionReview() {
         clearPendingWordAttempt(attemptKey);
         void qc.invalidateQueries({ queryKey: ["due-review"] });
         void qc.invalidateQueries({ queryKey: ["due-review-count"] });
+        void qc.invalidateQueries({ queryKey: ["memory-snapshot"] });
         void qc.invalidateQueries({ queryKey: ["learning-state"] });
         void qc.invalidateQueries({ queryKey: ["learning-problems"] });
         next();

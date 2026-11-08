@@ -40,9 +40,13 @@ const QUEUE_LABEL: Record<QueueKind, string> = {
 };
 
 export const Route = createFileRoute("/_authenticated/learn")({
-  validateSearch: (search: Record<string, unknown>): { queue?: QueueKind } => {
+  validateSearch: (search: Record<string, unknown>): { queue?: QueueKind; dictation?: boolean } => {
     const q = search["queue"];
-    return typeof q === "string" && q in QUEUE_LABEL ? { queue: q as QueueKind } : {};
+    const dictation = search["dictation"] === true || search["dictation"] === "true";
+    return {
+      ...(typeof q === "string" && q in QUEUE_LABEL ? { queue: q as QueueKind } : {}),
+      ...(dictation ? { dictation: true } : {}),
+    };
   },
   head: () => ({
     meta: [
@@ -67,6 +71,7 @@ type PendingWordCompletion = {
   isReview: boolean;
   reviewMode: "spelling";
   includeInReview: boolean | null;
+  promptVisibility: "visible" | "masked";
   timeZone: string;
   cursor?: { bookId: string; cursorIndex: number };
 };
@@ -221,7 +226,7 @@ function ResultPanel({
 }
 
 function LearnPage() {
-  const { queue: queueKind } = Route.useSearch();
+  const { queue: queueKind, dictation: forceDictation } = Route.useSearch();
   const problemQueue = queueKind === "wrong" || queueKind === "trouble";
   const save = useServerFn(recordAttempt);
   const flagMistouch = useServerFn(markAttemptMistouch);
@@ -440,6 +445,7 @@ function LearnPage() {
             isReview: nextCompletion.isReview,
             reviewMode: nextCompletion.reviewMode,
             includeInReview: nextCompletion.includeInReview,
+            promptVisibility: nextCompletion.promptVisibility,
         sessionId: nextCompletion.attemptId,
         sessionStage: "word_spelling" as const,
         timeZone: nextCompletion.timeZone,
@@ -484,6 +490,7 @@ function LearnPage() {
           void qc.invalidateQueries({ queryKey: ["learning-problems"] });
           void qc.invalidateQueries({ queryKey: ["due-review"] });
           void qc.invalidateQueries({ queryKey: ["due-review-count"] });
+          void qc.invalidateQueries({ queryKey: ["memory-snapshot"] });
         })
         .catch(() => {
           setCompletionRetries((items) =>
@@ -518,6 +525,7 @@ function LearnPage() {
         isReview: !!queueKind,
         reviewMode: "spelling" as const,
         includeInReview: queueKind === "today" ? true : includeSpellingInReview,
+        promptVisibility: forceDictation || prefsRef.current.dictation ? "masked" : "visible",
         timeZone: getUserTimeZone(),
         ...(!queueKind && bookId && queue.length
           ? { cursor: { bookId, cursorIndex: (index + 1) % queue.length } }
@@ -538,6 +546,7 @@ function LearnPage() {
       index,
       completionRetries.length,
       includeSpellingInReview,
+      forceDictation,
       bookId,
       queue.length,
       persistCompletion,
@@ -936,9 +945,9 @@ function LearnPage() {
               )}
 
               <TypingBoard
-                key={entry.word}
+                key={`${entry.word}:${forceDictation || prefs.dictation ? "masked" : "visible"}`}
                 target={entry.word}
-                masked={prefs.dictation}
+                masked={forceDictation || prefs.dictation}
                 strict={strict}
                 hideMistouch={strict}
                 paused={savingProgress || completionRetries.length > 0}

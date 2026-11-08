@@ -56,6 +56,7 @@ const AttemptInput = z
     reviewMode: z.enum(["recognition", "spelling"]).nullable().optional(),
     includeInReview: z.boolean().nullable().optional(),
     hintCount: z.number().int().min(0).optional(),
+    promptVisibility: z.enum(["visible", "masked"]).nullable().optional(),
   })
   .superRefine((value, ctx) => {
     if (!normalizeReviewWord(value.word))
@@ -111,6 +112,7 @@ export const recordAttempt = createServerFn({ method: "POST" })
       review_mode: reviewMode,
       counted_for_review: data.skipped || data.mode === "sentence" ? false : (data.includeInReview ?? null),
       hint_count: data.hintCount ?? 0,
+      prompt_visibility: data.mode === "word" ? (data.promptVisibility ?? null) : null,
       review_session_id: reviewMode ? sessionId : null,
       session_stage: data.sessionStage ?? (data.mode === "word" ? "word_spelling" : null),
       time_zone: data.timeZone,
@@ -118,14 +120,14 @@ export const recordAttempt = createServerFn({ method: "POST" })
     const { data: inserted, error } = await context.supabase
       .from("attempts")
       .upsert(attempt, { onConflict: "id", ignoreDuplicates: true })
-      .select("id, mode, book_id, word, translation, correct, typo_count, duration_ms, is_review, skipped, review_mode, counted_for_review, hint_count, review_session_id, session_stage, time_zone")
+      .select("id, mode, book_id, word, translation, correct, typo_count, duration_ms, is_review, skipped, review_mode, counted_for_review, hint_count, prompt_visibility, review_session_id, session_stage, time_zone")
       .maybeSingle();
     if (error) throw new Error(error.message);
     let saved = inserted;
     if (!saved) {
       const { data: existing, error: existingError } = await context.supabase
         .from("attempts")
-        .select("id, mode, book_id, word, translation, correct, typo_count, duration_ms, is_review, skipped, review_mode, counted_for_review, hint_count, review_session_id, session_stage, time_zone")
+        .select("id, mode, book_id, word, translation, correct, typo_count, duration_ms, is_review, skipped, review_mode, counted_for_review, hint_count, prompt_visibility, review_session_id, session_stage, time_zone")
         .eq("id", attemptId)
         .eq("user_id", context.userId)
         .single();
@@ -146,6 +148,7 @@ export const recordAttempt = createServerFn({ method: "POST" })
       saved.review_mode !== attempt.review_mode ||
       saved.counted_for_review !== attempt.counted_for_review ||
       saved.hint_count !== attempt.hint_count ||
+      saved.prompt_visibility !== attempt.prompt_visibility ||
       saved.review_session_id !== attempt.review_session_id ||
       saved.session_stage !== attempt.session_stage ||
       saved.time_zone !== attempt.time_zone
