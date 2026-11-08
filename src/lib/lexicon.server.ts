@@ -7,6 +7,23 @@ const BATCH = 1000;
 const missingLexiconTable = (error: { code?: string }) =>
   error.code === "42P01";
 
+function appendExpression(
+  target: NonNullable<WordEntry["extendedExpressions"]>,
+  incoming: NonNullable<WordEntry["extendedExpressions"]>[number],
+) {
+  const existing = target.find((expression) => expression.expression === incoming.expression);
+  if (!existing) {
+    target.push(incoming);
+    return;
+  }
+  if (existing.partOfSpeech !== incoming.partOfSpeech) existing.partOfSpeech = undefined;
+  const known = new Set(existing.senses.map((sense) => `${sense.sourceId}:${sense.sourceEntryRef}:${sense.senseKey}`));
+  for (const sense of incoming.senses) {
+    const key = `${sense.sourceId}:${sense.sourceEntryRef}:${sense.senseKey}`;
+    if (!known.has(key)) existing.senses.push(sense);
+  }
+}
+
 /** Resolve a whole book/review set in batches; never query Lexicon once per word. */
 export async function hydrateEntries(client: Client, entries: WordEntry[]): Promise<WordEntry[]> {
   if (!entries.length) return entries;
@@ -78,7 +95,7 @@ export async function hydrateEntries(client: Client, entries: WordEntry[]): Prom
         if (!key) continue;
         const expression = parseExtendedExpression(row.content_json, row.source_id, row.document_key);
         if (expression)
-          (expressionsByWord.get(key) ?? expressionsByWord.set(key, []).get(key)!).push(expression);
+          appendExpression(expressionsByWord.get(key) ?? expressionsByWord.set(key, []).get(key)!, expression);
       }
       if (!documents || documents.length < 1000) break;
     }

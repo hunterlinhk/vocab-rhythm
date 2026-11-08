@@ -27,7 +27,7 @@ export function LexiconEditorialDetails({
     ) : null;
 
   const senseDetails = (sense: LexiconSense, fallbackPos?: string) => (
-    <div key={`${sense.sourceId}:${sense.senseKey}`} className="mt-3 border-t border-border/50 pt-2 first:mt-0 first:border-0 first:pt-0">
+    <div key={`${sense.sourceId}:${sense.sourceEntryRef}:${sense.senseKey}`} className="mt-3 border-t border-border/50 pt-2 first:mt-0 first:border-0 first:pt-0">
       {(sense.partOfSpeech || fallbackPos || sense.labelZh) && (
         <p className="text-sm font-medium text-foreground">
           {[sense.partOfSpeech || fallbackPos, sense.labelZh].filter(Boolean).join(" · ")}
@@ -79,7 +79,7 @@ export function LexiconEditorialDetails({
       )}
       {senses.map((sense) => (
         <section
-          key={`${sense.sourceId}:${sense.senseKey}`}
+          key={`${sense.sourceId}:${sense.sourceEntryRef}:${sense.senseKey}`}
           className="rounded-xl border border-border/60 bg-card/45 px-3 py-2"
         >
           <p className="text-xs font-medium text-muted-foreground">补充义项</p>

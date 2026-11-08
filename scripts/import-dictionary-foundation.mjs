@@ -61,6 +61,8 @@ function assertPackage(manifest) {
     mapping?.headword_usage_notes !== "lexicon_entries.usage_note" ||
     mapping?.expression_senses !== "lexicon_documents.content_json.senses" ||
     mapping?.expression_usage_notes !== "lexicon_documents.content_json.senses[].usage_notes" ||
+    mapping?.expression_document_key !== "expression:<source_entry_ref>" ||
+    mapping?.expression_display_group !== "parent_lexeme_id+expression" ||
     mapping?.expressions_are_independent_senses !== false)
     throw new Error("The package does not declare the expected headword/expression content mapping");
   for (const [key, expected] of Object.entries(REQUIRED_COUNTS)) {
@@ -453,17 +455,22 @@ async function verifyAuthoredExpressionSenses(client, inputDir) {
   let senses = 0;
   let notes = 0;
   const count = await readJsonLines(resolve(inputDir, "authored_expression_senses.jsonl.gz"), async (batch) => {
-    const documentKeys = [...new Set(batch.map((row) => `expression:${row.lexeme_norm}`))];
+    const documentKeys = [...new Set(batch.map((row) => `expression:${row.source_entry_ref}`))];
     const placeholders = documentKeys.map((_, index) => `$${index + 2}`).join(",");
     const documents = await client.unsafe(
-      `SELECT document_key,content_json FROM public.lexicon_documents WHERE source_id = $1 AND document_key IN (${placeholders})`,
+      `SELECT document_key,lexeme_id,parent_lexeme_id,content_json FROM public.lexicon_documents WHERE source_id = $1 AND document_key IN (${placeholders})`,
       [sourceIds.authored, ...documentKeys],
     );
-    const byKey = new Map(documents.map((row) => [row.document_key, row.content_json]));
+    const ids = await lexemeIds(client, batch.flatMap((row) => [row.lexeme_norm, row.parent_norm]));
+    const byKey = new Map(documents.map((row) => [row.document_key, row]));
     for (const row of batch) {
-      const key = `expression:${row.lexeme_norm}`;
-      const document = byKey.get(key);
-      const matchingSenses = document?.senses?.filter((sense) => sense.id === row.sense_key) ?? [];
+      const key = `expression:${row.source_entry_ref}`;
+      const stored = byKey.get(key);
+      const document = stored?.content_json;
+      if (!stored || stored.lexeme_id !== ids.get(row.lexeme_norm) ||
+        stored.parent_lexeme_id !== ids.get(row.parent_norm) || document.expression !== row.headword)
+        throw new Error(`Expression document ${key} has the wrong expression or parent link`);
+      const matchingSenses = document.senses?.filter((sense) => sense.id === row.sense_key) ?? [];
       if (matchingSenses.length !== 1)
         throw new Error(`Expression sense ${row.sense_key} does not map uniquely to ${key}`);
       const sense = matchingSenses[0];
@@ -479,6 +486,91 @@ async function verifyAuthoredExpressionSenses(client, inputDir) {
     }
   });
   return { count, senses, notes };
+}
+
+async function verifyAuthoredContentPackage(inputDir, manifest) {
+  const documents = new Map();
+  const documentCounts = { headword: 0, expression: 0 };
+  await readJsonLines(resolve(inputDir, "authored_documents.jsonl.gz"), async (batch) => {
+    for (const row of batch) {
+      const key = row.document_key;
+      if (!Object.hasOwn(documentCounts, row.document_type) || documents.has(key))
+        throw new Error(`Duplicate or unsupported authored document: ${key}`);
+      documents.set(key, row);
+      documentCounts[row.document_type]++;
+    }
+  });
+  if (documentCounts.headword !== manifest.expected.authored_headwords ||
+    documentCounts.expression !== manifest.expected.authored_expressions)
+    throw new Error(`Authored package document counts are incorrect: ${JSON.stringify(documentCounts)}`);
+
+  const verifySenseFile = async (filename, documentType, expectedSenses, expectedNotes) => {
+    let senses = 0;
+    let notes = 0;
+    const count = await readJsonLines(resolve(inputDir, filename), async (batch) => {
+      for (const row of batch) {
+        const documentKey = documentType === "headword"
+          ? `headword:${row.lexeme_norm}`
+          : `expression:${row.source_entry_ref}`;
+        const authoredDocument = documents.get(documentKey);
+        if (!authoredDocument || authoredDocument.lexeme_norm !== row.lexeme_norm ||
+          (documentType === "expression" && authoredDocument.parent_norm !== row.parent_norm))
+          throw new Error(`Missing or mismatched authored ${documentType} document for ${row.lexeme_norm}`);
+        const document = authoredDocument.content_json;
+        const candidates = documentType === "headword"
+          ? [
+              ...(Array.isArray(document.parts_of_speech)
+                ? document.parts_of_speech.flatMap((group) =>
+                    Array.isArray(group.senses) ? group.senses.map((sense) => ({ sense, partOfSpeech: group.pos })) : [],
+                  )
+                : []),
+              ...(Array.isArray(document.senses)
+                ? document.senses.map((sense) => ({ sense, partOfSpeech: document.part_of_speech }))
+                : []),
+            ]
+          : Array.isArray(document.senses)
+            ? document.senses.map((sense) => ({ sense, partOfSpeech: document.part_of_speech }))
+            : [];
+        const matching = candidates.filter((candidate) => candidate.sense.id === row.sense_key);
+        if (matching.length !== 1)
+          throw new Error(`Authored sense ${row.sense_key} does not map uniquely to ${documentType}:${row.lexeme_norm}`);
+        const { sense } = matching[0];
+        if (JSON.stringify(stableJson(sense)) !== JSON.stringify(stableJson(row.editorial_data)))
+          throw new Error(`Authored sense content differs between package files: ${row.sense_key}`);
+        const partOfSpeech = matching[0].partOfSpeech;
+        if (partOfSpeech && partOfSpeech !== row.part_of_speech)
+          throw new Error(`Authored part of speech differs between package files: ${row.sense_key}`);
+        const usageNotes = Array.isArray(sense.usage_notes) ? sense.usage_notes : [];
+        if (usageNotes.some((note) => typeof note !== "string" || !note.trim()))
+          throw new Error(`Authored usage note is empty or invalid: ${row.sense_key}`);
+        notes += usageNotes.length;
+        senses++;
+      }
+    });
+    if (count !== expectedSenses || senses !== expectedSenses || notes !== expectedNotes)
+      throw new Error(`${documentType} authored package counts are incorrect: ${JSON.stringify({ count, senses, notes })}`);
+    return { senses, notes };
+  };
+
+  const headwords = await verifySenseFile(
+    "authored_senses.jsonl.gz",
+    "headword",
+    manifest.expected.authored_senses,
+    manifest.expected.authored_headword_usage_notes,
+  );
+  const expressions = await verifySenseFile(
+    "authored_expression_senses.jsonl.gz",
+    "expression",
+    manifest.expected.authored_expression_senses,
+    manifest.expected.authored_expression_usage_notes,
+  );
+  return {
+    documents: documentCounts,
+    headwordSenses: headwords.senses,
+    headwordUsageNotes: headwords.notes,
+    expressionSenses: expressions.senses,
+    expressionUsageNotes: expressions.notes,
+  };
 }
 
 async function verifyRows(client, manifest) {
@@ -566,8 +658,9 @@ async function main() {
   const manifest = JSON.parse(await readFile(resolve(inputDir, "manifest.json"), "utf8"));
   assertPackage(manifest);
   await verifyPackage(inputDir, manifest);
+  const authoredMapping = await verifyAuthoredContentPackage(inputDir, manifest);
   if (argEnabled("verify-only")) {
-    console.log(JSON.stringify({ status: "verified", sourceDatabaseSha256: manifest.source_database_sha256, expected: manifest.expected }, null, 2));
+    console.log(JSON.stringify({ status: "verified", sourceDatabaseSha256: manifest.source_database_sha256, expected: manifest.expected, authoredMapping }, null, 2));
     return;
   }
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required");

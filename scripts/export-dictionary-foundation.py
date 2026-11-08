@@ -334,7 +334,7 @@ def main() -> None:
                 }
                 if "headword_index" in row.keys()
                 else {
-                    "document_type": "expression", "document_key": f"expression:{row['expression_norm']}",
+                    "document_type": "expression", "document_key": f"expression:{row['id']}",
                     "lexeme_norm": row["expression_norm"], "parent_norm": row["parent_norm"],
                     "source_rank": row["source_rank"], "wordfreq_zipf": row["wordfreq_zipf"],
                     "content_json": json_value(row["expression_json"], {}),
@@ -416,6 +416,8 @@ def main() -> None:
             "headword_usage_notes": "lexicon_entries.usage_note",
             "expression_senses": "lexicon_documents.content_json.senses",
             "expression_usage_notes": "lexicon_documents.content_json.senses[].usage_notes",
+            "expression_document_key": "expression:<source_entry_ref>",
+            "expression_display_group": "parent_lexeme_id+expression",
             "expressions_are_independent_senses": False,
         },
         "expected": {

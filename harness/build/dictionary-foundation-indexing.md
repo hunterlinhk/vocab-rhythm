@@ -20,7 +20,7 @@ Import the local ECDICT-backed foundation into Cadence's shared PostgreSQL lexic
 - A custom book links only its word spelling to the shared lexeme; its translation remains in the user's own `word_entries` row and wins during hydration.
 - The local SQLite source contains 770,611 ECDICT rows, 30,000 ranked headwords, 4,489 expression inventory rows, 525 authored headwords/2,904 senses, and 1,342 authored expressions/1,451 senses. All 525 authored headwords overlap ECDICT.
 - Authored headword documents/senses take precedence in effective lookup. ECDICT rows remain a separate, unchanged source for traceability and fallback. No ECDICT sense is destructively replaced.
-- Curated expression content is parent-linked in `lexicon_documents`. The v2 import stores expression senses and usage notes only in these documents, never as independent `lexicon_entries` senses. It cross-checks all 1,451 expression senses and 862 expression usage notes against the complete documents.
+- Curated expression content is parent-linked in `lexicon_documents`, keyed by source-row ID. Repeated phrase rows cannot overwrite each other and are grouped by parent/phrase for display. The v2 import stores expression senses and usage notes only in these documents, never as independent `lexicon_entries` senses. It cross-checks all headword and expression senses and all 1,844 usage notes against their complete documents.
 - Headword content imports as 2,904 senses and 982 usage-note rows. Total authored usage notes are 1,844 (982 headword + 862 expression).
 - Lookup hydration now groups up to 1,000 words per database batch; custom books can contain up to 5,000 entries.
 - The v2 package is generated locally at `C:\headswap\Cadence_30k_headwords\server_upload\Cadence_dictionary_foundation_2026-11-08.zip`; regenerate and rehash after importer/exporter changes.
@@ -37,7 +37,8 @@ Import the local ECDICT-backed foundation into Cadence's shared PostgreSQL lexic
 ## Checkpoint
 
 - Branch: `feat/dictionary-foundation-indexing`, based on `feat/self-hosted-better-auth-postgres` at `088a7384da9cd36f60b087a4a840be151e713a23`.
-- Implementation commit `cb8aec3` is pushed to `origin/feat/dictionary-foundation-indexing`.
+- Implementation and deployment docs were pushed at `e841e31`; the final source-ID expression-key correction is locally validated and awaiting its commit.
 - No server connection, migration, SQL, import, ZIP upload, or deploy has occurred.
-- The v2 package was regenerated and verified; tests, TypeScript, production build, ZIP hashes, and local SQLite integrity checks passed.
-- Next action: after the owner's confirmation, transfer the local ZIP to the server and run the documented backup → migration → import → verify → app restart sequence.
+- The v2 package was regenerated and verified; tests 109/109, TypeScript, production build, ZIP/file hashes, cross-file authored mapping, and local SQLite integrity checks passed.
+- Current ZIP SHA-256 is `d04c98c60b498e6f48d39bc1656ea36c55478fd594d309a3570d490d00216382`.
+- Next actions: commit/push the source-ID correction; then wait for the owner's confirmation before transferring the ZIP and running the documented backup → migration → import → verify → app restart sequence.
