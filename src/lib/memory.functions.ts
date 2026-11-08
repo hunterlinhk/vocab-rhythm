@@ -87,7 +87,7 @@ export const getMemorySnapshot = createServerFn({ method: "GET" })
         scannedAttempts: reviewedRawRows,
         truncated: hasMore,
         excludedVisibleOrUnknownSpelling: projected.ignoredCopyEvents,
-        predictionIsValidated: projected.calibration.some((s) => s.sampleSize >= 30),
+        hasCalibrationSamples: projected.calibration.some((s) => s.sampleSize > 0),
         limitations: [
           "Recognition is multiple-choice success, not free recall; guessing remains possible.",
           "Independent spelling requires prompt_visibility=masked. Earlier visible/unknown attempts are excluded.",
