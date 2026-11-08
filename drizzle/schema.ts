@@ -300,6 +300,7 @@ export const lexiconEntries = pgTable(
     reviewDecision: text("review_decision"),
     relatedSenseKey: text("related_sense_key"),
     usageNoteZh: text("usage_note_zh"),
+    editorialData: jsonb("editorial_data"),
   },
   (table) => [
     unique("lexicon_entries_lexeme_source_sense_unique").on(table.lexemeId, table.sourceId, table.senseKey),
@@ -310,6 +311,165 @@ export const lexiconEntries = pgTable(
     check("lexicon_entries_publication_status_check", sql`${table.publicationStatus} in ('pending_review', 'approved', 'published', 'rejected')`),
     check("lexicon_entries_review_decision_check", sql`${table.reviewDecision} is null or ${table.reviewDecision} in ('propose_primary', 'defer_no_suitable_sense')`),
     check("lexicon_entries_content_shape_check", sql`(${table.contentType} = 'sense' and ${table.senseRole} is not null and ${table.usageNoteZh} is null) or (${table.contentType} = 'usage_note' and ${table.senseRole} is null and ${table.translation} is null and ${table.partOfSpeech} is null and ${table.phonetic} is null and ${table.definitionEn} is null and ${table.sentence} is null and ${table.sentenceTranslation} is null and ${table.subject} is null and ${table.verb} is null and ${table.object} is null and ${table.usageNoteZh} is not null)`),
+  ],
+);
+
+export const dictionarySourceEntries = pgTable(
+  "dictionary_source_entries",
+  {
+    sourceId: text("source_id").notNull().references(() => lexiconSources.id),
+    sourceEntryRef: text("source_entry_ref").notNull(),
+    lexemeId: uuid("lexeme_id").notNull().references(() => lexemes.id, { onDelete: "cascade" }),
+    phonetic: text("phonetic").notNull().default(""),
+    definitionRaw: text("definition_raw").notNull().default(""),
+    translationRaw: text("translation_raw").notNull().default(""),
+    partOfSpeechRaw: text("part_of_speech_raw").notNull().default(""),
+    definitionPosCodes: jsonb("definition_pos_codes").notNull().default([]),
+    translationPosCodes: jsonb("translation_pos_codes").notNull().default([]),
+    collinsRaw: text("collins_raw").notNull().default(""),
+    oxfordRaw: text("oxford_raw").notNull().default(""),
+    tagRaw: text("tag_raw").notNull().default(""),
+    bncRaw: text("bnc_raw").notNull().default(""),
+    frqRaw: text("frq_raw").notNull().default(""),
+    bncNumeric: numeric("bnc_numeric"),
+    frqNumeric: numeric("frq_numeric"),
+    exchangeRaw: text("exchange_raw").notNull().default(""),
+    detailRaw: text("detail_raw").notNull().default(""),
+    audioRaw: text("audio_raw").notNull().default(""),
+    sourceRank: integer("source_rank"),
+    wordfreqZipf: numeric("wordfreq_zipf"),
+  },
+  (table) => [
+    primaryKey({ name: "dictionary_source_entries_pkey", columns: [table.sourceId, table.sourceEntryRef] }),
+    index("dictionary_source_entries_lexeme_idx").on(table.lexemeId, table.sourceId),
+    index("dictionary_source_entries_rank_idx").on(table.sourceRank),
+  ],
+);
+
+export const dictionarySourceTags = pgTable(
+  "dictionary_source_tags",
+  {
+    sourceId: text("source_id").notNull(),
+    sourceEntryRef: text("source_entry_ref").notNull(),
+    tag: text("tag").notNull(),
+    sourceField: text("source_field").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "dictionary_source_tags_pkey", columns: [table.sourceId, table.sourceEntryRef, table.tag, table.sourceField] }),
+    foreignKey({
+      name: "dictionary_source_tags_entry_fk",
+      columns: [table.sourceId, table.sourceEntryRef],
+      foreignColumns: [dictionarySourceEntries.sourceId, dictionarySourceEntries.sourceEntryRef],
+    }).onDelete("cascade"),
+    index("dictionary_source_tags_tag_idx").on(table.tag, table.sourceId),
+  ],
+);
+
+export const dictionarySourceForms = pgTable(
+  "dictionary_source_forms",
+  {
+    sourceId: text("source_id").notNull(),
+    sourceEntryRef: text("source_entry_ref").notNull(),
+    formNorm: text("form_norm").notNull(),
+    form: text("form").notNull(),
+    lemmaNorm: text("lemma_norm").notNull(),
+    lemma: text("lemma").notNull(),
+    formType: text("form_type").notNull(),
+    rawMarker: text("raw_marker").notNull(),
+    lexemeId: uuid("lexeme_id").notNull().references(() => lexemes.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ name: "dictionary_source_forms_pkey", columns: [table.sourceId, table.sourceEntryRef, table.formNorm, table.formType, table.rawMarker] }),
+    foreignKey({
+      name: "dictionary_source_forms_entry_fk",
+      columns: [table.sourceId, table.sourceEntryRef],
+      foreignColumns: [dictionarySourceEntries.sourceId, dictionarySourceEntries.sourceEntryRef],
+    }).onDelete("cascade"),
+    index("dictionary_source_forms_form_idx").on(table.formNorm, table.sourceId),
+    index("dictionary_source_forms_lexeme_idx").on(table.lexemeId),
+  ],
+);
+
+export const dictionaryHeadwords = pgTable(
+  "dictionary_headwords",
+  {
+    sourceId: text("source_id").notNull().references(() => lexiconSources.id),
+    headwordNorm: text("headword_norm").notNull(),
+    headword: text("headword").notNull(),
+    lexemeId: uuid("lexeme_id").notNull().references(() => lexemes.id, { onDelete: "cascade" }),
+    sourceRank: integer("source_rank").notNull(),
+    wordfreqZipf: numeric("wordfreq_zipf"),
+    isHyphenated: boolean("is_hyphenated").notNull().default(false),
+    parentNorm: text("parent_norm"),
+  },
+  (table) => [
+    primaryKey({ name: "dictionary_headwords_pkey", columns: [table.sourceId, table.headwordNorm] }),
+    unique("dictionary_headwords_source_rank_unique").on(table.sourceId, table.sourceRank),
+    index("dictionary_headwords_lexeme_idx").on(table.lexemeId),
+  ],
+);
+
+export const dictionaryExpressionLinks = pgTable(
+  "dictionary_expression_links",
+  {
+    sourceId: text("source_id").notNull().references(() => lexiconSources.id),
+    sourceEntryRef: text("source_entry_ref").notNull(),
+    expressionNorm: text("expression_norm").notNull(),
+    expression: text("expression").notNull(),
+    expressionLexemeId: uuid("expression_lexeme_id").notNull().references(() => lexemes.id, { onDelete: "cascade" }),
+    attachTo: text("attach_to").notNull(),
+    attachToNorm: text("attach_to_norm").notNull(),
+    parentLexemeId: uuid("parent_lexeme_id").references(() => lexemes.id, { onDelete: "set null" }),
+    sourceRank: integer("source_rank"),
+    wordfreqZipf: numeric("wordfreq_zipf"),
+    handling: text("handling").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "dictionary_expression_links_pkey", columns: [table.sourceId, table.sourceEntryRef] }),
+    unique("dictionary_expression_links_source_norm_unique").on(table.sourceId, table.expressionNorm),
+    index("dictionary_expression_links_expression_idx").on(table.expressionNorm),
+    index("dictionary_expression_links_parent_idx").on(table.parentLexemeId),
+  ],
+);
+
+export const dictionaryExpressionReviews = pgTable(
+  "dictionary_expression_reviews",
+  {
+    sourceId: text("source_id").notNull().references(() => lexiconSources.id),
+    expressionNorm: text("expression_norm").notNull(),
+    expression: text("expression").notNull(),
+    attachTo: text("attach_to"),
+    reason: text("reason").notNull(),
+    reviewJson: jsonb("review_json").notNull(),
+    reviewStatus: text("review_status").notNull().default("pending_review"),
+  },
+  (table) => [
+    primaryKey({ name: "dictionary_expression_reviews_pkey", columns: [table.sourceId, table.expressionNorm] }),
+    index("dictionary_expression_reviews_status_idx").on(table.reviewStatus, table.sourceId),
+    check("dictionary_expression_reviews_status_check", sql`${table.reviewStatus} in ('pending_review', 'resolved', 'rejected')`),
+  ],
+);
+
+export const lexiconDocuments = pgTable(
+  "lexicon_documents",
+  {
+    sourceId: text("source_id").notNull().references(() => lexiconSources.id),
+    documentKey: text("document_key").notNull(),
+    documentType: text("document_type").notNull(),
+    lexemeId: uuid("lexeme_id").notNull().references(() => lexemes.id, { onDelete: "cascade" }),
+    parentLexemeId: uuid("parent_lexeme_id").references(() => lexemes.id, { onDelete: "set null" }),
+    priority: integer("priority").notNull().default(0),
+    publicationStatus: text("publication_status").notNull().default("published"),
+    sourceRank: integer("source_rank"),
+    wordfreqZipf: numeric("wordfreq_zipf"),
+    contentJson: jsonb("content_json").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "lexicon_documents_pkey", columns: [table.sourceId, table.documentKey] }),
+    index("lexicon_documents_lexeme_idx").on(table.lexemeId, table.publicationStatus, table.priority.desc()),
+    index("lexicon_documents_parent_idx").on(table.parentLexemeId, table.publicationStatus),
+    check("lexicon_documents_type_check", sql`${table.documentType} in ('headword', 'expression')`),
+    check("lexicon_documents_publication_status_check", sql`${table.publicationStatus} in ('pending_review', 'approved', 'published', 'rejected')`),
   ],
 );
 
@@ -476,7 +636,14 @@ export const schema = {
   assistantMessages,
   attempts,
   bookProgress,
+  dictionaryExpressionLinks,
+  dictionaryExpressionReviews,
+  dictionaryHeadwords,
+  dictionarySourceEntries,
+  dictionarySourceForms,
+  dictionarySourceTags,
   lexiconEntries,
+  lexiconDocuments,
   lexiconSources,
   lexemes,
   profiles,

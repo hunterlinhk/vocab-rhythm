@@ -15,6 +15,9 @@ COPY --from=build /app/.output ./.output
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/ops ./ops
 COPY --from=build /app/scripts/db-setup.mjs ./scripts/db-setup.mjs
+COPY --from=build /app/scripts/import-dictionary-foundation.mjs ./scripts/import-dictionary-foundation.mjs
+COPY --from=build /app/scripts/rollback-dictionary-foundation.mjs ./scripts/rollback-dictionary-foundation.mjs
+COPY --from=build /app/scripts/rollback-dictionary-foundation.sql ./scripts/rollback-dictionary-foundation.sql
 COPY --from=build /app/src/data ./src/data
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]

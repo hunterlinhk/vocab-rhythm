@@ -6,7 +6,7 @@ import { createTestViteServer } from "./vite-test-helper.mjs";
 const vite = await createTestViteServer();
 after(() => vite.close());
 
-const { assembleWordEntry } = await vite.ssrLoadModule("/src/lib/lexicon.shared.ts");
+const { assembleWordEntry, parseExtendedExpression } = await vite.ssrLoadModule("/src/lib/lexicon.shared.ts");
 const { hydrateEntries } = await vite.ssrLoadModule("/src/lib/lexicon.server.ts");
 const { normalizeEntries, rowToEntry } = await vite.ssrLoadModule("/src/lib/library.shared.ts");
 const { getBook } = await vite.ssrLoadModule("/src/data/words.ts");
@@ -231,6 +231,107 @@ test("usage notes do not expose candidate sense wording", () => {
   assert.equal(result.entry.usageNotes?.[0]?.text, "用法说明");
   assert.equal(result.entry.usageNotes?.[0]?.relatedTranslation, undefined);
   assert.equal(result.entry.cn, undefined);
+});
+
+test("Cadence-authored headwords replace ECDICT meanings when both sources have the word", () => {
+  const authored = {
+    ...shared,
+    source_id: "cadence_enhanced_entries",
+    source_entry_ref: "1",
+    sense_key: "the.core.1",
+    priority: 200,
+    translation: "精编释义",
+    definition_en: "A Cadence-authored core meaning.",
+    part_of_speech: "determiner",
+    sense_role: "primary",
+    editorial_data: { label_zh: "核心义", definition_zh: "完整中文释义" },
+  };
+  const base = {
+    normalized_word: "the",
+    source_id: "ecdict",
+    source_entry_ref: "1",
+    phonetic: "/ðə/",
+    definition_raw: "ECDICT definition",
+    translation_raw: "ECDICT translation",
+    definition_pos_codes: ["n"],
+    translation_pos_codes: ["n"],
+  };
+  const result = assembleWordEntry({ word: "the" }, [authored], base);
+  assert.equal(result.entry.cn, "精编释义");
+  assert.equal(result.entry.definitionEn, "A Cadence-authored core meaning.");
+  assert.equal(result.entry.partOfSpeech, "determiner");
+  assert.equal(result.entry.dictionarySource, undefined);
+  assert.equal(result.entry.phonetic, "/ðə/");
+});
+
+test("curated expressions are represented as child content of their parent headword", () => {
+  const parsed = parseExtendedExpression({
+    expression: "take-in",
+    part_of_speech: "noun",
+    senses: [{
+      id: "take-in.noun.1",
+      label_zh: "骗局",
+      definition_en: "an act of deceiving someone",
+      definition_zh: "欺骗行为",
+      understanding_examples: [{ en: "It was a take-in.", zh: "那是个骗局。" }],
+      usage_notes: ["常见搭配。"],
+    }],
+  }, "cadence_enhanced_entries", "expression:take-in");
+  assert.equal(parsed?.expression, "take-in");
+  assert.equal(parsed?.senses[0]?.partOfSpeech, "noun");
+  assert.equal(parsed?.senses[0]?.definitionZh, "欺骗行为");
+  assert.equal(parsed?.senses[0]?.understandingExamples?.[0]?.zh, "那是个骗局。");
+  assert.deepEqual(parsed?.senses[0]?.usageNotes, ["常见搭配。"]);
+  assert.equal(parsed?.senses[0]?.sourceEntryRef, "expression:take-in");
+});
+
+test("hydration attaches published authored expressions by parent word", async () => {
+  const content = {
+    expression: "take-in",
+    part_of_speech: "noun",
+    senses: [{
+      id: "take-in.noun.1",
+      label_zh: "骗局",
+      definition_en: "an act of deceiving someone",
+      definition_zh: "欺骗行为",
+    }],
+  };
+  const client = {
+    table(table) {
+      const query = {
+        selected: "",
+        values: [],
+        select(value) { this.selected = value; return this; },
+        eq() { return this; },
+        in(_column, values) { this.values = values; return this; },
+        or() { return this; },
+        order() { return this; },
+        range() {
+          return Promise.resolve({
+            data: table === "lexicon_documents" ? [{
+              source_id: "cadence_enhanced_entries",
+              document_key: "expression:take-in",
+              parent_lexeme_id: "lexeme-take",
+              content_json: content,
+            }] : [],
+            error: null,
+          });
+        },
+        then(resolve) {
+          return Promise.resolve({
+            data: table === "lexemes" ? [{ id: "lexeme-take", normalized_word: "take" }] : [],
+            error: null,
+          }).then(resolve);
+        },
+      };
+      return query;
+    },
+  };
+  const [entry] = await hydrateEntries(client, [{ word: "take", bookId: "custom-book" }]);
+  assert.equal(entry.extendedExpressions?.[0]?.expression, "take-in");
+  assert.equal(entry.extendedExpressions?.[0]?.senses[0]?.definitionEn, "an act of deceiving someone");
+  assert.equal(entry.word, "take");
+  assert.equal(entry.bookId, "custom-book");
 });
 
 test("batched lookup links bundled and custom words through the same lexeme", async () => {

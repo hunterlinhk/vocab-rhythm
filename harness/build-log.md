@@ -1,18 +1,30 @@
 # Cadence server deployment - live state
 
-- Status: live on `38.95.75.66.nip.io`; security-fix commit `72d766a6c3c8166ed3fd3c4ab29360f47cce66a8` is deployed on `feat/self-hosted-better-auth-postgres`.
+## Dictionary foundation indexing — active local work
+
+- Branch: `feat/dictionary-foundation-indexing` (based on `feat/self-hosted-better-auth-postgres` at `088a7384da9cd36f60b087a4a840be151e713a23`).
+- Architecture: database wordbooks (including custom books) automatically link entries to normalized shared lexemes through the `word_entries` trigger; reads batch-hydrate shared content. Private book translations remain local and win. Batches are now 1,000 words.
+- ECDICT stays as a separate raw source. All 525 Cadence-authored headwords overlap it and win effective lookup; original ECDICT rows remain traceable. Fixed expressions stay in parent-linked documents and are never inserted as standalone word senses.
+- Export v2 counts: 770,611 ECDICT entries; 30,000 ranked headwords; 4,489 expression-index rows; 125,861 word forms; 38,855 tags; 525 authored headwords / 2,904 senses; 1,342 authored expressions / 1,451 attached senses; 982 headword and 862 expression usage notes (1,844 total). Round 2 remains pending/restricted; OEWN 19,028 / 26 pilots are guarded.
+- Package: `C:\headswap\Cadence_30k_headwords\server_upload\Cadence_dictionary_foundation_2026-11-08.zip`; SHA-256 `ec4b9f2e6a862e901641a07245e8439639c6dbad03336d902f87d7729233c4ae`; source SQLite SHA-256 `47974d4dea460739aef0dc8246ae7ed31d7019f145a1a584201e7a12f13f1198`.
+- Validation on current source: `bun run test` 109/109; `bunx tsc --noEmit`; `bun run build`; exporter SQLite integrity/foreign-key checks; importer `--verify-only`; ZIP file-set and per-file SHA-256 checks all passed. Build retains existing TanStack `inputValidator()` deprecation warnings.
+- No commit/push, server connection, production SQL, migration, import, upload, or deploy has occurred. The owner asked to confirm the final server transfer step.
+- Active plan: `harness/build/dictionary-foundation-indexing.md`.
+
+- Status: live on `https://coci.ink`; security-fix commit `72d766a6c3c8166ed3fd3c4ab29360f47cce66a8` is deployed on `feat/self-hosted-better-auth-postgres`.
 - Security patch: `@tanstack/react-start` 1.168.60 and `better-auth` 1.7.16 are installed; direct TanStack Router/plugin versions are aligned to 1.170.41/1.168.42. The TanStack error component now accepts `unknown` to match the updated router contract. The app alone was rebuilt with `docker compose up -d --build --no-deps app`; local tests 105/105, TypeScript, and production build pass. Live root and auth-session endpoints return 200. PostgreSQL container ID remained unchanged.
-- Server checkout now follows `2fa7660` (the deployment-record follow-up); its root `.env` remains on disk, root-owned mode 0600, ignored and untracked. It was not read, copied, or included in the build context.
+- Server checkout is at `088a7384da9cd36f60b087a4a840be151e713a23`; its root `.env` remains on disk, root-owned mode 0600, ignored and untracked. It was not read, copied, or included in the build context.
+- Domain: `coci.ink` uses `dns25.hichina.com` and `dns26.hichina.com`; `@` A points to `38.95.75.66`, and `www` CNAME points to `coci.ink` (600-second TTL). Caddy serves the apex and redirects `www` and the former `38.95.75.66.nip.io` hostname to it. Remote `compose.override.yaml` sets `APP_ORIGIN` and `BETTER_AUTH_URL` to `https://coci.ink`; the app alone was recreated and PostgreSQL's container ID did not change. HTTPS root and auth-session endpoints return 200; HTTP redirects to HTTPS and `www`/nip.io HTTPS redirects to the apex.
 - Repository hygiene: `.env` is removed from the current Git index and ignored; historical Git objects may still contain its prior contents. The file was not inspected. Rotate any credentials that may have been stored there; no history rewrite was performed.
 - Debian 13 host: 2 vCPU, 1.9 GiB RAM, 40 GiB disk, no swap. Node app and PostgreSQL containers are healthy; Caddy is active and configuration validation passes.
-- HTTPS returns 200 with a valid certificate. Caddy and the host public-IP hairpin return HTTP 308 to HTTPS. A direct workstation curl to public HTTP/80 connected then reset; HTTPS works and TCP 3000/5432 are not reachable externally. If raw HTTP clients must work, check the provider/network path for port 80.
+- HTTPS at `coci.ink` and `www.coci.ink` presents valid certificates. HTTP returns 308 to HTTPS; `www` HTTPS returns 301 to the apex. TCP 3000/5432 are not reachable externally.
 - App binds to `127.0.0.1:3000`; PostgreSQL is not published on the host. Server `.env` is root-owned mode 0600; it was not read or copied.
 - Database: NGSL 2,809; OEWN 19,028 including 26 pilots; Round 2 88 (43 senses, 45 usage notes), all `pending_review`, `editorial`, and `restricted`. Round 2 published count remains zero.
 - Live email registration/login, guest use/linking, learning, account isolation, statistics, dictionary lookup, and review passed. Repeated review advanced the test schedule revision to 2 and cleared the due queue. The review center now loads correctly after the auth-cache readiness fix.
 - All 10 disposable email/guest test accounts created by this verification were deleted; no test users remain.
 - Local validation on the final source: `bun run test` 105/105, `bunx tsc --noEmit`, and `bun run build` passed. The earlier real PostgreSQL E2E passed; it was not rerun here because the Windows admin token cannot start the embedded PostgreSQL runner.
-- Post-redeploy host snapshot: 826 MiB RAM used, 1.1 GiB available, no swap; root disk 7.6/40 GiB used (21%). App container 62.37 MiB; PostgreSQL 54.5 MiB.
-- Still needed from the owner: an owner-controlled domain, real Google OAuth client credentials and callback configuration, root password rotation and SSH key login, and credential rotation if any secrets were committed in `.env`. The unrelated failed `ifup@ens18.service` and `rc-local.service` remain unchanged.
+- Post-domain app-restart snapshot: 830 MiB RAM used, 1.1 GiB available, no swap; root disk 7.6/40 GiB used (21%). App container 38.29 MiB; PostgreSQL 48.06 MiB.
+- Still needed from the owner: real Google OAuth client credentials and callback configuration. OAuth login callback has not been verified. The unrelated failed `ifup@ens18.service` and `rc-local.service` remain unchanged.
 
 # Cadence self-hosted backend rewrite — implementation complete
 

@@ -1,10 +1,26 @@
 import { NGSL_BOOK_ID, NGSL_WORDS } from "./ngsl";
 
+export type LexiconExample = { en: string; zh?: string | undefined };
+
+export type LexiconJsonValue = string | number | boolean | null | LexiconJsonValue[] | LexiconJsonObject;
+export type LexiconJsonObject = { [key: string]: LexiconJsonValue };
+export type LexiconPitfall = LexiconJsonObject;
+
 export type LexiconSense = {
   senseKey: string;
+  index?: number | undefined;
+  labelZh?: string | undefined;
   translation?: string | undefined;
   partOfSpeech?: string | undefined;
   definitionEn?: string | undefined;
+  definitionZh?: string | undefined;
+  understandingExamples?: LexiconExample[] | undefined;
+  usageExamples?: LexiconExample[] | undefined;
+  collocations?: string[] | undefined;
+  patterns?: string[] | undefined;
+  usageNotes?: string[] | undefined;
+  pitfalls?: LexiconPitfall[] | undefined;
+  editorialData?: LexiconJsonObject | undefined;
   sourceId: string;
   sourceEntryRef: string | null;
   relatedSenseKey?: string | undefined;
@@ -20,6 +36,12 @@ export type LexiconUsageNote = {
   relatedDefinitionEn?: string | undefined;
 };
 
+export type LexiconExtendedExpression = {
+  expression: string;
+  partOfSpeech?: string | undefined;
+  senses: LexiconSense[];
+};
+
 /** Only the headword is required; study content may be added independently later. */
 export type WordEntry = {
   word: string;
@@ -31,10 +53,20 @@ export type WordEntry = {
   frequencyPerMillion?: number | undefined;
   senseKey?: string | undefined;
   /** Optional editorial learning fields. */
+  primarySenseDetails?: LexiconSense | undefined;
   partOfSpeech?: string | undefined;
   phonetic?: string | undefined;
   cn?: string | undefined;
   definitionEn?: string | undefined;
+  /** Unaligned ECDICT candidates kept separate from authored senses. */
+  dictionarySource?: {
+    sourceId: string;
+    sourceEntryRef: string;
+    definitionCandidatesEn: string[];
+    translationCandidatesZh: string[];
+    partOfSpeechCandidates: string[];
+  } | undefined;
+  extendedExpressions?: LexiconExtendedExpression[] | undefined;
   sentence?: string | undefined;
   sentenceCn?: string | undefined;
   subject?: string | undefined;

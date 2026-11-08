@@ -27,6 +27,39 @@ docker compose up -d app
 
 PostgreSQL data is stored in the `cadence-postgres` volume. The app listens on `127.0.0.1:3000`, so a host Caddy service can proxy to it. The Node startup command does not run migrations or import data. Back up the PostgreSQL volume or use `pg_dump` before schema changes.
 
+## Dictionary foundation import
+
+The local source is `C:\headswap\Cadence_30k_headwords\dictionary_entries\cadence_dictionary.sqlite3`. Export and verify the package from the repository checkout:
+
+```powershell
+python scripts\export-dictionary-foundation.py
+node scripts\import-dictionary-foundation.mjs --input-dir C:\headswap\Cadence_30k_headwords\server_upload --verify-only
+```
+
+The output is a hashed v2 package containing 770,611 ECDICT records, 30,000 ranked headwords, 4,489 expression-index rows, and the authored layer. It does not belong in Git. Copy the ZIP and `SHA256SUMS.txt` to a private temporary directory on the server, extract the ZIP there, and verify the checksums before database access.
+
+With the new application image built, back up PostgreSQL, apply only the schema migrations, and restart the app:
+
+```sh
+docker compose build app
+docker compose run --rm app node scripts/db-setup.mjs --migrate-only
+docker compose up -d --no-deps app
+```
+
+Mount the extracted package read-only into the app container and run its streaming importer:
+
+```sh
+docker compose run --rm -v "$PWD/dictionary-import:/dictionary:ro" app node scripts/import-dictionary-foundation.mjs --input-dir /dictionary
+```
+
+The importer keeps all three new sources restricted until hashes, counts, authored/ECDICT overlap, OEWN pilots, Round 2 status, and user-data counts pass. It then makes the completed dictionary sources visible together. All 525 Cadence-authored headwords overlap ECDICT and take precedence in effective lookup; the raw ECDICT rows remain stored unchanged for traceability. Wordbook-local fields still take precedence.
+
+The authored layer imports 2,904 senses for 525 headwords and 982 separate headword usage-note rows. It also imports 1,342 curated expression documents containing 1,451 senses and 862 usage notes. Expression senses and notes remain inside their parent-linked documents; they are not inserted as standalone word senses. The importer cross-checks every expression sense against that document before publishing the source. The complete source total is 1,844 usage notes.
+
+New official and custom book entries are indexed automatically by the `word_entries` trigger, which links the normalized spelling to `lexemes`. Book reads then hydrate shared content in batches. This creates a lookup link without copying the user's private translation into the public dictionary. The hydration query batch is 1,000 words, keeping a 5,000-entry custom book to a small bounded set of database reads.
+
+If the import fails or must be reverted, run `docker compose run --rm app node scripts/rollback-dictionary-foundation.mjs`. This removes only the three foundation sources' rows and verifies that OEWN, Round 2, and user learning rows did not change. It deliberately retains `lexemes`, so existing wordbook links stay valid. The additive schema can remain while the previous app image is restored; do not restore the database backup unless unrelated data also needs recovery.
+
 ## Environment
 
 | Variable | Required | Purpose |
@@ -45,7 +78,7 @@ For Caddy, preserve the original `Host` header and forward `X-Forwarded-For` and
 
 ## Operations
 
-Use `node scripts/db-setup.mjs` once against a fresh database or when applying a reviewed vocabulary-data update. Use `bun run db:migrate` for schema-only changes in a development checkout. Production app startup uses `node .output/server/index.mjs` and never migrates automatically. To roll back an application release, restore the previous image; to reverse a database migration, use a reviewed down migration or restore the PostgreSQL backup. Do not delete imported OEWN, pilot, or pending editorial rows as an application rollback.
+Use `node scripts/db-setup.mjs` once against a fresh database or when applying a reviewed vocabulary-data update. Use `bun run db:migrate` for schema-only changes in a development checkout, or `node scripts/db-setup.mjs --migrate-only` in the production image. Production app startup uses `node .output/server/index.mjs` and never migrates automatically. To roll back an application release, restore the previous image. Do not delete imported OEWN, pilot, or pending editorial rows as an application rollback.
 
 The local end-to-end command `bun run test:self-hosted-postgres` starts an isolated PostgreSQL cluster, initializes it twice, exercises the Node server and owner-scoped learning paths, and reports Node/PostgreSQL memory use. It does not read `.env` or connect to a configured database.
 

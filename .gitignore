@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+__pycache__/
 dist
 dist-ssr
 .output
@@ -20,6 +21,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+/compose.override.yaml
 
 # Wrangler / Cloudflare
 .wrangler/

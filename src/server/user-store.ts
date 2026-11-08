@@ -31,8 +31,14 @@ const physicalTables: Record<string, TableName> = {
   assistant_messages: "assistantMessages",
   attempts: "attempts",
   book_progress: "bookProgress",
+  dictionary_expression_links: "dictionaryExpressionLinks",
+  dictionary_headwords: "dictionaryHeadwords",
+  dictionary_source_entries: "dictionarySourceEntries",
+  dictionary_source_forms: "dictionarySourceForms",
+  dictionary_source_tags: "dictionarySourceTags",
   lexemes: "lexemes",
   lexicon_entries: "lexiconEntries",
+  lexicon_documents: "lexiconDocuments",
   lexicon_sources: "lexiconSources",
   profiles: "profiles",
   review_schedule_decisions: "reviewScheduleDecisions",
@@ -266,11 +272,40 @@ class UserQuery {
     }
     if (name === "lexiconSources" && this.operation === "select")
       return eq(physicalField(table, "access_tier"), "public");
+    if (
+      [
+        "dictionaryExpressionLinks",
+        "dictionaryHeadwords",
+        "dictionarySourceEntries",
+        "dictionarySourceForms",
+        "dictionarySourceTags",
+      ].includes(name) && this.operation === "select"
+    ) {
+      const sources = schema.lexiconSources as any;
+      return exists(
+        this.db
+          .select({ id: sources.id })
+          .from(sources)
+          .where(and(eq(sources.id, table.sourceId), eq(sources.accessTier, "public"))),
+      );
+    }
     if (name === "lexiconEntries" && this.operation === "select") {
       const sources = schema.lexiconSources as any;
       return and(
         eq(physicalField(table, "publication_status"), "published"),
         exists(this.db.select({ id: sources.id }).from(sources).where(and(eq(sources.id, table.sourceId), eq(sources.accessTier, "public")))),
+      );
+    }
+    if (name === "lexiconDocuments" && this.operation === "select") {
+      const sources = schema.lexiconSources as any;
+      return and(
+        eq(physicalField(table, "publication_status"), "published"),
+        exists(
+          this.db
+            .select({ id: sources.id })
+            .from(sources)
+            .where(and(eq(sources.id, table.sourceId), eq(sources.accessTier, "public"))),
+        ),
       );
     }
     if (name === "lexemes" && this.operation === "select") return undefined;

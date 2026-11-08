@@ -1,9 +1,9 @@
 import type { WordEntry } from "@/data/words";
 import type { UserStore } from "@/server/user-store";
-import { assembleWordEntry, lexemeKey, type LexiconContent } from "./lexicon.shared";
+import { assembleWordEntry, lexemeKey, parseExtendedExpression, type DictionaryBaseContent, type LexiconContent } from "./lexicon.shared";
 
 type Client = UserStore;
-const BATCH = 250;
+const BATCH = 1000;
 const missingLexiconTable = (error: { code?: string }) =>
   error.code === "42P01";
 
@@ -19,7 +19,7 @@ export async function hydrateEntries(client: Client, entries: WordEntry[]): Prom
       .eq("language", "en")
       .in("normalized_word", keys.slice(i, i + BATCH));
     if (error) {
-          // Keep the bundled content usable when a local database has not been initialized.
+      // Keep bundled content usable when a local database has not been initialized.
       if (missingLexiconTable(error)) return entries;
       throw new Error(error.message);
     }
@@ -27,13 +27,15 @@ export async function hydrateEntries(client: Client, entries: WordEntry[]): Prom
   }
   const byId = new Map(lexemes.map((row) => [row.id, row.normalized_word]));
   const byWord = new Map<string, LexiconContent[]>();
+  const baseByWord = new Map<string, DictionaryBaseContent>();
+  const expressionsByWord = new Map<string, NonNullable<WordEntry["extendedExpressions"]>>();
   const ids = [...byId.keys()];
   for (let i = 0; i < ids.length; i += BATCH) {
     for (let from = 0; ; from += 1000) {
       const { data, error } = await client
         .table("lexicon_entries")
         .select(
-          "lexeme_id, source_id, source_entry_ref, sense_key, priority, translation, part_of_speech, phonetic, definition_en, sentence, sentence_translation, subject, verb, object, content_type, sense_role, publication_status, review_decision, related_sense_key, usage_note_zh",
+          "lexeme_id, source_id, source_entry_ref, sense_key, priority, translation, part_of_speech, phonetic, definition_en, sentence, sentence_translation, subject, verb, object, content_type, sense_role, publication_status, review_decision, related_sense_key, usage_note_zh, editorial_data",
         )
         .in("lexeme_id", ids.slice(i, i + BATCH))
         .eq("publication_status", "published")
@@ -50,8 +52,44 @@ export async function hydrateEntries(client: Client, entries: WordEntry[]): Prom
       }
       if (!data || data.length < 1000) break;
     }
+    const { data: baseRows, error: baseError } = await client
+      .table("dictionary_source_entries")
+      .select("lexeme_id, source_id, source_entry_ref, phonetic, definition_raw, translation_raw, definition_pos_codes, translation_pos_codes")
+      .in("lexeme_id", ids.slice(i, i + BATCH));
+    if (baseError && !missingLexiconTable(baseError)) throw new Error(baseError.message);
+    for (const row of baseRows ?? []) {
+      const key = byId.get(row.lexeme_id);
+      if (key) baseByWord.set(key, { ...row, normalized_word: key });
+    }
+    for (let from = 0; ; from += 1000) {
+      const { data: documents, error: documentError } = await client
+        .table("lexicon_documents")
+        .select("source_id, document_key, parent_lexeme_id, content_json")
+        .in("parent_lexeme_id", ids.slice(i, i + BATCH))
+        .eq("source_id", "cadence_enhanced_entries")
+        .eq("document_type", "expression")
+        .eq("publication_status", "published")
+        .order("document_key", { ascending: true })
+        .range(from, from + 999);
+      if (documentError && !missingLexiconTable(documentError)) throw new Error(documentError.message);
+      for (const row of documents ?? []) {
+        if (!row.parent_lexeme_id) continue;
+        const key = byId.get(row.parent_lexeme_id);
+        if (!key) continue;
+        const expression = parseExtendedExpression(row.content_json, row.source_id, row.document_key);
+        if (expression)
+          (expressionsByWord.get(key) ?? expressionsByWord.set(key, []).get(key)!).push(expression);
+      }
+      if (!documents || documents.length < 1000) break;
+    }
   }
   return entries.map(
-    (entry) => assembleWordEntry(entry, byWord.get(lexemeKey(entry.word)) ?? []).entry,
+    (entry) =>
+      assembleWordEntry(
+        entry,
+        byWord.get(lexemeKey(entry.word)) ?? [],
+        baseByWord.get(lexemeKey(entry.word)),
+        expressionsByWord.get(lexemeKey(entry.word)),
+      ).entry,
   );
 }

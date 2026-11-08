@@ -166,10 +166,12 @@ async function assertData() {
 
 try {
   await migrate(drizzle(client), { migrationsFolder: resolve(root, "drizzle/migrations") });
-  await importNgsl();
-  await importOewn();
-  await importRound2();
-  await assertData();
+  if (!process.argv.includes("--migrate-only")) {
+    await importNgsl();
+    await importOewn();
+    await importRound2();
+    await assertData();
+  }
 } finally {
   await client.end({ timeout: 5 });
 }
