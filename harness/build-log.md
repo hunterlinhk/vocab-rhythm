@@ -8,7 +8,7 @@
 - Export v2 counts: 770,611 ECDICT entries; 30,000 ranked headwords; 4,489 expression-index rows; 125,861 word forms; 38,855 tags; 525 authored headwords / 2,904 senses; 1,342 authored expressions / 1,451 attached senses; 982 headword and 862 expression usage notes (1,844 total). Round 2 remains pending/restricted; OEWN 19,028 / 26 pilots are guarded.
 - Package: `C:\headswap\Cadence_30k_headwords\server_upload\Cadence_dictionary_foundation_2026-11-08.zip`; SHA-256 `ec4b9f2e6a862e901641a07245e8439639c6dbad03336d902f87d7729233c4ae`; source SQLite SHA-256 `47974d4dea460739aef0dc8246ae7ed31d7019f145a1a584201e7a12f13f1198`.
 - Validation on current source: `bun run test` 109/109; `bunx tsc --noEmit`; `bun run build`; exporter SQLite integrity/foreign-key checks; importer `--verify-only`; ZIP file-set and per-file SHA-256 checks all passed. Build retains existing TanStack `inputValidator()` deprecation warnings.
-- No commit/push, server connection, production SQL, migration, import, upload, or deploy has occurred. The owner asked to confirm the final server transfer step.
+- Implementation commit `cb8aec3` is pushed to `origin/feat/dictionary-foundation-indexing`. No server connection, production SQL, migration, import, upload, or deploy has occurred. The owner asked to confirm the final server transfer step.
 - Active plan: `harness/build/dictionary-foundation-indexing.md`.
 
 - Status: live on `https://coci.ink`; security-fix commit `72d766a6c3c8166ed3fd3c4ab29360f47cce66a8` is deployed on `feat/self-hosted-better-auth-postgres`.

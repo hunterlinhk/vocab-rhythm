@@ -37,6 +37,7 @@ Import the local ECDICT-backed foundation into Cadence's shared PostgreSQL lexic
 ## Checkpoint
 
 - Branch: `feat/dictionary-foundation-indexing`, based on `feat/self-hosted-better-auth-postgres` at `088a7384da9cd36f60b087a4a840be151e713a23`.
-- Work is local. No commit/push, server connection, migration, SQL, import, or file transfer has occurred.
-- Current edits fix the phrase-sense mapping, v2 usage-note accounting, 1,000-word lookup batching, importer/deployment documentation, and recovery state.
-- Next actions: regenerate the package; verify ZIP and SHA-256; validate TypeScript/build and the package-import mapping; check the final diff; prepare the upload command and stop for owner confirmation.
+- Implementation commit `cb8aec3` is pushed to `origin/feat/dictionary-foundation-indexing`.
+- No server connection, migration, SQL, import, ZIP upload, or deploy has occurred.
+- The v2 package was regenerated and verified; tests, TypeScript, production build, ZIP hashes, and local SQLite integrity checks passed.
+- Next action: after the owner's confirmation, transfer the local ZIP to the server and run the documented backup → migration → import → verify → app restart sequence.
