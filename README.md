@@ -98,3 +98,5 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+<!-- Access test by Claude, 2026-11-09. Safe to delete. -->
